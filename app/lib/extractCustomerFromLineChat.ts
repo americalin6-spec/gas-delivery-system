@@ -1,6 +1,9 @@
 /**
  * Heuristic extraction from pasted LINE-style chats (no external AI API).
  * Fills CRM-oriented fields for manual review before save.
+ *
+ * Customer names are ONLY taken from explicit self-introduction patterns — never
+ * from the first message, speaker labels, or general sentences.
  */
 
 export type ExtractedCustomerProfile = {
@@ -44,6 +47,10 @@ const GREETING_NAME_TOKENS = new Set([
   "安安",
 ]);
 
+/** Business / question phrasing — never a personal name. */
+const NON_NAME_PHRASE_RE =
+  /[？?]|嗎|嘛|呢|吧|呀|啊|可以|能不能|是否|有沒有|有没有|多少|報價|报价|拍|影片|视频|預算|预算|下個月|下个月|請問|请问|想|需要|希望|麻煩|麻烦|你們|你们|我們|我们|有空|在嗎|在吗|負責|负责|採購|采购|合作|方案|報價|詢問|询问|聯絡|联络|方便|價格|价格|時程|时程|交期|排程|檔期|档期/;
+
 function normalizeNameCompareToken(value: string): string {
   return value
     .replace(/[！!？?。.,，~～\s]/g, "")
@@ -51,7 +58,6 @@ function normalizeNameCompareToken(value: string): string {
     .toLowerCase();
 }
 
-/** Opening lines that must never be treated as a customer name. */
 export function isGreetingName(value: string): boolean {
   const raw = value.trim();
   if (!raw) return true;
@@ -61,13 +67,20 @@ export function isGreetingName(value: string): boolean {
   if (GREETING_NAME_TOKENS.has(compact)) return true;
   if (GREETING_NAME_TOKENS.has(raw)) return true;
 
-  // Short greeting-only phrases (e.g. "你好呀")
   if (raw.length <= 6) {
     for (const g of GREETING_NAME_TOKENS) {
       if (compact === g || compact.startsWith(g)) return true;
     }
   }
 
+  return false;
+}
+
+export function isQuestionOrSentence(value: string): boolean {
+  const raw = value.trim();
+  if (!raw) return true;
+  if (NON_NAME_PHRASE_RE.test(raw)) return true;
+  if (raw.length > 8) return true;
   return false;
 }
 
@@ -85,12 +98,39 @@ export function isNotProvidedLabel(value: string): boolean {
   );
 }
 
-export function isValidExtractedCustomerName(value: string): boolean {
-  const trimmed = value.trim();
-  return Boolean(trimmed) && !isNotProvidedLabel(trimmed) && !isGreetingName(trimmed);
+function stripHonorifics(name: string): string {
+  return name.replace(/(小姐|先生|經理|经理|主任|總監|总监)$/u, "").trim();
 }
 
-/** Form / preview display value for customer name (never a greeting or first-line guess). */
+function isPlausibleChinesePersonalName(name: string): boolean {
+  const n = stripHonorifics(name.trim());
+  if (!n || n.length < 1 || n.length > 4) return false;
+  if (!/^[\u4e00-\u9fff]+$/u.test(n)) return false;
+  if (isGreetingName(n)) return false;
+  if (isQuestionOrSentence(n)) return false;
+  if (/(公司|有限|股份)/.test(n)) return false;
+  return true;
+}
+
+function isPlausibleEnglishPersonalName(name: string): boolean {
+  const n = name.trim();
+  if (!n || n.length < 2 || n.length > 32) return false;
+  if (!/^[A-Za-z][A-Za-z.'\-\s]{0,31}$/.test(n)) return false;
+  if (isGreetingName(n)) return false;
+  if (isQuestionOrSentence(n)) return false;
+  return true;
+}
+
+export function isValidExtractedCustomerName(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || isNotProvidedLabel(trimmed)) return false;
+  if (isGreetingName(trimmed) || isQuestionOrSentence(trimmed)) return false;
+  if (/^[\u4e00-\u9fff]+$/u.test(stripHonorifics(trimmed))) {
+    return isPlausibleChinesePersonalName(trimmed);
+  }
+  return isPlausibleEnglishPersonalName(trimmed);
+}
+
 export function resolveCustomerNameForForm(raw: string, lang: string): string {
   if (!isValidExtractedCustomerName(raw)) {
     return lang === "zh" ? NAME_NOT_PROVIDED_ZH : NAME_NOT_PROVIDED_EN;
@@ -98,12 +138,16 @@ export function resolveCustomerNameForForm(raw: string, lang: string): string {
   return raw.trim();
 }
 
-/** Value to persist in CRM — null when no real name. */
-export function customerNameForCrm(displayName: string, lang: string): string | null {
+/** Persisted CRM value — always a string; use placeholder when no explicit name. */
+export function customerNameForCrm(displayName: string, lang: string): string {
   const placeholder = lang === "zh" ? NAME_NOT_PROVIDED_ZH : NAME_NOT_PROVIDED_EN;
   const trimmed = displayName.trim();
-  if (!trimmed || trimmed === placeholder) return null;
-  if (!isValidExtractedCustomerName(trimmed)) return null;
+  if (!trimmed || trimmed === placeholder || isNotProvidedLabel(trimmed)) {
+    return placeholder;
+  }
+  if (isGreetingName(trimmed) || isQuestionOrSentence(trimmed)) {
+    return placeholder;
+  }
   return trimmed;
 }
 
@@ -178,31 +222,72 @@ function extractCompanyEn(line: string): string {
   return corp?.[1]?.trim() ?? "";
 }
 
-function extractNameZh(line: string): string {
-  const pats = [
-    /敝姓\s*([^\s，。]{1,6})/,
-    /我\s*姓\s*([^\s，。]{1,6})/,
-    /我是\s*([^\s，。\n]{1,12})/,
-    /叫我\s*([^\s，。\n]{1,12})/,
-    /稱呼\s*(?:我\s*)?([^\s，。\n]{1,12})/,
-    /^客戶[：:]\s*(.{1,24}?)(?:[,，。]|$)/,
-    /^對方[：:]\s*(.{1,24}?)(?:[,，。]|$)/,
-  ];
-  for (const re of pats) {
-    const m = line.match(re);
-    if (m?.[1]) {
-      const n = m[1].trim();
-      if (n.length >= 1 && !/有限公司|股份/.test(n)) return n.replace(/經理|主任|小姐|先生/g, "").trim() || n;
+/**
+ * Extract name only from explicit patterns:
+ * - 我叫XXX / 我是XXX
+ * - XXX先生 / XXX小姐
+ * - 姓名 + 公司名（有限公司 / 股份有限公司）
+ */
+function extractExplicitChineseName(text: string): string {
+  const sources = [text, ...splitChatLines(text)];
+
+  for (const source of sources) {
+    const line = source.trim();
+    if (!line) continue;
+
+    const woJiao = line.match(/我叫\s*([\u4e00-\u9fff]{1,4})/u);
+    if (woJiao?.[1] && isPlausibleChinesePersonalName(woJiao[1])) {
+      return woJiao[1].trim();
+    }
+
+    const woShi = line.match(/我是\s*([\u4e00-\u9fff]{2,4})(?![\u4e00-\u9fff])/u);
+    if (woShi?.[1] && isPlausibleChinesePersonalName(woShi[1])) {
+      return woShi[1].trim();
+    }
+
+    const miss = line.match(/([\u4e00-\u9fff]{1,4})小姐/u);
+    if (miss?.[1] && isPlausibleChinesePersonalName(miss[1])) {
+      return miss[1].trim();
+    }
+
+    const mr = line.match(/([\u4e00-\u9fff]{1,4})先生/u);
+    if (mr?.[1] && isPlausibleChinesePersonalName(mr[1])) {
+      return mr[1].trim();
+    }
+
+    const nameBeforeCo = line.match(
+      /([\u4e00-\u9fff]{2,4})\s*[,，、／/\s]*[\u4e00-\u9fff\w.&\-]{0,24}(?:股份有限公司|有限公司|公司)/u,
+    );
+    if (nameBeforeCo?.[1] && isPlausibleChinesePersonalName(nameBeforeCo[1])) {
+      return nameBeforeCo[1].trim();
+    }
+
+    const nameAfterCo = line.match(
+      /(?:股份有限公司|有限公司|公司)\s*[,，、／/\s]*([\u4e00-\u9fff]{2,4})/u,
+    );
+    if (nameAfterCo?.[1] && isPlausibleChinesePersonalName(nameAfterCo[1])) {
+      return nameAfterCo[1].trim();
     }
   }
+
   return "";
 }
 
-function extractNameEn(line: string): string {
-  const m =
-    line.match(/(?:I'm|I am)\s+([A-Za-z][A-Za-z\s.'-]{1,40})(?:[,.]|$)/i) ||
-    line.match(/my name is\s+([A-Za-z][A-Za-z\s.'-]{1,40})(?:[,.]|$)/i);
-  return m?.[1]?.trim() ?? "";
+function extractExplicitEnglishName(text: string): string {
+  const sources = [text, ...splitChatLines(text)];
+
+  for (const source of sources) {
+    const line = source.trim();
+    if (!line) continue;
+
+    const m =
+      line.match(/(?:^|\s)(?:I'm|I am|my name is|call me)\s+([A-Za-z][A-Za-z.'-]{1,30})(?:\s|[,.!?]|$)/i);
+    if (m?.[1] && isPlausibleEnglishPersonalName(m[1])) {
+      return m[1].trim();
+    }
+  }
+
+  return "";
 }
 
 function isLikelyStaffLine(line: string): boolean {
@@ -216,20 +301,11 @@ function isLikelyStaffLine(line: string): boolean {
   );
 }
 
-function isLikelyCustomerLine(line: string): boolean {
-  return (
-    /^客戶[：:]/.test(line) ||
-    /^對方[：:]/.test(line) ||
-    /^client[：:]/i.test(line) ||
-    /^customer[：:]/i.test(line)
-  );
-}
-
 function stripSpeakerPrefix(line: string): string {
   return line.replace(/^(?:客戶|對方|client|customer)[：:\s]+/i, "").trim();
 }
 
-/** Summarize need from customer-side lines */
+/** Summarize need from customer-side lines (never used for customer name). */
 function buildCustomerNeedSnippet(lines: string[], lang: string): string {
   const body: string[] = [];
   for (const raw of lines) {
@@ -270,21 +346,8 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
     if (company_name) break;
   }
 
-  let customer_name = "";
-  for (const line of lines) {
-    const zh = lang === "zh" ? extractNameZh(line) : "";
-    const en = lang !== "zh" ? extractNameEn(line) : "";
-    const labeled = isLikelyCustomerLine(line) ? stripSpeakerPrefix(line) : "";
-    const candidate = zh || en || labeled;
-    if (
-      candidate &&
-      !/^[\d\s]+$/.test(candidate) &&
-      isValidExtractedCustomerName(candidate)
-    ) {
-      customer_name = candidate;
-      break;
-    }
-  }
+  const customer_name =
+    lang === "zh" ? extractExplicitChineseName(full) : extractExplicitEnglishName(full);
 
   const customerLines = lines.filter((l) => !isLikelyStaffLine(l));
   let customer_need = buildCustomerNeedSnippet(customerLines, lang);
