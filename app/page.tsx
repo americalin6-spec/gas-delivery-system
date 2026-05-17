@@ -544,21 +544,6 @@ export default function Home() {
               >
                 {ui.langToggle}
               </button>
-              <button
-                type="button"
-                style={{
-                  ...block(),
-                  padding: "14px 16px",
-                  borderRadius: 12,
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 16,
-                  background: "rgba(255,255,255,0.14)",
-                  color: "white",
-                }}
-              >
-                {ui.upgradePro}
-              </button>
             </div>
           </header>
 
@@ -745,7 +730,6 @@ export default function Home() {
           <button style={s.smallBtn} onClick={toggleLang}>
             {ui.langToggle}
           </button>
-          <button style={s.smallBtn}>{ui.upgradePro}</button>
         </div>
       </div>
 
