@@ -20,7 +20,9 @@ import { useCopyWithFallback } from "./hooks/useCopyWithFallback";
 import { homePageCopy, translateDisplayValue } from "./lib/uiI18n";
 import type { AppLang } from "./lib/appLang";
 import {
+  customerNameForCrm,
   extractCustomerFromLineChat,
+  resolveCustomerNameForForm,
   type ExtractedCustomerProfile,
 } from "./lib/extractCustomerFromLineChat";
 
@@ -254,7 +256,7 @@ export default function Home() {
 
     const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
     const insertRow: Record<string, string | null> = {
-      customer_name: customerName.trim() || null,
+      customer_name: customerNameForCrm(customerName, lang),
       company_name: companyName.trim() || null,
       phone: phone.trim() || null,
       line_id: lineId.trim() || null,
@@ -309,6 +311,12 @@ export default function Home() {
 
     setLoading(true);
 
+    setCustomerName("");
+    setCompanyName("");
+    setPhone("");
+    setLineId("");
+    setEmail("");
+
     const probability = calculateDealProbability(text, lang);
     const amount = extractAmount(text, lang);
     const lowerText = text.toLowerCase();
@@ -346,13 +354,18 @@ export default function Home() {
           };
 
     const extracted = extractCustomerFromLineChat(text, lang);
-    setExtractedPreview(extracted);
+    const formCustomerName = resolveCustomerNameForForm(extracted.customer_name, lang);
 
-    setCustomerName((prev) => extracted.customer_name || prev);
-    setCompanyName((prev) => extracted.company_name || prev);
-    setPhone((prev) => extracted.phone || prev);
-    setLineId((prev) => extracted.line_id || prev);
-    setEmail((prev) => extracted.email || prev);
+    setExtractedPreview({
+      ...extracted,
+      customer_name: formCustomerName,
+    });
+
+    setCustomerName(formCustomerName);
+    setCompanyName(extracted.company_name);
+    setPhone(extracted.phone);
+    setLineId(extracted.line_id);
+    setEmail(extracted.email);
 
     const mergedFinal = {
       ...finalData,

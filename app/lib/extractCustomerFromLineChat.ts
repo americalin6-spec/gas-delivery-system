@@ -21,6 +21,92 @@ const EMPTY: ExtractedCustomerProfile = {
   customer_need: "",
 };
 
+export const NAME_NOT_PROVIDED_ZH = "未提供姓名";
+export const NAME_NOT_PROVIDED_EN = "Name not provided";
+
+const GREETING_NAME_TOKENS = new Set([
+  "哈囉",
+  "哈嘍",
+  "你好",
+  "您好",
+  "請問",
+  "在嗎",
+  "嗨",
+  "hi",
+  "hello",
+  "hey",
+  "在不在",
+  "有人嗎",
+  "早安",
+  "午安",
+  "晚安",
+  "喂",
+  "安安",
+]);
+
+function normalizeNameCompareToken(value: string): string {
+  return value
+    .replace(/[！!？?。.,，~～\s]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Opening lines that must never be treated as a customer name. */
+export function isGreetingName(value: string): boolean {
+  const raw = value.trim();
+  if (!raw) return true;
+
+  const compact = normalizeNameCompareToken(raw);
+  if (!compact) return true;
+  if (GREETING_NAME_TOKENS.has(compact)) return true;
+  if (GREETING_NAME_TOKENS.has(raw)) return true;
+
+  // Short greeting-only phrases (e.g. "你好呀")
+  if (raw.length <= 6) {
+    for (const g of GREETING_NAME_TOKENS) {
+      if (compact === g || compact.startsWith(g)) return true;
+    }
+  }
+
+  return false;
+}
+
+export function isNotProvidedLabel(value: string): boolean {
+  const n = value.trim();
+  if (!n || n === "--" || n === "-" || n === "—") return true;
+  const lower = n.toLowerCase();
+  return (
+    n === "未提供" ||
+    n === NAME_NOT_PROVIDED_ZH ||
+    lower === "not provided" ||
+    lower === NAME_NOT_PROVIDED_EN.toLowerCase() ||
+    lower === "n/a" ||
+    lower === "na"
+  );
+}
+
+export function isValidExtractedCustomerName(value: string): boolean {
+  const trimmed = value.trim();
+  return Boolean(trimmed) && !isNotProvidedLabel(trimmed) && !isGreetingName(trimmed);
+}
+
+/** Form / preview display value for customer name (never a greeting or first-line guess). */
+export function resolveCustomerNameForForm(raw: string, lang: string): string {
+  if (!isValidExtractedCustomerName(raw)) {
+    return lang === "zh" ? NAME_NOT_PROVIDED_ZH : NAME_NOT_PROVIDED_EN;
+  }
+  return raw.trim();
+}
+
+/** Value to persist in CRM — null when no real name. */
+export function customerNameForCrm(displayName: string, lang: string): string | null {
+  const placeholder = lang === "zh" ? NAME_NOT_PROVIDED_ZH : NAME_NOT_PROVIDED_EN;
+  const trimmed = displayName.trim();
+  if (!trimmed || trimmed === placeholder) return null;
+  if (!isValidExtractedCustomerName(trimmed)) return null;
+  return trimmed;
+}
+
 function stripLineArtifacts(line: string): string {
   return line
     .replace(/^\[\d{4}[/／.-]\d{1,2}[/／.-]\d{1,2}(?:\s+[^\]]+)?\]\s*/u, "")
@@ -188,8 +274,13 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
   for (const line of lines) {
     const zh = lang === "zh" ? extractNameZh(line) : "";
     const en = lang !== "zh" ? extractNameEn(line) : "";
-    const candidate = zh || en || (isLikelyCustomerLine(line) ? stripSpeakerPrefix(line).slice(0, 20) : "");
-    if (candidate && !/^[\d\s]+$/.test(candidate)) {
+    const labeled = isLikelyCustomerLine(line) ? stripSpeakerPrefix(line) : "";
+    const candidate = zh || en || labeled;
+    if (
+      candidate &&
+      !/^[\d\s]+$/.test(candidate) &&
+      isValidExtractedCustomerName(candidate)
+    ) {
       customer_name = candidate;
       break;
     }

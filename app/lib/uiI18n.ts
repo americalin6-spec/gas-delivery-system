@@ -111,6 +111,7 @@ export function homePageCopy(lang: AppLang) {
     extractedPhone: zh ? "電話" : "Phone",
     extractedNeeds: zh ? "客戶需求" : "Customer needs",
     notDetected: zh ? "— 未偵測" : "— Not detected",
+    nameNotProvided: zh ? "未提供姓名" : "Name not provided",
     fieldCustomerName: zh ? "客戶姓名" : "Customer Name",
     fieldCompanyName: zh ? "公司名稱" : "Company Name",
     fieldPhone: zh ? "電話" : "Phone",
