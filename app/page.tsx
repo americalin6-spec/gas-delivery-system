@@ -26,6 +26,12 @@ import {
   type ExtractedCustomerProfile,
 } from "./lib/extractCustomerFromLineChat";
 import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalendarAlerts";
+import { TodayFollowUpWorkspace } from "./components/TodayFollowUpWorkspace";
+import { TextInputWithVoice } from "./components/VoiceInputButton";
+import {
+  WORKSPACE_CUSTOMER_SELECT,
+  type WorkspaceCustomerRow,
+} from "./lib/followUpWorkspace";
 import {
   CALENDAR_CUSTOMER_SELECT,
   type ReminderCustomerRow,
@@ -192,6 +198,9 @@ export default function Home() {
   const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(null);
   const [followUpReminders, setFollowUpReminders] = useState<DashboardReminder[]>([]);
   const [calendarRows, setCalendarRows] = useState<ReminderCustomerRow[]>([]);
+  const [workspaceRows, setWorkspaceRows] = useState<WorkspaceCustomerRow[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   const loadCalendarRows = useCallback(async () => {
     try {
@@ -204,6 +213,29 @@ export default function Home() {
     } catch {
       setCalendarRows([]);
     }
+  }, []);
+
+  const loadWorkspaceRows = useCallback(async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .select(WORKSPACE_CUSTOMER_SELECT)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (error) {
+        setWorkspaceRows([]);
+        setWorkspaceError(error.message);
+      } else {
+        setWorkspaceRows((data ?? []) as WorkspaceCustomerRow[]);
+      }
+    } catch {
+      setWorkspaceRows([]);
+      setWorkspaceError("load failed");
+    }
+    setWorkspaceLoading(false);
   }, []);
 
   const loadFollowUpReminders = useCallback(async () => {
@@ -244,7 +276,8 @@ export default function Home() {
   useEffect(() => {
     void loadFollowUpReminders();
     void loadCalendarRows();
-  }, [loadFollowUpReminders, loadCalendarRows]);
+    void loadWorkspaceRows();
+  }, [loadFollowUpReminders, loadCalendarRows, loadWorkspaceRows]);
 
   function resetAnalysisForm() {
     setText("");
@@ -331,6 +364,7 @@ export default function Home() {
     }
 
     void loadFollowUpReminders();
+    void loadWorkspaceRows();
 
     alert(ui.savedToCrm);
     setCustomerName("");
@@ -590,6 +624,16 @@ export default function Home() {
             </div>
           </header>
 
+          <TodayFollowUpWorkspace
+            rows={workspaceRows}
+            lang={lang}
+            isMobile
+            loading={workspaceLoading}
+            loadError={workspaceError}
+            onRefresh={() => void loadWorkspaceRows()}
+            copyWithFallback={copyWithFallback}
+          />
+
           <section style={{ ...block(), background: "#132846", borderRadius: 16, padding: 18 }}>
             <h2 style={{ ...block(), margin: "0 0 14px", fontSize: 22 }}>{ui.workspace}</h2>
             <div style={{ ...block(), display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -631,23 +675,32 @@ export default function Home() {
             </p>
 
             <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={inputStyle} placeholder={ui.fieldCustomerName} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-              <input style={inputStyle} placeholder={ui.fieldCompanyName} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-              <input style={inputStyle} placeholder={ui.fieldPhone} value={phone} onChange={(e) => setPhone(e.target.value)} />
-              <input style={inputStyle} placeholder={ui.fieldLineId} value={lineId} onChange={(e) => setLineId(e.target.value)} />
-              <input style={inputStyle} placeholder={ui.fieldEmail} value={email} onChange={(e) => setEmail(e.target.value)} />
-              <textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} placeholder={ui.fieldNote} value={note} onChange={(e) => setNote(e.target.value)} />
+              <TextInputWithVoice lang={lang} placeholder={ui.fieldCustomerName} value={customerName} onChange={setCustomerName} inputStyle={inputStyle} />
+              <TextInputWithVoice lang={lang} placeholder={ui.fieldCompanyName} value={companyName} onChange={setCompanyName} inputStyle={inputStyle} />
+              <TextInputWithVoice lang={lang} placeholder={ui.fieldPhone} value={phone} onChange={setPhone} inputStyle={inputStyle} />
+              <TextInputWithVoice lang={lang} placeholder={ui.fieldLineId} value={lineId} onChange={setLineId} inputStyle={inputStyle} />
+              <TextInputWithVoice lang={lang} placeholder={ui.fieldEmail} value={email} onChange={setEmail} inputStyle={inputStyle} />
+              <TextInputWithVoice
+                lang={lang}
+                multiline
+                placeholder={ui.fieldNote}
+                value={note}
+                onChange={setNote}
+                inputStyle={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+              />
             </div>
 
             {extractedPreview !== null ? (
               <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="mobile" mb={mb} mt={mt} />
             ) : null}
 
-            <textarea
+            <TextInputWithVoice
+              lang={lang}
+              multiline
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={setText}
               placeholder={ui.linePlaceholder}
-              style={{
+              inputStyle={{
                 ...block(),
                 minHeight: 176,
                 borderRadius: 16,
@@ -786,6 +839,16 @@ export default function Home() {
         <Card styles={s} title={ui.estimatedAmount} value={displayValue(analysis.estimatedAmount)} />
       </div>
 
+      <TodayFollowUpWorkspace
+        rows={workspaceRows}
+        lang={lang}
+        isMobile={false}
+        loading={workspaceLoading}
+        loadError={workspaceError}
+        onRefresh={() => void loadWorkspaceRows()}
+        copyWithFallback={copyWithFallback}
+      />
+
       <FollowUpRemindersSection
         reminders={followUpReminders}
         lang={lang}
@@ -835,23 +898,25 @@ export default function Home() {
           <p style={s.centerLead}>{ui.pasteLead}</p>
 
           <div style={s.crmGrid}>
-            <input style={s.input} placeholder={ui.fieldCustomerName} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-            <input style={s.input} placeholder={ui.fieldCompanyName} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-            <input style={s.input} placeholder={ui.fieldPhone} value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <input style={s.input} placeholder={ui.fieldLineId} value={lineId} onChange={(e) => setLineId(e.target.value)} />
-            <input style={s.input} placeholder={ui.fieldEmail} value={email} onChange={(e) => setEmail(e.target.value)} />
-            <textarea style={s.input} placeholder={ui.fieldNote} value={note} onChange={(e) => setNote(e.target.value)} />
+            <TextInputWithVoice lang={lang} placeholder={ui.fieldCustomerName} value={customerName} onChange={setCustomerName} inputStyle={s.input} />
+            <TextInputWithVoice lang={lang} placeholder={ui.fieldCompanyName} value={companyName} onChange={setCompanyName} inputStyle={s.input} />
+            <TextInputWithVoice lang={lang} placeholder={ui.fieldPhone} value={phone} onChange={setPhone} inputStyle={s.input} />
+            <TextInputWithVoice lang={lang} placeholder={ui.fieldLineId} value={lineId} onChange={setLineId} inputStyle={s.input} />
+            <TextInputWithVoice lang={lang} placeholder={ui.fieldEmail} value={email} onChange={setEmail} inputStyle={s.input} />
+            <TextInputWithVoice lang={lang} multiline placeholder={ui.fieldNote} value={note} onChange={setNote} inputStyle={s.input} />
           </div>
 
           {extractedPreview !== null ? (
             <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="desktop" />
           ) : null}
 
-          <textarea
+          <TextInputWithVoice
+            lang={lang}
+            multiline
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={setText}
             placeholder={ui.linePlaceholder}
-            style={s.textarea}
+            inputStyle={s.textarea}
           />
 
           <button
