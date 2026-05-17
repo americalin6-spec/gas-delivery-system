@@ -93,14 +93,21 @@ export function LineOpenFallbackModal({
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   };
 
+  const copyLabel =
+    copyState === "copied"
+      ? "已複製 LINE ID"
+      : copyState === "failed"
+        ? "點我複製 LINE ID"
+        : "複製 LINE ID";
+
   return (
     <div role="dialog" aria-modal="true" style={overlay} onClick={onClose}>
       <div style={panel} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 10px", fontSize: isMobile ? 20 : 22, fontWeight: 800 }}>
-          Open LINE manually
+          手動開啟 LINE
         </h2>
         <p style={{ margin: "0 0 16px", fontSize: 16, lineHeight: 1.55, color: "#86efac", fontWeight: 600 }}>
-          在 LINE 搜尋貼上此 ID 
+          請開啟 LINE，並在搜尋欄貼上此 ID
         </p>
         <ol
           style={{
@@ -111,9 +118,9 @@ export function LineOpenFallbackModal({
             color: "#94a3b8",
           }}
         >
-          <li>從手機主畫面開改 LINE app </li>
-          <li>點選搜尋或加入好友</li>
-          <li>貼上下面 LINE ID 並開始聊天</li>
+          <li>從手機主畫面開啟 LINE App</li>
+          <li>點選「搜尋」或「加入好友」</li>
+          <li>貼上下方 LINE ID 並開始聊天</li>
         </ol>
 
         {trimmedId ? (
@@ -158,11 +165,12 @@ export function LineOpenFallbackModal({
                 minHeight: 52,
               }}
             >
-            {copyState === "copied" ? "已複製 LINE ID" : copyState === "failed" ? "點我複製 LINE ID" : "複製 LINE ID"}
+              {copyLabel}
+            </button>
           </>
         ) : (
           <p style={{ margin: "0 0 18px", fontSize: 15, color: "#fcd34d" }}>
-          尚未設定 LINE ID，請先到編輯頁新增。
+            尚未設定 LINE ID，請先到編輯頁新增後再試。
           </p>
         )}
 
