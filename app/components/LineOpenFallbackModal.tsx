@@ -100,7 +100,7 @@ export function LineOpenFallbackModal({
           Open LINE manually
         </h2>
         <p style={{ margin: "0 0 16px", fontSize: 16, lineHeight: 1.55, color: "#86efac", fontWeight: 600 }}>
-          Open LINE and paste this ID into search
+          在 LINE 搜尋貼上此 ID 
         </p>
         <ol
           style={{
@@ -111,9 +111,9 @@ export function LineOpenFallbackModal({
             color: "#94a3b8",
           }}
         >
-          <li>Open the LINE app from your home screen</li>
-          <li>Tap Search or Add friends</li>
-          <li>Paste the LINE ID below and start a chat</li>
+          <li>從手機主畫面開改 LINE app </li>
+          <li>點選搜尋或加入好友</li>
+          <li>貼上下面 LINE ID 並開始聊天</li>
         </ol>
 
         {trimmedId ? (
@@ -158,12 +158,15 @@ export function LineOpenFallbackModal({
                 minHeight: 52,
               }}
             >
-              {copyState === "copied" ? "LINE ID copied!" : copyState === "failed" ? "Tap to Copy LINE ID" : "Copy LINE ID"}
-            </button>
+            {copyState === "copied"
+  ? "已複製 LINE ID！"
+  : copyState === "failed"
+  ? "點我複製 LINE ID"
+  : "複製 LINE ID"}
           </>
         ) : (
           <p style={{ margin: "0 0 18px", fontSize: 15, color: "#fcd34d" }}>
-            No LINE ID on file. Add one in Edit, then try again.
+          尚未設定 LINE ID，請先到編輯頁新增。
           </p>
         )}
 
@@ -185,7 +188,7 @@ export function LineOpenFallbackModal({
             textDecoration: "none",
           }}
         >
-          Open line.me in browser
+          在瀏覽器開啟 LINE
         </a>
 
         <button
@@ -204,7 +207,7 @@ export function LineOpenFallbackModal({
             cursor: "pointer",
           }}
         >
-          Close
+          關閉
         </button>
       </div>
     </div>
