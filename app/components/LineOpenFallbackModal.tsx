@@ -159,7 +159,7 @@ export function LineOpenFallbackModal({
               }}
             >
             {copyState === "copied"
-            ? "已複製 LINE ID！"
+            ? "已複製 LINE ID"
             : copyState === "failed"
             ? "點我複製 LINE ID"
             : "複製 LINE ID"}
