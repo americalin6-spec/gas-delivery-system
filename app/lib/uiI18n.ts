@@ -61,6 +61,23 @@ export function homePageCopy(lang: AppLang) {
   const s = sharedUiCopy(lang);
   return {
     ...s,
+    landingTitle: zh ? "LINE AI 成交助手" : "LINE AI Sales Assistant",
+    landingSubtitle: zh
+      ? "把 LINE 對話變成客戶追蹤、成交機率與 AI 回覆建議"
+      : "Turn LINE chats into follow-ups, deal probability, and AI reply suggestions",
+    landingFeature1Title: zh ? "AI 分析 LINE 對話" : "AI LINE chat analysis",
+    landingFeature1Desc: zh
+      ? "貼上對話即可擷取客戶資料、成交洞察與專業回覆建議。"
+      : "Paste chats to extract CRM fields, deal insights, and reply drafts.",
+    landingFeature2Title: zh ? "今日追蹤工作台" : "Today's follow-up desk",
+    landingFeature2Desc: zh
+      ? "今日待追蹤、逾期、高成交率與新客戶，一站掌握。"
+      : "Due today, overdue, hot leads, and new clients in one place.",
+    landingFeature3Title: zh ? "行事曆與瀏覽器通知" : "Calendar & browser alerts",
+    landingFeature3Desc: zh
+      ? "月曆排程追蹤日，重要提醒推送到瀏覽器（不會自動發 LINE）。"
+      : "Monthly follow-up calendar plus browser reminders (no auto LINE).",
+    landingCta: zh ? "免費試用" : "Try free",
     tagline: zh
       ? "把 LINE 對話變成成交率、待辦、漏單提醒與專業回覆。"
       : "Turn LINE conversations into sales probability, tasks, deal alerts, and professional replies.",
