@@ -165,6 +165,17 @@ export default function Home() {
   const [text, setText] = useState("");
   const { lang, toggleLang } = useAppLang();
   const ui = homePageCopy(lang);
+
+  function handleTestNotification() {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    try {
+      new Notification("CRM 測試通知", {
+        body: "瀏覽器通知正常運作",
+      });
+    } catch {
+      /* browser may block without permission */
+    }
+  }
   const displayValue = (value: string) => translateDisplayValue(value === "--" ? "" : value, lang);
   const [loading, setLoading] = useState(false);
   const [savingCrm, setSavingCrm] = useState(false);
@@ -527,12 +538,25 @@ export default function Home() {
             <p style={{ ...block(), margin: 0, opacity: 0.85, fontSize: 16, lineHeight: 1.55 }}>
               {ui.tagline}
             </p>
-            <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 8 }}>
+            <div
+              style={{
+                ...block(),
+                display: "flex",
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 8,
+                maxWidth: "100%",
+                overflow: "hidden",
+              }}
+            >
               <button
                 type="button"
                 style={{
                   ...block(),
-                  padding: "14px 16px",
+                  flex: "1 1 140px",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  padding: "14px 12px",
                   borderRadius: 12,
                   border: "none",
                   cursor: "pointer",
@@ -543,6 +567,25 @@ export default function Home() {
                 onClick={toggleLang}
               >
                 {ui.langToggle}
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...block(),
+                  flex: "1 1 140px",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  padding: "14px 12px",
+                  borderRadius: 12,
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  background: "rgba(255,255,255,0.14)",
+                  color: "white",
+                }}
+                onClick={handleTestNotification}
+              >
+                {ui.testNotification}
               </button>
             </div>
           </header>
@@ -727,8 +770,11 @@ export default function Home() {
         </div>
 
         <div style={s.topActions}>
-          <button style={s.smallBtn} onClick={toggleLang}>
+          <button type="button" style={s.smallBtn} onClick={toggleLang}>
             {ui.langToggle}
+          </button>
+          <button type="button" style={s.smallBtn} onClick={handleTestNotification}>
+            {ui.testNotification}
           </button>
         </div>
       </div>

@@ -43,6 +43,7 @@ export function sharedUiCopy(lang: AppLang) {
   return {
     backHome: zh ? "← 回到 LINE Work AI" : "← Back to LINE Work AI",
     langToggle: zh ? "English" : "中文",
+    testNotification: zh ? "測試通知" : "Test Notification",
     notProvided: zh ? "未提供" : "Not provided",
     unnamed: zh ? "未命名客戶" : "Unnamed customer",
     unknown: zh ? "未知" : "Unknown",
