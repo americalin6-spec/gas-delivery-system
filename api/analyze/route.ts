@@ -1,20 +1,72 @@
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
-  const { text } = await req.json();
+  try {
+    const { text } = await req.json();
 
-  console.log("收到前端資料：", text);
+    const prompt = `
+你是一個專業 CRM AI 助理。
 
-  return NextResponse.json({
-    dealProbability: "高",
-    customerLevel: "A級客戶",
-    leakRisk: "低",
-    estimatedAmount: "15萬以內",
-    customerNeed: "品牌影片、高級感、兩週內交付",
-    importantDate: "兩週內",
-    customerMood: "積極、有明確需求",
-    nextStep: "立即提供企劃方向與報價",
-    professionalReply: "您好，了解您的需求，我們可以協助規劃一支具高級感的品牌影片，並控制在15萬以內。我會先整理初步方案與報價給您確認。",
-    followMessage: "您好，想跟您確認品牌影片的方向，我們可以先提供兩種企劃版本讓您選擇。",
-  });
+請分析以下 LINE 對話內容。
+
+規則：
+1. 不要亂猜姓名
+2. 沒有明確資料就寫「未提供」
+3. 幫我整理真正重要的商業資訊
+4. 回傳 JSON 格式
+
+請分析：
+
+${text}
+
+請回傳：
+
+{
+  "customerName": "",
+  "company": "",
+  "phone": "",
+  "lineId": "",
+  "email": "",
+  "customerNeed": "",
+  "importantDate": "",
+  "customerMood": "",
+  "dealProbability": "",
+  "nextStep": "",
+  "summary": ""
+}
+`;
+
+    const response = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4.1-mini",
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.3,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    const result = data.choices?.[0]?.message?.content;
+
+    return NextResponse.json(JSON.parse(result));
+  } catch (error) {
+    console.error(error);
+
+    return NextResponse.json({
+      error: "AI 分析失敗",
+    });
+  }
 }
