@@ -962,8 +962,8 @@ function LineQuickActionsBar({
       return;
     }
     await copyWithFallback(lid, {
-      title: "Copy LINE ID",
-      description: "Open LINE and paste this ID into search.",
+      title: t.copyLineId,
+      description: t.openLineSearch,
       tapLabel: "Tap to Copy",
       closeLabel: "Close",
       copiedLabel: "Copied!",

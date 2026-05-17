@@ -121,17 +121,17 @@ export function customerDetailCopy(lang: AppLang) {
       : "Copy LINE ID and search in LINE (no official API connected).",
     lineLastSend: zh ? "上次模擬發送：" : "Last simulated send: ",
     lineNoId: zh ? " 尚未填寫 LINE ID — 請先編輯客戶資料。" : " No LINE ID — edit customer first.",
-    sendToLine: zh ? "Send to LINE（一鍵模擬）" : "Send to LINE (simulated)",
+    sendToLine: zh ? "傳送到 LINE（一鍵模擬）" : "Send to LINE (simulated)",
     sendToLineHint: zh
       ? "將複製建議追蹤文案、記錄發送時間並嘗試開啟 LINE App；在 LINE 搜尋貼上 ID 後傳訊。"
       : "Copies follow-up text, logs send time, and opens LINE app; paste ID in LINE search to message.",
-    openLineSearch: "Open LINE and paste this ID into search",
+    openLineSearch: zh ? "打開 LINE 並貼上此 ID 搜尋" : "Open LINE and paste this ID into search",
     noLineId: zh ? "— 未填寫 LINE ID" : "— No LINE ID",
-    copyLineId: "Copy LINE ID",
-    openLineApp: "Open LINE app",
+    copyLineId: zh ? "複製 LINE ID" : "Copy LINE ID",
+    openLineApp: zh ? "開啟 LINE App" : "Open LINE app",
     copyFollowUp: zh ? "複製追蹤訊息" : "Copy follow-up",
     sendHistory: zh ? "發送紀錄（模擬）" : "Send history (simulated)",
-    noSendHistory: zh ? "尚無紀錄。按下「Send to LINE」後會寫入時間軸。" : "No entries yet. Use Send to LINE to log.",
+    noSendHistory: zh ? "尚無紀錄。按下「傳送到 LINE」後會寫入時間軸。" : "No entries yet. Use Send to LINE to log.",
     simulatedSend: zh ? "一鍵模擬發送" : "One-click simulated send",
     modeManual: zh ? "手動" : "Manual",
     modeAssisted: zh ? "輔助" : "Assisted",
@@ -147,7 +147,7 @@ export function customerDetailCopy(lang: AppLang) {
       ? "已複製追蹤訊息，請貼到 LINE。"
       : "Follow-up message copied. Paste into LINE.",
     noFollowUpToCopy: zh ? "No follow-up message to copy." : "No follow-up message to copy.",
-    lineIdCopied: "LINE ID copied.",
+    lineIdCopied: zh ? "已複製 LINE ID" : "LINE ID copied.",
     manualHint: zh
       ? "僅顯示提醒與建議文案，由您自行在外部管道聯絡客戶。"
       : "Shows reminders and suggested copy only; you contact the customer externally.",
