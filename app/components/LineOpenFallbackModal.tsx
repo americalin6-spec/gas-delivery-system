@@ -158,11 +158,7 @@ export function LineOpenFallbackModal({
                 minHeight: 52,
               }}
             >
-            {copyState === "copied"
-            ? "已複製 LINE ID"
-            : copyState === "failed"
-            ? "點我複製 LINE ID"
-            : "複製 LINE ID"}
+            {copyState === "copied" ? "已複製 LINE ID" : copyState === "failed" ? "點我複製 LINE ID" : "複製 LINE ID"}
           </>
         ) : (
           <p style={{ margin: "0 0 18px", fontSize: 15, color: "#fcd34d" }}>
