@@ -105,6 +105,9 @@ self.__SERVER_FILES_MANIFEST={
       }
     },
     "outputFileTracingRoot": "/Users/chris/my-grouptools",
+    "allowedDevOrigins": [
+      "192.168.0.105"
+    ],
     "cacheComponents": false,
     "cacheLife": {
       "default": {
