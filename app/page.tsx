@@ -25,6 +25,11 @@ import {
   resolveCustomerNameForForm,
   type ExtractedCustomerProfile,
 } from "./lib/extractCustomerFromLineChat";
+import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalendarAlerts";
+import {
+  CALENDAR_CUSTOMER_SELECT,
+  type ReminderCustomerRow,
+} from "./lib/calendarReminders";
 
 const HOME_MOBILE_MAX_WIDTH = 1024;
 
@@ -175,6 +180,20 @@ export default function Home() {
   const [analysis, setAnalysis] = useState(emptyAnalysis);
   const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(null);
   const [followUpReminders, setFollowUpReminders] = useState<DashboardReminder[]>([]);
+  const [calendarRows, setCalendarRows] = useState<ReminderCustomerRow[]>([]);
+
+  const loadCalendarRows = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from("customers").select(CALENDAR_CUSTOMER_SELECT).limit(200);
+      if (error) {
+        setCalendarRows([]);
+        return;
+      }
+      setCalendarRows((data ?? []) as ReminderCustomerRow[]);
+    } catch {
+      setCalendarRows([]);
+    }
+  }, []);
 
   const loadFollowUpReminders = useCallback(async () => {
     try {
@@ -213,7 +232,8 @@ export default function Home() {
 
   useEffect(() => {
     void loadFollowUpReminders();
-  }, [loadFollowUpReminders]);
+    void loadCalendarRows();
+  }, [loadFollowUpReminders, loadCalendarRows]);
 
   function resetAnalysisForm() {
     setText("");
@@ -245,6 +265,16 @@ export default function Home() {
 
     if (index === 2) {
       router.push("/tasks");
+      return;
+    }
+
+    if (index === 3) {
+      router.push("/calendar");
+      return;
+    }
+
+    if (index === 4) {
+      router.push("/alerts");
       return;
     }
 
@@ -420,6 +450,7 @@ export default function Home() {
       ui.menuNew,
       ui.menuCustomers,
       ui.menuTasks,
+      ui.menuCalendar,
       ui.menuAlerts,
       ui.menuQuotes,
       ui.menuReplies,
@@ -550,6 +581,9 @@ export default function Home() {
             mt={mt}
             copyWithFallback={copyWithFallback}
           />
+
+          <HomeCalendarSection customers={calendarRows} lang={lang} isMobile block={block()} />
+          <HomeAlertsSection rows={calendarRows} lang={lang} isMobile block={block()} />
 
           <section
             ref={centerRef}
@@ -730,6 +764,21 @@ export default function Home() {
         copyWithFallback={copyWithFallback}
       />
 
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 1200,
+          margin: "0 auto 24px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: 20,
+          boxSizing: "border-box",
+        }}
+      >
+        <HomeCalendarSection customers={calendarRows} lang={lang} isMobile={false} />
+        <HomeAlertsSection rows={calendarRows} lang={lang} isMobile={false} />
+      </div>
+
       <div style={s.layout}>
         <aside style={s.sidebar}>
           <h2 style={s.sidebarTitle}>{ui.workspace}</h2>
@@ -739,6 +788,7 @@ export default function Home() {
               ui.menuNew,
               ui.menuCustomers,
               ui.menuTasks,
+              ui.menuCalendar,
               ui.menuAlerts,
               ui.menuQuotes,
               ui.menuReplies,
