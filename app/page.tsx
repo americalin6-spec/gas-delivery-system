@@ -27,7 +27,6 @@ import {
 } from "./lib/extractCustomerFromLineChat";
 import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalendarAlerts";
 import { TodayFollowUpWorkspace } from "./components/TodayFollowUpWorkspace";
-import { TextInputWithVoice } from "./components/VoiceInputButton";
 import { HomeLandingHero } from "./components/HomeLandingHero";
 import {
   WORKSPACE_CUSTOMER_SELECT,
@@ -699,13 +698,11 @@ export default function Home() {
               <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="mobile" mb={mb} mt={mt} />
             ) : null}
 
-            <TextInputWithVoice
-              lang={lang}
-              multiline
+            <textarea
               value={text}
-              onChange={setText}
+              onChange={(e) => setText(e.target.value)}
               placeholder={ui.linePlaceholder}
-              inputStyle={{
+              style={{
                 ...block(),
                 minHeight: 176,
                 borderRadius: 16,
@@ -917,13 +914,11 @@ export default function Home() {
             <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="desktop" />
           ) : null}
 
-          <TextInputWithVoice
-            lang={lang}
-            multiline
+          <textarea
             value={text}
-            onChange={setText}
+            onChange={(e) => setText(e.target.value)}
             placeholder={ui.linePlaceholder}
-            inputStyle={s.textarea}
+            style={s.textarea}
           />
 
           <button

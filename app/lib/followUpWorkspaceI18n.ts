@@ -44,13 +44,3 @@ export function followUpWorkspaceCopy(lang: AppLang) {
     unnamed: zh ? "未命名客戶" : "Unnamed",
   };
 }
-
-export function voiceInputCopy(lang: AppLang) {
-  const zh = lang === "zh";
-  return {
-    start: zh ? "語音輸入" : "Voice input",
-    stop: zh ? "停止" : "Stop",
-    unsupported: zh ? "此瀏覽器不支援語音輸入" : "Voice input is not supported in this browser",
-    listening: zh ? "聆聽中" : "Listening",
-  };
-}

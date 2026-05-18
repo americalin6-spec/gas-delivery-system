@@ -19,7 +19,6 @@ import {
 import { followUpWorkspaceCopy } from "../lib/followUpWorkspaceI18n";
 import { translateDisplayValue } from "../lib/uiI18n";
 import { supabase } from "../supabase";
-import { TextInputWithVoice } from "./VoiceInputButton";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 
 type ModalKind = "complete" | "postpone" | null;
@@ -409,11 +408,9 @@ export function TodayFollowUpWorkspace({
                 <label style={{ display: "block", marginBottom: 8, fontSize: 14, fontWeight: 600 }}>
                   {labels.followUpNote}
                 </label>
-                <TextInputWithVoice
-                  lang={lang}
-                  multiline
+                <textarea
                   value={note}
-                  onChange={setNote}
+                  onChange={(e) => setNote(e.target.value)}
                   rows={4}
                   style={{
                     width: "100%",
@@ -425,6 +422,7 @@ export function TodayFollowUpWorkspace({
                     color: "#fff",
                     resize: "vertical",
                     marginBottom: 14,
+                    boxSizing: "border-box",
                   }}
                 />
                 <label style={{ display: "block", marginBottom: 8, fontSize: 14, fontWeight: 600 }}>

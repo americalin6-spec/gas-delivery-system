@@ -15,7 +15,6 @@ import { customersListCopy, followUpBadgeLabelForLang } from "../lib/customersI1
 import { translateDisplayValue } from "../lib/uiI18n";
 import type { AppLang } from "../lib/appLang";
 import { supabase } from "../../supabase";
-import { TextInputWithVoice } from "../components/VoiceInputButton";
 
 const CRM_MOBILE_MAX_WIDTH = 768;
 
@@ -222,12 +221,11 @@ export default function CustomersPage() {
         }}
       >
         <div style={{ flex: 1, width: "100%" }}>
-          <TextInputWithVoice
-            lang={lang}
+          <input
             placeholder={t.searchPlaceholder}
             value={search}
-            onChange={setSearch}
-            inputStyle={{
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
               width: "100%",
               padding: "18px 20px",
               borderRadius: 14,
@@ -514,12 +512,11 @@ export default function CustomersPage() {
             {t.addCustomer}
           </h3>
 
-          <TextInputWithVoice
-            lang={lang}
+          <input
             placeholder={t.namePlaceholder}
             value={customerName}
-            onChange={setCustomerName}
-            inputStyle={{
+            onChange={(e) => setCustomerName(e.target.value)}
+            style={{
               width: "100%",
               padding: "15px 16px",
               marginBottom: 14,
@@ -532,12 +529,11 @@ export default function CustomersPage() {
             }}
           />
 
-          <TextInputWithVoice
-            lang={lang}
+          <input
             placeholder={t.companyPlaceholder}
             value={companyName}
-            onChange={setCompanyName}
-            inputStyle={{
+            onChange={(e) => setCompanyName(e.target.value)}
+            style={{
               width: "100%",
               padding: "15px 16px",
               marginBottom: 14,
@@ -550,12 +546,11 @@ export default function CustomersPage() {
             }}
           />
 
-          <TextInputWithVoice
-            lang={lang}
+          <input
             placeholder={t.phonePlaceholder}
             value={phone}
-            onChange={setPhone}
-            inputStyle={{
+            onChange={(e) => setPhone(e.target.value)}
+            style={{
               width: "100%",
               padding: "15px 16px",
               marginBottom: 14,
