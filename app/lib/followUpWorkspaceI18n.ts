@@ -42,5 +42,9 @@ export function followUpWorkspaceCopy(lang: AppLang) {
     postpone3d: zh ? "3 天後" : "In 3 days",
     postponeNextWeek: zh ? "下週" : "Next week",
     unnamed: zh ? "未命名客戶" : "Unnamed",
+    viewAll: zh ? "查看全部" : "View all",
+    backHome: zh ? "返回首頁" : "Back to home",
+    previewMore: zh ? "等" : "and",
+    previewOthers: zh ? "位" : " more",
   };
 }

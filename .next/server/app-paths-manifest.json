@@ -6,5 +6,6 @@
   "/customers/[id]/page": "app/customers/[id]/page.js",
   "/customers/page": "app/customers/page.js",
   "/page": "app/page.js",
-  "/tasks/page": "app/tasks/page.js"
+  "/tasks/page": "app/tasks/page.js",
+  "/workspace/[category]/page": "app/workspace/[category]/page.js"
 }

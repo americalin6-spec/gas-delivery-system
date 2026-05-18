@@ -6,5 +6,6 @@
   "/customers/[id]/page": "/customers/[id]",
   "/customers/page": "/customers",
   "/page": "/",
-  "/tasks/page": "/tasks"
+  "/tasks/page": "/tasks",
+  "/workspace/[category]/page": "/workspace/[category]"
 }

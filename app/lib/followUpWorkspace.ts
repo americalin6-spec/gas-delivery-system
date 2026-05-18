@@ -107,6 +107,18 @@ export function isRecentCustomerWorkspace(row: WorkspaceCustomerRow): boolean {
   return created >= cutoff;
 }
 
+export function dedupeByCustomerId(rows: WorkspaceCustomerRow[]): WorkspaceCustomerRow[] {
+  const seen = new Set<string>();
+  const result: WorkspaceCustomerRow[] = [];
+  for (const row of rows) {
+    const id = String(row.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(row);
+  }
+  return result;
+}
+
 export function filterDueToday(rows: WorkspaceCustomerRow[]): WorkspaceCustomerRow[] {
   return rows.filter(isDueTodayWorkspace);
 }

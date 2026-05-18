@@ -22,7 +22,13 @@ import type { AppLang } from "./lib/appLang";
 import {
   customerNameForCrm,
   extractCustomerFromLineChat,
+  mergeCustomerExtraction,
+  refineCustomerNeedAndNote,
   resolveCustomerNameForForm,
+  sanitizeAiCustomerFields,
+  sanitizeCustomerData,
+  toFinalMergedCustomerFields,
+  type AiAnalyzeCustomerPayload,
   type ExtractedCustomerProfile,
 } from "./lib/extractCustomerFromLineChat";
 import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalendarAlerts";
@@ -398,13 +404,30 @@ export default function Home() {
   async function saveToCrm() {
     setSavingCrm(true);
 
+    const crmFields = sanitizeCustomerData(
+      {
+        customer_name: customerName,
+        company_name: companyName,
+        phone,
+        line_id: lineId,
+        email,
+        customer_need: note,
+      },
+      lang,
+    );
+
+    setCustomerName(resolveCustomerNameForForm(crmFields.customer_name, lang));
+    setCompanyName(crmFields.company_name);
+    setPhone(crmFields.phone);
+    setLineId(crmFields.line_id);
+    setEmail(crmFields.email);
     const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
     const insertRow: Record<string, string | null> = {
-      customer_name: customerNameForCrm(customerName, lang),
-      company_name: companyName.trim() || null,
-      phone: phone.trim() || null,
-      line_id: lineId.trim() || null,
-      email: email.trim() || null,
+      customer_name: customerNameForCrm(crmFields.customer_name, lang),
+      company_name: crmFields.company_name.trim() || null,
+      phone: crmFields.phone.trim() || null,
+      line_id: crmFields.line_id.trim() || null,
+      email: crmFields.email.trim() || null,
       note: note.trim() || null,
       customer_need: analysis.customerNeed === "--" ? null : analysis.customerNeed,
       important_date: analysis.importantDate === "--" ? null : analysis.importantDate,
@@ -456,6 +479,49 @@ export default function Home() {
     setLineId("");
     setEmail("");
 
+    let aiResult: AiAnalyzeCustomerPayload | null = null;
+    try {
+      const aiRes = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: lineText }),
+      });
+      const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
+      if (aiRes.ok && aiBody && !aiBody.error) {
+        aiResult = aiBody;
+      }
+    } catch (err) {
+      console.error("AI analyze request failed", err);
+    }
+
+    const extracted = extractCustomerFromLineChat(lineText, lang);
+    const sanitizedAi = sanitizeAiCustomerFields(aiResult, lang);
+    const mergedCustomer = mergeCustomerExtraction(extracted, sanitizedAi);
+    const finalCustomerProfile = sanitizeCustomerData(mergedCustomer, lang);
+    const mergedFields = toFinalMergedCustomerFields(finalCustomerProfile);
+    const { customer_need: refinedNeed, note: refinedNote } = refineCustomerNeedAndNote(
+      lineText,
+      finalCustomerProfile,
+      lang,
+      mergedFields.customerNeed,
+    );
+    const finalCustomerData = {
+      ...mergedFields,
+      customerNeed: refinedNeed,
+      note: refinedNote,
+    };
+
+    console.log("AI_RESULT", aiResult);
+    console.log("EXTRACTED", extracted);
+    console.log("FINAL_CUSTOMER_DATA", finalCustomerData);
+
+    setCustomerName(finalCustomerData.customerName || "");
+    setCompanyName(finalCustomerData.companyName || "");
+    setPhone(finalCustomerData.phone || "");
+    setLineId(finalCustomerData.lineId || "");
+    setEmail(finalCustomerData.email || "");
+    setNote(finalCustomerData.note || "");
+
     const probability = calculateDealProbability(lineText, lang);
     const amount = extractAmount(lineText, lang);
     const lowerText = lineText.toLowerCase();
@@ -492,23 +558,20 @@ export default function Home() {
             followUp: probability === "High" ? "Follow up tomorrow" : "Contact again next week",
           };
 
-    const extracted = extractCustomerFromLineChat(lineText, lang);
-    const formCustomerName = resolveCustomerNameForForm(extracted.customer_name, lang);
+    const extractedPreviewData: ExtractedCustomerProfile = {
+      customer_name: finalCustomerData.customerName || "",
+      company_name: finalCustomerData.companyName,
+      phone: finalCustomerData.phone,
+      line_id: finalCustomerData.lineId,
+      email: finalCustomerData.email,
+      customer_need: finalCustomerData.customerNeed,
+    };
 
-    setExtractedPreview({
-      ...extracted,
-      customer_name: formCustomerName,
-    });
-
-    setCustomerName(formCustomerName);
-    setCompanyName(extracted.company_name);
-    setPhone(extracted.phone);
-    setLineId(extracted.line_id);
-    setEmail(extracted.email);
+    setExtractedPreview(extractedPreviewData);
 
     const mergedFinal = {
       ...finalData,
-      customerNeed: extracted.customer_need.trim() || finalData.customerNeed,
+      customerNeed: finalCustomerData.customerNeed.trim() || finalData.customerNeed,
     };
 
     setAnalysis(mergedFinal);
@@ -539,16 +602,16 @@ export default function Home() {
     setLoading(false);
 
     persistDraftNow({
-      customerName: formCustomerName,
-      companyName: extracted.company_name,
-      phone: extracted.phone,
-      lineId: extracted.line_id,
-      email: extracted.email,
+      lineText,
+      customerName: finalCustomerData.customerName || "",
+      companyName: finalCustomerData.companyName,
+      phone: finalCustomerData.phone,
+      lineId: finalCustomerData.lineId,
+      email: finalCustomerData.email,
+      note: finalCustomerData.note || "",
       analysis: mergedFinal,
-      extractedPreview: {
-        ...extracted,
-        customer_name: formCustomerName,
-      },
+      lang,
+      extractedPreview: extractedPreviewData,
     });
   }
 

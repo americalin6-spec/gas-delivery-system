@@ -29,6 +29,14 @@
         "nxtPid": "nxtPid"
       },
       "namedRegex": "^/customers/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/workspace/[category]",
+      "regex": "^/workspace/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPcategory": "nxtPcategory"
+      },
+      "namedRegex": "^/workspace/(?<nxtPcategory>[^/]+?)(?:/)?$"
     }
   ],
   "staticRoutes": [
