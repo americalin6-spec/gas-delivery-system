@@ -682,18 +682,16 @@ export default function Home() {
             </p>
 
             <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
-              <TextInputWithVoice lang={lang} placeholder={ui.fieldCustomerName} value={customerName} onChange={setCustomerName} inputStyle={inputStyle} />
-              <TextInputWithVoice lang={lang} placeholder={ui.fieldCompanyName} value={companyName} onChange={setCompanyName} inputStyle={inputStyle} />
-              <TextInputWithVoice lang={lang} placeholder={ui.fieldPhone} value={phone} onChange={setPhone} inputStyle={inputStyle} />
-              <TextInputWithVoice lang={lang} placeholder={ui.fieldLineId} value={lineId} onChange={setLineId} inputStyle={inputStyle} />
-              <TextInputWithVoice lang={lang} placeholder={ui.fieldEmail} value={email} onChange={setEmail} inputStyle={inputStyle} />
-              <TextInputWithVoice
-                lang={lang}
-                multiline
+              <input style={inputStyle} placeholder={ui.fieldCustomerName} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              <input style={inputStyle} placeholder={ui.fieldCompanyName} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+              <input style={inputStyle} placeholder={ui.fieldPhone} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <input style={inputStyle} placeholder={ui.fieldLineId} value={lineId} onChange={(e) => setLineId(e.target.value)} />
+              <input style={inputStyle} placeholder={ui.fieldEmail} value={email} onChange={(e) => setEmail(e.target.value)} />
+              <textarea
+                style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
                 placeholder={ui.fieldNote}
                 value={note}
-                onChange={setNote}
-                inputStyle={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+                onChange={(e) => setNote(e.target.value)}
               />
             </div>
 
@@ -907,12 +905,12 @@ export default function Home() {
           <p style={s.centerLead}>{ui.pasteLead}</p>
 
           <div style={s.crmGrid}>
-            <TextInputWithVoice lang={lang} placeholder={ui.fieldCustomerName} value={customerName} onChange={setCustomerName} inputStyle={s.input} />
-            <TextInputWithVoice lang={lang} placeholder={ui.fieldCompanyName} value={companyName} onChange={setCompanyName} inputStyle={s.input} />
-            <TextInputWithVoice lang={lang} placeholder={ui.fieldPhone} value={phone} onChange={setPhone} inputStyle={s.input} />
-            <TextInputWithVoice lang={lang} placeholder={ui.fieldLineId} value={lineId} onChange={setLineId} inputStyle={s.input} />
-            <TextInputWithVoice lang={lang} placeholder={ui.fieldEmail} value={email} onChange={setEmail} inputStyle={s.input} />
-            <TextInputWithVoice lang={lang} multiline placeholder={ui.fieldNote} value={note} onChange={setNote} inputStyle={s.input} />
+            <input style={s.input} placeholder={ui.fieldCustomerName} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+            <input style={s.input} placeholder={ui.fieldCompanyName} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+            <input style={s.input} placeholder={ui.fieldPhone} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input style={s.input} placeholder={ui.fieldLineId} value={lineId} onChange={(e) => setLineId(e.target.value)} />
+            <input style={s.input} placeholder={ui.fieldEmail} value={email} onChange={(e) => setEmail(e.target.value)} />
+            <textarea style={s.input} placeholder={ui.fieldNote} value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           {extractedPreview !== null ? (

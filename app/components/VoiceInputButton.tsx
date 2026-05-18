@@ -236,6 +236,32 @@ function appendTranscript(current: string, chunk: string): string {
   return current + sep + c;
 }
 
+/** LINE 對話貼上區專用：右下角語音按鈕。 */
+export function LineChatTextareaWithVoice({
+  lang,
+  value,
+  onChange,
+  inputStyle,
+  placeholder,
+}: {
+  lang: AppLang;
+  value: string;
+  onChange: (value: string) => void;
+  inputStyle?: CSSProperties;
+  placeholder?: string;
+}) {
+  return (
+    <TextInputWithVoice
+      lang={lang}
+      multiline
+      value={value}
+      onChange={onChange}
+      inputStyle={inputStyle}
+      placeholder={placeholder}
+    />
+  );
+}
+
 export function TextInputWithVoice({
   lang,
   value,
@@ -285,8 +311,8 @@ export function TextInputWithVoice({
             ...base,
             width: "100%",
             display: "block",
-            paddingRight: 56,
-            paddingBottom: 48,
+            paddingRight: 52,
+            paddingBottom: 56,
           }}
         />
         <div
