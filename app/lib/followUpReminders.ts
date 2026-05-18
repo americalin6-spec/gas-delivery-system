@@ -1,3 +1,5 @@
+import { resolveCustomerHonorific } from "./customerHonorific";
+
 /** Deal probability considered "high" for auto follow-up scheduling */
 export function isHighDealProbability(rate?: unknown): boolean {
   if (rate == null) return false;
@@ -87,33 +89,51 @@ export type SuggestionCustomer = {
   customer_need?: string | null;
   next_step?: string | null;
   follow_up?: string | null;
+  raw_text?: string | null;
 };
+
+function formatNeedRecapZh(need: string): string {
+  const chips = need
+    .split(/[、,，]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (chips.length === 0) return need;
+  if (chips.length === 1) return chips[0];
+  if (chips.length === 2) return `${chips[0]}以及${chips[1]}`;
+  return `${chips.slice(0, -1).join("、")}，以及${chips[chips.length - 1]}`;
+}
+
+function formatNeedRecapEn(need: string): string {
+  const chips = need
+    .split(/[,、]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (chips.length === 0) return need;
+  if (chips.length === 1) return chips[0];
+  if (chips.length === 2) return `${chips[0]} and ${chips[1]}`;
+  return `${chips.slice(0, -1).join(", ")}, and ${chips[chips.length - 1]}`;
+}
 
 /** Template for salesperson — not sent automatically */
 export function buildSuggestedSalesFollowUp(c: SuggestionCustomer, lang: "zh" | "en"): string {
-  const name = c.customer_name?.trim();
-  const company = c.company_name?.trim();
   const need = c.customer_need?.trim();
-  const next = c.next_step?.trim();
-  const aiFollow = c.follow_up?.trim();
+  const { greetingZh, greetingEn } = resolveCustomerHonorific({
+    customerName: c.customer_name,
+    rawText: c.raw_text,
+    lang,
+  });
 
   if (lang === "zh") {
-    const greeting = name ? `${name} 您好` : "您好";
-    const co = company ? `（${company}）` : "";
-    const needLine = need ? `先前聊到「${need}」，想跟您同步最新進度。` : "想跟您確認目前的想法與時間安排。";
-    const nextLine = next ? `建議下一步：${next}。` : "若有任何調整也歡迎直接告訴我。";
-    const ref = aiFollow ? `（內部追蹤備註：${aiFollow}）` : "";
-    return `${greeting}${co}，${needLine}${nextLine}${ref} 這邊先不打擾太久，期待您的回覆，謝謝！`;
+    const needPart = need
+      ? `先前聊到${formatNeedRecapZh(need)}，想跟您同步一下目前進度。`
+      : "想跟您同步一下目前進度。";
+    return `${greetingZh}，${needPart}如果方便的話，我們也可以先提供初步提案與報價給您參考。期待您的回覆，謝謝！`;
   }
 
-  const greeting = name ? `Hi ${name}` : "Hi there";
-  const co = company ? ` (${company})` : "";
-  const needLine = need
-    ? `Following up on "${need}" — wanted to share a quick update.`
-    : "Just checking in on timing and next steps.";
-  const nextLine = next ? `Suggested next step: ${next}.` : "Let me know if anything has changed on your side.";
-  const ref = aiFollow ? ` (Internal note: ${aiFollow})` : "";
-  return `${greeting}${co}, ${needLine} ${nextLine}${ref} Thanks, looking forward to hearing from you.`;
+  const needPart = need
+    ? `Following up on ${formatNeedRecapEn(need)} — wanted to share a quick progress update.`
+    : "Wanted to share a quick progress update.";
+  return `${greetingEn}, ${needPart} If it works for you, we can also share a preliminary proposal and quotation. Looking forward to hearing from you. Thank you!`;
 }
 
 export function formatFollowUpDateDisplay(ymd: unknown, locale: "zh" | "en"): string {
