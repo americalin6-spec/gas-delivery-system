@@ -48,6 +48,11 @@ import {
   type WorkspaceCustomerRow,
 } from "./lib/followUpWorkspace";
 import {
+  formatClassifiedImportantDatesDisplay,
+  parseClassifiedImportantDatesFromChat,
+  parseImportantDateFromChat,
+} from "./lib/dateParser";
+import {
   CALENDAR_CUSTOMER_SELECT,
   type ReminderCustomerRow,
 } from "./lib/calendarReminders";
@@ -525,6 +530,22 @@ export default function Home() {
     const probability = calculateDealProbability(lineText, lang);
     const amount = extractAmount(lineText, lang);
     const lowerText = lineText.toLowerCase();
+    const classifiedImportantDates = parseClassifiedImportantDatesFromChat(lineText, new Date(), lang);
+    const parsedImportantDate =
+      (classifiedImportantDates
+        ? formatClassifiedImportantDatesDisplay(classifiedImportantDates, lang)
+        : null) ?? parseImportantDateFromChat(lineText, new Date(), lang);
+    const aiImportantDate =
+      aiResult?.importantDate && String(aiResult.importantDate).trim() !== ""
+        ? String(aiResult.importantDate).trim()
+        : null;
+
+    const fallbackImportantDateZh =
+      lineText.includes("兩週") || lineText.includes("月底") || lineText.includes("下個月") ? "近期" : "未提供";
+    const fallbackImportantDateEn =
+      lowerText.includes("two weeks") || lowerText.includes("next month") || lowerText.includes("urgent")
+        ? "Soon"
+        : "Not provided";
 
     const finalData =
       lang === "zh"
@@ -534,7 +555,7 @@ export default function Home() {
             leakRisk: probability === "低" ? "高" : "低",
             estimatedAmount: amount,
             customerNeed: "品牌影片、高級感、快速交付",
-            importantDate: lineText.includes("兩週") || lineText.includes("月底") || lineText.includes("下個月") ? "近期" : "未提供",
+            importantDate: parsedImportantDate ?? aiImportantDate ?? fallbackImportantDateZh,
             customerEmotion: probability === "高" ? "積極、有興趣" : "還在評估",
             nextStep: probability === "高" ? "立即提供提案與報價" : "持續追蹤",
             todo: probability === "高" ? "安排會議" : "三天後追蹤",
@@ -547,10 +568,7 @@ export default function Home() {
             leakRisk: probability === "Low" ? "High" : "Low",
             estimatedAmount: amount,
             customerNeed: "Premium brand video, cinematic style, fast delivery",
-            importantDate:
-              lowerText.includes("two weeks") || lowerText.includes("next month") || lowerText.includes("urgent")
-                ? "Soon"
-                : "Not provided",
+            importantDate: parsedImportantDate ?? aiImportantDate ?? fallbackImportantDateEn,
             customerEmotion: probability === "High" ? "Interested and responsive" : "Still evaluating",
             nextStep: probability === "High" ? "Send proposal and quotation" : "Continue following up",
             todo: probability === "High" ? "Schedule meeting" : "Follow up in 3 days",
@@ -934,7 +952,17 @@ export default function Home() {
               {analysisFields.map((field) => (
                 <div key={field.title} style={resultBox}>
                   <b style={{ ...block(), display: "block", fontSize: 17, fontWeight: 700 }}>{field.title}</b>
-                  <p style={{ ...block(), margin: "12px 0 0", fontSize: 16, lineHeight: 1.6 }}>{field.value}</p>
+                  <p
+                    style={{
+                      ...block(),
+                      margin: "12px 0 0",
+                      fontSize: 16,
+                      lineHeight: 1.6,
+                      whiteSpace: field.value.includes("\n") ? "pre-line" : undefined,
+                    }}
+                  >
+                    {field.value}
+                  </p>
                 </div>
               ))}
             </div>
@@ -1094,7 +1122,14 @@ function Result({ title, value, styles }: any) {
   return (
     <div style={styles.result}>
       <b style={styles.resultTitle}>{title}</b>
-      <p style={styles.resultValue}>{value}</p>
+      <p
+        style={{
+          ...styles.resultValue,
+          whiteSpace: typeof value === "string" && value.includes("\n") ? "pre-line" : undefined,
+        }}
+      >
+        {value}
+      </p>
     </div>
   );
 }
