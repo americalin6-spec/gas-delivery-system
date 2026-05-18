@@ -29,6 +29,15 @@ import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalenda
 import { TodayFollowUpWorkspace } from "./components/TodayFollowUpWorkspace";
 import { HomeLandingHero } from "./components/HomeLandingHero";
 import {
+  clearDraft,
+  emptyAnalysisDraft,
+  emptyHomeFormDraft,
+  readHomeFormDraftFromClient,
+  restoreDraft,
+  saveDraft,
+  type HomeFormDraft,
+} from "./lib/homeFormDraft";
+import {
   WORKSPACE_CUSTOMER_SELECT,
   type WorkspaceCustomerRow,
 } from "./lib/followUpWorkspace";
@@ -94,19 +103,7 @@ function calculateDealProbability(text: string, lang: string) {
   return lang === "zh" ? "低" : "Low";
 }
 
-const emptyAnalysis = {
-  dealProbability: "--",
-  customerLevel: "--",
-  leakRisk: "--",
-  estimatedAmount: "--",
-  customerNeed: "--",
-  importantDate: "--",
-  customerEmotion: "--",
-  nextStep: "--",
-  todo: "--",
-  replySuggestion: "--",
-  followUp: "--",
-};
+const emptyAnalysis = emptyAnalysisDraft();
 
 type DashboardReminder = {
   id: string | number;
@@ -168,8 +165,8 @@ export default function Home() {
   const isMobile = viewportWidth === null || viewportWidth < HOME_MOBILE_MAX_WIDTH;
   const { copyWithFallback, fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile);
 
-  const [text, setText] = useState("");
-  const { lang, toggleLang } = useAppLang();
+  const [lineText, setLineText] = useState(() => readHomeFormDraftFromClient().lineText);
+  const { lang, setLang, toggleLang } = useAppLang();
   const ui = homePageCopy(lang);
 
   function handleTestNotification() {
@@ -187,20 +184,50 @@ export default function Home() {
   const [savingCrm, setSavingCrm] = useState(false);
   const [activeMenu, setActiveMenu] = useState(0);
 
-  const [customerName, setCustomerName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [lineId, setLineId] = useState("");
-  const [email, setEmail] = useState("");
-  const [note, setNote] = useState("");
+  const [customerName, setCustomerName] = useState(() => readHomeFormDraftFromClient().customerName);
+  const [companyName, setCompanyName] = useState(() => readHomeFormDraftFromClient().companyName);
+  const [phone, setPhone] = useState(() => readHomeFormDraftFromClient().phone);
+  const [lineId, setLineId] = useState(() => readHomeFormDraftFromClient().lineId);
+  const [email, setEmail] = useState(() => readHomeFormDraftFromClient().email);
+  const [note, setNote] = useState(() => readHomeFormDraftFromClient().note);
 
-  const [analysis, setAnalysis] = useState(emptyAnalysis);
-  const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(null);
+  const [analysis, setAnalysis] = useState(() => readHomeFormDraftFromClient().analysis);
+  const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(
+    () => readHomeFormDraftFromClient().extractedPreview,
+  );
   const [followUpReminders, setFollowUpReminders] = useState<DashboardReminder[]>([]);
   const [calendarRows, setCalendarRows] = useState<ReminderCustomerRow[]>([]);
   const [workspaceRows, setWorkspaceRows] = useState<WorkspaceCustomerRow[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+
+  const draftHydratedRef = useRef(typeof window !== "undefined");
+  const draftSnapshotRef = useRef<HomeFormDraft>(emptyHomeFormDraft());
+
+  function buildDraftSnapshot(overrides: Partial<HomeFormDraft> = {}): HomeFormDraft {
+    return {
+      lineText,
+      customerName,
+      companyName,
+      phone,
+      lineId,
+      email,
+      note,
+      analysis,
+      lang,
+      extractedPreview,
+      ...overrides,
+    };
+  }
+
+  draftSnapshotRef.current = buildDraftSnapshot();
+
+  function persistDraftNow(overrides: Partial<HomeFormDraft> = {}) {
+    if (!draftHydratedRef.current) return;
+    const snapshot = { ...draftSnapshotRef.current, ...overrides };
+    draftSnapshotRef.current = snapshot;
+    saveDraft(snapshot);
+  }
 
   const loadCalendarRows = useCallback(async () => {
     try {
@@ -279,20 +306,55 @@ export default function Home() {
     void loadWorkspaceRows();
   }, [loadFollowUpReminders, loadCalendarRows, loadWorkspaceRows]);
 
+  useEffect(() => {
+    const draft = restoreDraft();
+    setLineText(draft.lineText);
+    setCustomerName(draft.customerName);
+    setCompanyName(draft.companyName);
+    setPhone(draft.phone);
+    setLineId(draft.lineId);
+    setEmail(draft.email);
+    setNote(draft.note);
+    setAnalysis(draft.analysis);
+    setExtractedPreview(draft.extractedPreview);
+    setLang(draft.lang);
+    draftHydratedRef.current = true;
+  }, [setLang]);
+
+  useEffect(() => {
+    if (!draftHydratedRef.current) return;
+    const timer = window.setTimeout(() => {
+      persistDraftNow();
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [lineText, customerName, companyName, phone, lineId, email, note, analysis, lang, extractedPreview]);
+
+  useEffect(() => {
+    return () => {
+      persistDraftNow();
+    };
+  }, []);
+
+  function clearFormDraft() {
+    clearDraft();
+    const empty = emptyHomeFormDraft();
+    setLineText(empty.lineText);
+    setCustomerName(empty.customerName);
+    setCompanyName(empty.companyName);
+    setPhone(empty.phone);
+    setLineId(empty.lineId);
+    setEmail(empty.email);
+    setNote(empty.note);
+    setAnalysis(empty.analysis);
+    setExtractedPreview(empty.extractedPreview);
+  }
+
   function scrollToApp() {
     centerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function resetAnalysisForm() {
-    setText("");
-    setCustomerName("");
-    setCompanyName("");
-    setPhone("");
-    setLineId("");
-    setEmail("");
-    setNote("");
-    setAnalysis(emptyAnalysis);
-    setExtractedPreview(null);
+    clearFormDraft();
     setActiveMenu(0);
     scrollToApp();
   }
@@ -307,21 +369,25 @@ export default function Home() {
     }
 
     if (index === 1) {
+      persistDraftNow();
       router.push("/customers");
       return;
     }
 
     if (index === 2) {
+      persistDraftNow();
       router.push("/tasks");
       return;
     }
 
     if (index === 3) {
+      persistDraftNow();
       router.push("/calendar");
       return;
     }
 
     if (index === 4) {
+      persistDraftNow();
       router.push("/alerts");
       return;
     }
@@ -371,22 +437,16 @@ export default function Home() {
     void loadWorkspaceRows();
 
     alert(ui.savedToCrm);
-    setCustomerName("");
-    setCompanyName("");
-    setPhone("");
-    setLineId("");
-    setEmail("");
-    setNote("");
-    setText("");
-    setAnalysis(emptyAnalysis);
-    setExtractedPreview(null);
+    clearFormDraft();
   }
 
   async function analyze() {
-    if (!text.trim()) {
+    if (!lineText.trim()) {
       alert(ui.pasteRequired);
       return;
     }
+
+    persistDraftNow();
 
     setLoading(true);
 
@@ -396,9 +456,9 @@ export default function Home() {
     setLineId("");
     setEmail("");
 
-    const probability = calculateDealProbability(text, lang);
-    const amount = extractAmount(text, lang);
-    const lowerText = text.toLowerCase();
+    const probability = calculateDealProbability(lineText, lang);
+    const amount = extractAmount(lineText, lang);
+    const lowerText = lineText.toLowerCase();
 
     const finalData =
       lang === "zh"
@@ -408,7 +468,7 @@ export default function Home() {
             leakRisk: probability === "低" ? "高" : "低",
             estimatedAmount: amount,
             customerNeed: "品牌影片、高級感、快速交付",
-            importantDate: text.includes("兩週") || text.includes("月底") || text.includes("下個月") ? "近期" : "未提供",
+            importantDate: lineText.includes("兩週") || lineText.includes("月底") || lineText.includes("下個月") ? "近期" : "未提供",
             customerEmotion: probability === "高" ? "積極、有興趣" : "還在評估",
             nextStep: probability === "高" ? "立即提供提案與報價" : "持續追蹤",
             todo: probability === "高" ? "安排會議" : "三天後追蹤",
@@ -432,7 +492,7 @@ export default function Home() {
             followUp: probability === "High" ? "Follow up tomorrow" : "Contact again next week",
           };
 
-    const extracted = extractCustomerFromLineChat(text, lang);
+    const extracted = extractCustomerFromLineChat(lineText, lang);
     const formCustomerName = resolveCustomerNameForForm(extracted.customer_name, lang);
 
     setExtractedPreview({
@@ -458,7 +518,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          raw_text: text,
+          raw_text: lineText,
           deal_probability: finalData.dealProbability,
           customer_level: finalData.customerLevel,
           leak_risk: finalData.leakRisk,
@@ -477,6 +537,19 @@ export default function Home() {
     }
 
     setLoading(false);
+
+    persistDraftNow({
+      customerName: formCustomerName,
+      companyName: extracted.company_name,
+      phone: extracted.phone,
+      lineId: extracted.line_id,
+      email: extracted.email,
+      analysis: mergedFinal,
+      extractedPreview: {
+        ...extracted,
+        customer_name: formCustomerName,
+      },
+    });
   }
 
   if (isMobile) {
@@ -699,8 +772,8 @@ export default function Home() {
             ) : null}
 
             <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
+              value={lineText}
+              onChange={(e) => setLineText(e.target.value)}
               placeholder={ui.linePlaceholder}
               style={{
                 ...block(),
@@ -715,11 +788,7 @@ export default function Home() {
 
             <button
               type="button"
-              onClick={() => {
-                setText("");
-                setAnalysis(emptyAnalysis);
-                setExtractedPreview(null);
-              }}
+              onClick={clearFormDraft}
               style={{
                 ...block(),
                 height: 52,
@@ -915,20 +984,13 @@ export default function Home() {
           ) : null}
 
           <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+              value={lineText}
+              onChange={(e) => setLineText(e.target.value)}
             placeholder={ui.linePlaceholder}
             style={s.textarea}
           />
 
-          <button
-            onClick={() => {
-              setText("");
-              setAnalysis(emptyAnalysis);
-              setExtractedPreview(null);
-            }}
-            style={s.clearBtn}
-          >
+          <button type="button" onClick={clearFormDraft} style={s.clearBtn}>
             {ui.clearText}
           </button>
 
