@@ -77,6 +77,12 @@
       "namedRegex": "^/customers(?:/)?$"
     },
     {
+      "page": "/settings",
+      "regex": "^/settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings(?:/)?$"
+    },
+    {
       "page": "/tasks",
       "regex": "^/tasks(?:/)?$",
       "routeKeys": {},

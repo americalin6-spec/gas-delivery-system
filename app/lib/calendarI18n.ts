@@ -65,6 +65,7 @@ export function alertsPageCopy(lang: AppLang) {
     highDeal: zh ? "高成交率客戶" : "High deal probability",
     noContact3d: zh ? "三天沒聯絡" : "No contact in 3 days",
     viewAllCalendar: zh ? "查看完整行事曆" : "View full calendar",
+    lineNotifySettings: zh ? "LINE 通知設定" : "LINE notification settings",
     viewCustomer: zh ? "查看客戶" : "View customer",
     lineOaSend: zh ? "LINE 官方帳號發送（即將推出）" : "LINE OA send (coming soon)",
     unnamed: zh ? "未命名客戶" : "Unnamed customer",

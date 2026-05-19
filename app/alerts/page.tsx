@@ -92,6 +92,21 @@ export default function AlertsPage() {
         </div>
         <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
           <Link
+            href="/settings"
+            style={{
+              padding: isMobile ? "14px 18px" : "12px 16px",
+              borderRadius: 12,
+              background: "#0d9488",
+              color: "#ecfdf5",
+              textDecoration: "none",
+              fontWeight: 600,
+              fontSize: 15,
+              textAlign: "center",
+            }}
+          >
+            {t.lineNotifySettings}
+          </Link>
+          <Link
             href="/calendar"
             style={{
               padding: isMobile ? "14px 18px" : "12px 16px",
