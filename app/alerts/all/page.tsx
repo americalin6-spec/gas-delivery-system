@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { BrowserNotificationBanner } from "../components/BrowserNotificationBanner";
-import { NotificationCenter } from "../components/NotificationCenter";
-import { useAppLang } from "../hooks/useAppLang";
-import { useIsViewportBelow } from "../hooks/useViewportWidth";
+import { BrowserNotificationBanner } from "../../components/BrowserNotificationBanner";
+import { NotificationCenter } from "../../components/NotificationCenter";
+import { useAppLang } from "../../hooks/useAppLang";
+import { useIsViewportBelow } from "../../hooks/useViewportWidth";
 import {
   CALENDAR_CUSTOMER_SELECT,
-  NOTIFICATION_CENTER_LIMIT,
   type ReminderCustomerRow,
-} from "../lib/calendarReminders";
-import { alertsPageCopy } from "../lib/calendarI18n";
-import { supabase } from "../supabase";
+} from "../../lib/calendarReminders";
+import { alertsPageCopy } from "../../lib/calendarI18n";
+import { supabase } from "../../supabase";
 
 const MOBILE_MAX = 1024;
 
-export default function AlertsPage() {
+export default function AllNotificationsPage() {
   const { lang } = useAppLang();
   const t = alertsPageCopy(lang);
   const isMobile = useIsViewportBelow(MOBILE_MAX);
@@ -66,53 +65,24 @@ export default function AlertsPage() {
       >
         <div style={{ minWidth: 0 }}>
           <h1 style={{ margin: 0, fontSize: isMobile ? "1.75rem" : "2.5rem", fontWeight: 800 }}>{t.title}</h1>
-          <p style={{ margin: "10px 0 0", color: "#8ea4c7", fontSize: isMobile ? 16 : 18 }}>{t.subtitle}</p>
+          <p style={{ margin: "10px 0 0", color: "#8ea4c7", fontSize: isMobile ? 16 : 18 }}>{t.subtitleAll}</p>
         </div>
         <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
           <Link
-            href="/alerts/all"
+            href="/alerts"
             style={{
               padding: isMobile ? "14px 18px" : "12px 16px",
               borderRadius: 12,
-              background: "#6366f1",
-              color: "#eef2ff",
+              border: "1px solid #1e3a5f",
+              background: "#102742",
+              color: "#94a3b8",
               textDecoration: "none",
               fontWeight: 600,
               fontSize: 15,
               textAlign: "center",
             }}
           >
-            {t.viewAllNotifications}
-          </Link>
-          <Link
-            href="/settings"
-            style={{
-              padding: isMobile ? "14px 18px" : "12px 16px",
-              borderRadius: 12,
-              background: "#0d9488",
-              color: "#ecfdf5",
-              textDecoration: "none",
-              fontWeight: 600,
-              fontSize: 15,
-              textAlign: "center",
-            }}
-          >
-            {t.lineNotifySettings}
-          </Link>
-          <Link
-            href="/calendar"
-            style={{
-              padding: isMobile ? "14px 18px" : "12px 16px",
-              borderRadius: 12,
-              background: "#1a3557",
-              color: "#e2e8f0",
-              textDecoration: "none",
-              fontWeight: 600,
-              fontSize: 15,
-              textAlign: "center",
-            }}
-          >
-            {t.viewAllCalendar}
+            {t.backToAlerts}
           </Link>
           <Link
             href="/"
@@ -140,7 +110,7 @@ export default function AlertsPage() {
       {loading ? (
         <p style={{ color: "#94a3b8" }}>{t.loading}</p>
       ) : (
-        <NotificationCenter rows={rows} lang={lang} isMobile={isMobile} limit={NOTIFICATION_CENTER_LIMIT} />
+        <NotificationCenter rows={rows} lang={lang} isMobile={isMobile} />
       )}
     </main>
   );

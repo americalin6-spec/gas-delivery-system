@@ -1,6 +1,7 @@
 {
   "/_global-error/page": "app/_global-error/page.js",
   "/_not-found/page": "app/_not-found/page.js",
+  "/alerts/all/page": "app/alerts/all/page.js",
   "/alerts/page": "app/alerts/page.js",
   "/api/analyze/route": "app/api/analyze/route.js",
   "/api/conversations/route": "app/api/conversations/route.js",

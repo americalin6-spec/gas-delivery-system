@@ -170,6 +170,82 @@ export type NotificationItem = {
   urgency: UrgencyVisual;
 };
 
+/** Cap the notification center to this many actionable items. */
+export const NOTIFICATION_CENTER_LIMIT = 20;
+
+/** Days threshold for the "stale contact" notification bucket. */
+export const STALE_CONTACT_DAYS = 7;
+
+/** Render order: overdue → today → upcoming/info. */
+export const NOTIFICATION_BUCKET_ORDER: NotificationBucket[] = [
+  "overdue",
+  "due_today",
+  "high_deal",
+  "no_contact_3d",
+];
+
+const NOTIFICATION_URGENCY_TIER: Record<NotificationBucket, number> = {
+  overdue: 0,
+  due_today: 1,
+  high_deal: 2,
+  no_contact_3d: 3,
+};
+
+/** Stable urgency-first ordering across buckets (overdue first, then today, then info). */
+export function sortNotificationsByUrgency(items: NotificationItem[]): NotificationItem[] {
+  return [...items].sort((a, b) => {
+    const ta = NOTIFICATION_URGENCY_TIER[a.bucket] ?? 99;
+    const tb = NOTIFICATION_URGENCY_TIER[b.bucket] ?? 99;
+    if (ta !== tb) return ta - tb;
+    const ad = normalizeFollowUpDateValue(a.customer.follow_up_date) ?? "9999-99-99";
+    const bd = normalizeFollowUpDateValue(b.customer.follow_up_date) ?? "9999-99-99";
+    if (ad !== bd) return ad.localeCompare(bd);
+    return String(a.customer.id).localeCompare(String(b.customer.id));
+  });
+}
+
+export type CalendarGroupKey = "overdue" | "today" | "next7";
+
+export type CalendarGroupedReminders = {
+  overdue: ReminderCustomerRow[];
+  today: ReminderCustomerRow[];
+  next7: ReminderCustomerRow[];
+};
+
+/** Bucket follow-up customers into Overdue / Today / Next 7 days (skips no-date + completed). */
+export function groupCalendarRemindersByUrgency(
+  rows: ReminderCustomerRow[],
+): CalendarGroupedReminders {
+  const overdue: { row: ReminderCustomerRow; diff: number; ymd: string }[] = [];
+  const today: { row: ReminderCustomerRow; ymd: string }[] = [];
+  const next7: { row: ReminderCustomerRow; diff: number; ymd: string }[] = [];
+
+  for (const row of rows) {
+    if (isReminderCompleted(row.reminder_status)) continue;
+    const ymd = normalizeFollowUpDateValue(row.follow_up_date);
+    if (!ymd) continue;
+    const diff = diffDaysFromToday(ymd);
+    if (diff === null) continue;
+
+    if (diff < 0) overdue.push({ row, diff, ymd });
+    else if (diff === 0) today.push({ row, ymd });
+    else if (diff <= 7) next7.push({ row, diff, ymd });
+  }
+
+  // Most overdue first (smallest diff i.e. largest negative).
+  overdue.sort((a, b) => a.diff - b.diff || a.ymd.localeCompare(b.ymd));
+  today.sort((a, b) =>
+    String(a.row.customer_name ?? "").localeCompare(String(b.row.customer_name ?? "")),
+  );
+  next7.sort((a, b) => a.ymd.localeCompare(b.ymd));
+
+  return {
+    overdue: overdue.map((x) => x.row),
+    today: today.map((x) => x.row),
+    next7: next7.map((x) => x.row),
+  };
+}
+
 function daysSinceContact(lastContact?: string | null): number | null {
   if (!lastContact?.trim()) return null;
   const d = new Date(lastContact);
@@ -213,7 +289,7 @@ export function buildNotificationItems(rows: ReminderCustomerRow[]): Notificatio
   for (const row of rows) {
     if (isReminderCompleted(row.reminder_status)) continue;
     const since = daysSinceContact(row.last_contacted_at);
-    if (since === null || since >= 3) push("no_contact_3d", row);
+    if (since === null || since >= STALE_CONTACT_DAYS) push("no_contact_3d", row);
   }
 
   return items;

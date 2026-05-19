@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { BrowserNotificationBanner } from "../components/BrowserNotificationBanner";
 import { CalendarMonthView, monthTitle } from "../components/CalendarMonthView";
+import { ReminderCalendarGroups } from "../components/ReminderCalendarGroups";
 import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { customersInMonth } from "../lib/calendarMonth";
@@ -148,6 +149,8 @@ export default function CalendarPage() {
       </header>
 
       <BrowserNotificationBanner lang={lang} rows={allRows} isMobile={isMobile} />
+
+      <ReminderCalendarGroups customers={customers} lang={lang} isMobile={isMobile} />
 
       <div
         style={{

@@ -65,6 +65,12 @@
       "namedRegex": "^/alerts(?:/)?$"
     },
     {
+      "page": "/alerts/all",
+      "regex": "^/alerts/all(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/alerts/all(?:/)?$"
+    },
+    {
       "page": "/api/analyze",
       "regex": "^/api/analyze(?:/)?$",
       "routeKeys": {},
