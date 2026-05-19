@@ -4,6 +4,7 @@
   "/alerts/all/page": "app/alerts/all/page.js",
   "/alerts/page": "app/alerts/page.js",
   "/api/analyze/route": "app/api/analyze/route.js",
+  "/api/companies/route": "app/api/companies/route.js",
   "/api/conversations/route": "app/api/conversations/route.js",
   "/api/line-push-test/route": "app/api/line-push-test/route.js",
   "/api/line-webhook/route": "app/api/line-webhook/route.js",

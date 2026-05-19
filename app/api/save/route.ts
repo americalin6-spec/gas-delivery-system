@@ -4,6 +4,14 @@ import { parseFirstDateYmdFromText, parseFollowUpDateYmdFromChat } from "../../l
 import { normalizeFollowUpDateValue } from "../../lib/followUpReminders";
 import { getServerCompanyId } from "../../lib/companyContext";
 
+function logSaveCompany(companyId: number, body: Record<string, unknown>) {
+  console.log("[api/save] insert customer", {
+    companyId,
+    customer_name: body.customer_name,
+    keys: Object.keys(body),
+  });
+}
+
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -22,6 +30,7 @@ export async function POST(req: Request) {
 
     const baseRow = followUpDate ? { ...body, follow_up_date: followUpDate } : body;
     const row = { ...baseRow, company_id: companyId };
+    logSaveCompany(companyId, row);
 
     const { error } = await supabase.from("customers").insert([row]);
 

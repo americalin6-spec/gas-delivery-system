@@ -14,7 +14,8 @@ import {
   filterCalendarCustomers,
   type ReminderCustomerRow,
 } from "../lib/calendarReminders";
-import { useCurrentCompanyId } from "../lib/clientCompany";
+import { logActiveCompany } from "../lib/clientCompany";
+import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../supabase";
 
 const MOBILE_MAX = 1024;
@@ -33,14 +34,16 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
-  const companyId = useCurrentCompanyId();
+  const { companyId, ready: companyReady } = useActiveCompany();
 
   const viewYear = viewDate.getFullYear();
   const viewMonth = viewDate.getMonth();
 
   const fetchCustomers = useCallback(async () => {
+    if (!companyReady || companyId <= 0) return;
     setLoading(true);
     setLoadError(null);
+    logActiveCompany("calendar.load", { companyId });
 
     const { data, error } = await supabase
       .from("customers")
@@ -60,11 +63,12 @@ export default function CalendarPage() {
     }
 
     setLoading(false);
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   useEffect(() => {
+    if (!companyReady || companyId <= 0) return;
     void fetchCustomers();
-  }, [fetchCustomers]);
+  }, [fetchCustomers, companyReady, companyId]);
 
   const monthCustomers = useMemo(
     () => customersInMonth(customers, viewYear, viewMonth),

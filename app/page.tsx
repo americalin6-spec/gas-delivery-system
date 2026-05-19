@@ -58,11 +58,9 @@ import {
   CALENDAR_CUSTOMER_SELECT,
   type ReminderCustomerRow,
 } from "./lib/calendarReminders";
-import {
-  companyIdHeader,
-  getClientCompanyId,
-  useCurrentCompanyId,
-} from "./lib/clientCompany";
+import { companyIdHeader, logActiveCompany } from "./lib/clientCompany";
+import { useActiveCompany } from "./components/ActiveCompanyProvider";
+import { customerInsertPayload } from "./lib/customersTenant";
 
 const HOME_MOBILE_MAX_WIDTH = 1024;
 
@@ -186,7 +184,7 @@ export default function Home() {
   const [lineText, setLineText] = useState(() => readHomeFormDraftFromClient().lineText);
   const { lang, setLang, toggleLang } = useAppLang();
   const ui = homePageCopy(lang);
-  const companyId = useCurrentCompanyId();
+  const { companyId, ready: companyReady } = useActiveCompany();
 
   function handleTestNotification() {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -249,7 +247,9 @@ export default function Home() {
   }
 
   const loadCalendarRows = useCallback(async () => {
+    if (!companyReady || companyId <= 0) return;
     try {
+      logActiveCompany("homepage.loadCalendarRows", { companyId });
       const { data, error } = await supabase
         .from("customers")
         .select(CALENDAR_CUSTOMER_SELECT)
@@ -263,12 +263,14 @@ export default function Home() {
     } catch {
       setCalendarRows([]);
     }
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   const loadWorkspaceRows = useCallback(async () => {
+    if (!companyReady || companyId <= 0) return;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
+      logActiveCompany("homepage.loadWorkspaceRows", { companyId });
       const { data, error } = await supabase
         .from("customers")
         .select(WORKSPACE_CUSTOMER_SELECT)
@@ -287,10 +289,12 @@ export default function Home() {
       setWorkspaceError("load failed");
     }
     setWorkspaceLoading(false);
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   const loadFollowUpReminders = useCallback(async () => {
+    if (!companyReady || companyId <= 0) return;
     try {
+      logActiveCompany("homepage.loadFollowUpReminders", { companyId });
       const end = new Date();
       end.setDate(end.getDate() + 14);
       const endStr = formatLocalYmd(end);
@@ -323,13 +327,14 @@ export default function Home() {
     } catch {
       setFollowUpReminders([]);
     }
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   useEffect(() => {
+    if (!companyReady || companyId <= 0) return;
     void loadFollowUpReminders();
     void loadCalendarRows();
     void loadWorkspaceRows();
-  }, [loadFollowUpReminders, loadCalendarRows, loadWorkspaceRows]);
+  }, [loadFollowUpReminders, loadCalendarRows, loadWorkspaceRows, companyReady, companyId]);
 
   useEffect(() => {
     const draft = restoreDraft();
@@ -441,8 +446,19 @@ export default function Home() {
     setLineId(crmFields.line_id);
     setEmail(crmFields.email);
     const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
-    const insertRow: Record<string, string | number | null> = {
-      company_id: getClientCompanyId(),
+    if (!companyReady || companyId <= 0) {
+      setSavingCrm(false);
+      return;
+    }
+
+    const extractedFollowUpDate =
+      parseFollowUpDateYmdFromChat(lineText) ??
+      parseFollowUpDateYmdFromChat(analysis.importantDate) ??
+      parseFirstDateYmdFromText(analysis.followUp) ??
+      parseFirstDateYmdFromText(analysis.todo) ??
+      parseFirstDateYmdFromText(analysis.nextStep);
+
+    const baseInsert: Record<string, string | number | null> = {
       customer_name: customerNameForCrm(crmFields.customer_name, lang),
       company_name: crmFields.company_name.trim() || null,
       phone: crmFields.phone.trim() || null,
@@ -463,18 +479,13 @@ export default function Home() {
       follow_up_mode: "manual",
     };
 
-    const extractedFollowUpDate =
-      parseFollowUpDateYmdFromChat(lineText) ??
-      parseFollowUpDateYmdFromChat(analysis.importantDate) ??
-      parseFirstDateYmdFromText(analysis.followUp) ??
-      parseFirstDateYmdFromText(analysis.todo) ??
-      parseFirstDateYmdFromText(analysis.nextStep);
-
     if (extractedFollowUpDate) {
-      insertRow.follow_up_date = extractedFollowUpDate;
+      baseInsert.follow_up_date = extractedFollowUpDate;
     } else if (isHighDealProbability(dealProb)) {
-      insertRow.follow_up_date = computeHighPotentialFollowUpDate();
+      baseInsert.follow_up_date = computeHighPotentialFollowUpDate();
     }
+
+    const insertRow = customerInsertPayload(baseInsert, companyId);
 
     const { error } = await supabase.from("customers").insert([insertRow]);
 

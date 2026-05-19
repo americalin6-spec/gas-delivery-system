@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAppLang } from "../hooks/useAppLang";
 import { tasksPageCopy, translateDisplayValue } from "../lib/uiI18n";
-import { useCurrentCompanyId } from "../lib/clientCompany";
+import { logActiveCompany } from "../lib/clientCompany";
+import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../supabase";
 
 interface Customer {
@@ -31,10 +32,12 @@ export default function TasksPage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const companyId = useCurrentCompanyId();
+  const { companyId, ready: companyReady } = useActiveCompany();
 
   const fetchCustomers = useCallback(async () => {
+    if (!companyReady || companyId <= 0) return;
     setLoading(true);
+    logActiveCompany("tasks.load", { companyId });
 
     const { data, error } = await supabase
       .from("customers")
@@ -52,11 +55,12 @@ export default function TasksPage() {
     }
 
     setLoading(false);
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   useEffect(() => {
+    if (!companyReady || companyId <= 0) return;
     void fetchCustomers();
-  }, [fetchCustomers]);
+  }, [fetchCustomers, companyReady, companyId]);
 
   const taskCustomers = customers.filter(
     (c) =>

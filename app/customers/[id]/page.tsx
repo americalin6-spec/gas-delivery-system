@@ -39,11 +39,9 @@ import PipelineStatusBadge from "../../components/PipelineStatusBadge";
 import PipelineStatusSelect from "../../components/PipelineStatusSelect";
 import { normalizePipelineStatus } from "../../lib/pipelineStatus";
 import { tryOpenLineApp } from "../../lib/openLineApp";
-import {
-  companyIdHeader,
-  getClientCompanyId,
-  useCurrentCompanyId,
-} from "../../lib/clientCompany";
+import { companyIdHeader, logActiveCompany } from "../../lib/clientCompany";
+import { useActiveCompany } from "../../components/ActiveCompanyProvider";
+import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
 import { supabase } from "../../../supabase";
 
 const MOBILE_MAX = 768;
@@ -228,7 +226,7 @@ export default function CustomerDetailPage() {
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [conversationRefresh, setConversationRefresh] = useState(0);
-  const companyId = useCurrentCompanyId();
+  const { companyId, ready: companyReady } = useActiveCompany();
 
   const logOutboundMessage = useCallback(
     async (messageText: string): Promise<boolean> => {
@@ -278,17 +276,17 @@ export default function CustomerDetailPage() {
   }, [toast]);
 
   const fetchCustomer = useCallback(async () => {
-    if (!id) return;
+    if (!id || !companyReady || companyId <= 0) return;
 
     setLoading(true);
     setNotFound(false);
+    logActiveCompany("customerDetail.fetch", { customerId: id, companyId });
 
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .eq("company_id", companyId)
-      .eq("id", id)
-      .maybeSingle();
+    const { customer: data, error } = await fetchCustomerByIdForActiveCompany<Customer>(
+      supabase,
+      id,
+      companyId,
+    );
 
     if (error) {
       console.error(error);
@@ -298,7 +296,7 @@ export default function CustomerDetailPage() {
       setCustomer(null);
       setNotFound(true);
     } else {
-      let row = data as Customer;
+      let row = data;
       if (isHighDealProbability(row.success_rate) && !normalizeFollowUpDateValue(row.follow_up_date)) {
         const nd = computeHighPotentialFollowUpDate();
         const { data: patched, error: patchErr } = await supabase
@@ -314,7 +312,7 @@ export default function CustomerDetailPage() {
     }
 
     setLoading(false);
-  }, [id, companyId]);
+  }, [id, companyId, companyReady]);
 
   useEffect(() => {
     void fetchCustomer();
@@ -702,6 +700,7 @@ export default function CustomerDetailPage() {
               <LineQuickActionsBar
                 customer={customer}
                 customerId={id}
+                companyId={companyId}
                 isMobile={isMobile}
                 lang={lang}
                 showToast={setToast}
@@ -980,6 +979,7 @@ const LINE_BRAND = "#06C755";
 function LineQuickActionsBar({
   customer,
   customerId,
+  companyId,
   isMobile,
   lang,
   showToast,
@@ -989,6 +989,7 @@ function LineQuickActionsBar({
 }: {
   customer: Customer;
   customerId: string;
+  companyId: number;
   isMobile: boolean;
   lang: AppLang;
   showToast: (message: string) => void;
@@ -1061,11 +1062,10 @@ function LineQuickActionsBar({
   }
 
   async function completeSimulatedSend() {
-    const activeCompanyId = getClientCompanyId();
     const { data: row, error: selErr } = await supabase
       .from("customers")
       .select("line_send_history")
-      .eq("company_id", activeCompanyId)
+      .eq("company_id", companyId)
       .eq("id", customerId)
       .maybeSingle();
 
@@ -1081,7 +1081,7 @@ function LineQuickActionsBar({
     const { error: upErr } = await supabase
       .from("customers")
       .update({ last_contacted_at: nowIso, line_send_history: next })
-      .eq("company_id", activeCompanyId)
+      .eq("company_id", companyId)
       .eq("id", customerId);
 
     if (upErr) {

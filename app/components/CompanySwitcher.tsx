@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AppLang } from "../lib/appLang";
-import {
-  getClientCompanyId,
-  setClientCompanyId,
-  useCurrentCompanyId,
-} from "../lib/clientCompany";
-import { supabase } from "../../supabase";
+import { getClientCompanyId } from "../lib/clientCompany";
+import { useActiveCompany } from "./ActiveCompanyProvider";
 
 type CompanyRow = {
   id: number;
@@ -38,6 +34,46 @@ function copy(lang: AppLang) {
   };
 }
 
+async function fetchCompanies(): Promise<{ rows: CompanyRow[]; error: string | null }> {
+  try {
+    const res = await fetch("/api/companies", { cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      rows?: CompanyRow[];
+      error?: string;
+    };
+    if (!res.ok || !body.ok) {
+      return { rows: [], error: body.error || `HTTP ${res.status}` };
+    }
+    return { rows: (body.rows ?? []) as CompanyRow[], error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { rows: [], error: msg };
+  }
+}
+
+async function createCompany(name: string): Promise<{ company: CompanyRow | null; error: string | null }> {
+  try {
+    const res = await fetch("/api/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      company?: CompanyRow;
+      error?: string;
+    };
+    if (!res.ok || !body.ok || !body.company) {
+      return { company: null, error: body.error || `HTTP ${res.status}` };
+    }
+    return { company: body.company as CompanyRow, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { company: null, error: msg };
+  }
+}
+
 export function CompanySwitcher({
   lang,
   isMobile,
@@ -46,7 +82,7 @@ export function CompanySwitcher({
   isMobile: boolean;
 }) {
   const t = copy(lang);
-  const activeId = useCurrentCompanyId();
+  const { companyId: activeId, setActiveCompanyId } = useActiveCompany();
   const [rows, setRows] = useState<CompanyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,16 +93,13 @@ export function CompanySwitcher({
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("companies")
-      .select("id, name")
-      .order("id", { ascending: true });
-    if (error) {
-      console.error("[CompanySwitcher] load failed:", error);
-      setError(error.message || t.loadError);
+    const { rows: next, error: err } = await fetchCompanies();
+    if (err) {
+      console.error("[CompanySwitcher] load failed:", err);
+      setError(err || t.loadError);
       setRows([]);
     } else {
-      setRows((data ?? []) as CompanyRow[]);
+      setRows(next);
     }
     setLoading(false);
   }, [t.loadError]);
@@ -76,7 +109,7 @@ export function CompanySwitcher({
   }, [load]);
 
   const handleSelect = (id: number) => {
-    setClientCompanyId(id);
+    setActiveCompanyId(id);
     const name = rows.find((r) => r.id === id)?.name ?? String(id);
     setStatus(t.switched(name));
   };
@@ -90,22 +123,17 @@ export function CompanySwitcher({
     setError(null);
     setStatus(null);
     setCreating(true);
-    const { data, error } = await supabase
-      .from("companies")
-      .insert({ name })
-      .select("id, name")
-      .maybeSingle();
+    const { company, error: err } = await createCompany(name);
     setCreating(false);
-    if (error || !data) {
-      console.error("[CompanySwitcher] create failed:", error);
-      setError(error?.message || t.createError);
+    if (err || !company) {
+      console.error("[CompanySwitcher] create failed:", err);
+      setError(err || t.createError);
       return;
     }
-    const created = data as CompanyRow;
-    setRows((prev) => [...prev, created]);
+    setRows((prev) => [...prev, company]);
     setNewName("");
-    setStatus(t.created(created.name));
-    setClientCompanyId(created.id);
+    setStatus(t.created(company.name));
+    setActiveCompanyId(company.id);
   };
 
   return (
@@ -188,7 +216,7 @@ export function CompanySwitcher({
         />
         <button
           type="button"
-          onClick={handleCreate}
+          onClick={() => void handleCreate()}
           disabled={creating || !newName.trim()}
           style={{
             padding: "11px 16px",

@@ -23,10 +23,9 @@ import {
   type PipelineStatus,
 } from "../lib/pipelineStatus";
 import PipelineStatusBadge from "../components/PipelineStatusBadge";
-import {
-  getClientCompanyId,
-  useCurrentCompanyId,
-} from "../lib/clientCompany";
+import { logActiveCompany } from "../lib/clientCompany";
+import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { customerInsertPayload } from "../lib/customersTenant";
 import { supabase } from "../../supabase";
 
 type StatusFilter = "all" | PipelineStatus;
@@ -123,7 +122,7 @@ export default function CustomersPage() {
   const [followFilter, setFollowFilter] = useState<FollowFilter>("all");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
 
-  const companyId = useCurrentCompanyId();
+  const { companyId, ready: companyReady } = useActiveCompany();
 
   const isMobile = useIsViewportBelow(CRM_MOBILE_MAX_WIDTH);
   const { lang } = useAppLang();
@@ -134,11 +133,14 @@ export default function CustomersPage() {
   };
 
   useEffect(() => {
-    loadCustomers();
+    if (!companyReady || companyId <= 0) return;
+    void loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId]);
+  }, [companyId, companyReady]);
 
   async function loadCustomers() {
+    if (!companyReady || companyId <= 0) return;
+    logActiveCompany("customersList.load", { companyId });
     const { data, error } = await supabase
       .from("customers")
       .select("*")
@@ -156,15 +158,19 @@ export default function CustomersPage() {
       return;
     }
 
-    const { error } = await supabase.from("customers").insert([
+    if (!companyReady || companyId <= 0) return;
+
+    const row = customerInsertPayload(
       {
         customer_name: customerName,
         company_name: companyName,
         phone: phone,
         status: newStatus,
-        company_id: getClientCompanyId(),
       },
-    ]);
+      companyId,
+    );
+
+    const { error } = await supabase.from("customers").insert([row]);
 
     if (error) {
       alert(error.message);
