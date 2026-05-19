@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logLineConversation } from "../../lib/conversationsServer";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
@@ -129,11 +130,54 @@ async function upsertLineUser(
 }
 
 async function resolveChannelAccessToken(): Promise<string> {
-  const settings = await loadLineReminderSettings();
-  return process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || settings.channel_access_token.trim();
+  try {
+    const settings = await loadLineReminderSettings();
+    return process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || settings.channel_access_token.trim();
+  } catch (err) {
+    console.error("[line-webhook] resolveChannelAccessToken failed:", err);
+    return process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";
+  }
 }
 
-async function handleTextMessage(event: LineWebhookEvent, channelAccessToken: string): Promise<void> {
+/** STEP 1 — Always log every inbound text first, fully isolated from reply/binding. */
+async function logInboundEvents(
+  supabase: SupabaseClient,
+  events: LineWebhookEvent[],
+): Promise<void> {
+  await Promise.all(
+    events.map(async (event) => {
+      const userId = event.source?.userId?.trim();
+      const messageText = event.message?.text;
+
+      if (!userId || !messageText) {
+        console.log("[line-webhook] skipping log for event:", {
+          type: event.type,
+          messageType: event.message?.type,
+          hasUserId: Boolean(userId),
+          hasText: Boolean(messageText),
+        });
+        return;
+      }
+
+      try {
+        await logLineConversation(supabase, {
+          lineUserId: userId,
+          messageText,
+          direction: "inbound",
+        });
+      } catch (err) {
+        console.error("[line-webhook] logLineConversation threw:", err);
+      }
+    }),
+  );
+}
+
+/** STEP 2 — Bind/reply logic. Runs after logging; failures here do not block logging. */
+async function handleTextMessage(
+  event: LineWebhookEvent,
+  channelAccessToken: string,
+  supabase: SupabaseClient,
+): Promise<void> {
   const replyToken = event.replyToken?.trim();
   if (!replyToken) return;
 
@@ -149,7 +193,6 @@ async function handleTextMessage(event: LineWebhookEvent, channelAccessToken: st
     return;
   }
 
-  const supabase = getSupabaseServer();
   const displayName = await fetchLineDisplayName(userId, channelAccessToken);
 
   if (command.customerName) {
@@ -174,21 +217,49 @@ async function handleTextMessage(event: LineWebhookEvent, channelAccessToken: st
 }
 
 export async function POST(req: Request) {
+  let body: LineWebhookBody = {};
   try {
-    const body = (await req.json()) as LineWebhookBody;
-    const events = body.events ?? [];
-    const textEvents = events.filter(isTextMessageEvent);
-
-    if (textEvents.length > 0) {
-      const channelAccessToken = await resolveChannelAccessToken();
-      await Promise.all(textEvents.map((event) => handleTextMessage(event, channelAccessToken)));
-    }
-
-    return NextResponse.json({ ok: true }, { status: 200 });
+    body = (await req.json()) as LineWebhookBody;
   } catch (err) {
-    console.error("line-webhook error:", err);
+    console.error("[line-webhook] invalid JSON body:", err);
     return NextResponse.json({ ok: true }, { status: 200 });
   }
+
+  const events = body.events ?? [];
+  const textEvents = events.filter(isTextMessageEvent);
+  console.log("[line-webhook] received events:", {
+    total: events.length,
+    text: textEvents.length,
+  });
+
+  if (textEvents.length === 0) {
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
+
+  const supabase = getSupabaseServer();
+
+  // STEP 1: log inbound messages first — must run regardless of any downstream failure.
+  try {
+    await logInboundEvents(supabase, textEvents);
+  } catch (err) {
+    console.error("[line-webhook] logInboundEvents threw:", err);
+  }
+
+  // STEP 2: binding + reply logic. Token fetch is wrapped so failure can't block logging.
+  try {
+    const channelAccessToken = await resolveChannelAccessToken();
+    if (channelAccessToken) {
+      await Promise.all(
+        textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
+      );
+    } else {
+      console.error("[line-webhook] no channel access token; skipping reply/binding.");
+    }
+  } catch (err) {
+    console.error("[line-webhook] handleTextMessage chain threw:", err);
+  }
+
+  return NextResponse.json({ ok: true }, { status: 200 });
 }
 
 export async function GET() {
