@@ -46,3 +46,53 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ ok: true, rows });
 }
+
+/**
+ * Delete conversations.
+ * - `?id=...` removes a single row.
+ * - `?customer_id=...&all=1` removes every conversation for the customer.
+ */
+export async function DELETE(req: Request) {
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id")?.trim() ?? "";
+  const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
+  const all = url.searchParams.get("all") === "1";
+
+  if (!id && !(customerId && all)) {
+    return NextResponse.json(
+      { ok: false, error: "id or (customer_id + all=1) is required" },
+      { status: 400 },
+    );
+  }
+
+  const supabase = getSupabaseServer();
+  let query = supabase.from("conversations").delete();
+  if (id) {
+    query = query.eq("id", id);
+  } else {
+    query = query.eq("customer_id", customerId);
+  }
+
+  const { data, error } = await query.select("id");
+
+  if (error) {
+    console.error("[conversations] DELETE error:", {
+      id,
+      customerId,
+      all,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    });
+    return NextResponse.json(
+      { ok: false, error: error.message, deletedCount: 0 },
+      { status: 500 },
+    );
+  }
+
+  const deletedCount = data?.length ?? 0;
+  console.log("[conversations] DELETE ok:", { id, customerId, all, deletedCount });
+
+  return NextResponse.json({ ok: true, deletedCount });
+}

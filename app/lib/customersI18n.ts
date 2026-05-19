@@ -192,5 +192,12 @@ export function customerDetailCopy(lang: AppLang) {
     conversationsLoading: zh ? "載入中…" : "Loading…",
     directionInbound: zh ? "客戶" : "Inbound",
     directionOutbound: zh ? "系統" : "Outbound",
+    conversationDeleteAria: zh ? "刪除這筆對話" : "Delete this message",
+    conversationDeleteConfirm: "確定要刪除這筆對話？",
+    conversationClearAll: zh ? "清空全部對話" : "Clear all conversations",
+    conversationClearAllConfirm: zh
+      ? "確定要清空此客戶的全部對話？"
+      : "Delete every conversation for this customer?",
+    conversationDeleting: zh ? "刪除中…" : "Deleting…",
   };
 }
