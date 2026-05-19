@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
@@ -24,6 +25,11 @@ type LineProfile = {
   displayName?: string;
 };
 
+type CustomerLookupRow = {
+  id: string | number;
+  customer_name: string | null;
+};
+
 const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 
 const BIND_SUCCESS_REPLY =
@@ -32,12 +38,22 @@ const BIND_SUCCESS_REPLY =
 const BIND_INSTRUCTION_REPLY =
   "我已收到您的訊息，目前請輸入「綁定」完成 LINE CRM 通知設定。";
 
+const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
+
+const BIND_COMMAND = "綁定";
+
 function isTextMessageEvent(event: LineWebhookEvent): boolean {
   return event.type === "message" && event.message?.type === "text";
 }
 
-function isBindMessage(event: LineWebhookEvent): boolean {
-  return isTextMessageEvent(event) && event.message?.text?.trim() === "綁定";
+/** Parses "綁定" or "綁定 {name}" → { customerName }. Returns null if not a bind command. */
+function parseBindCommand(text: string | null | undefined): { customerName: string | null } | null {
+  const raw = text?.trim();
+  if (!raw) return null;
+  if (raw === BIND_COMMAND) return { customerName: null };
+  if (!raw.startsWith(BIND_COMMAND)) return null;
+  const remainder = raw.slice(BIND_COMMAND.length).trim();
+  return { customerName: remainder || null };
 }
 
 async function fetchLineDisplayName(userId: string, channelAccessToken: string): Promise<string | null> {
@@ -59,15 +75,53 @@ async function fetchLineDisplayName(userId: string, channelAccessToken: string):
   return profile.displayName?.trim() || null;
 }
 
-async function bindLineUser(userId: string, displayName: string | null): Promise<void> {
-  const supabase = getSupabaseServer();
-  const { error } = await supabase.from("line_users").upsert(
-    {
-      line_user_id: userId,
-      display_name: displayName,
-    },
-    { onConflict: "line_user_id" },
-  );
+/** Find a CRM customer by name: exact match first, then case-insensitive substring. */
+async function findCustomerByName(
+  supabase: SupabaseClient,
+  customerName: string,
+): Promise<CustomerLookupRow | null> {
+  const exact = await supabase
+    .from("customers")
+    .select("id, customer_name")
+    .eq("customer_name", customerName)
+    .limit(1)
+    .maybeSingle();
+
+  if (exact.error) {
+    console.error("customers exact lookup failed:", exact.error.message);
+  } else if (exact.data) {
+    return exact.data as CustomerLookupRow;
+  }
+
+  const fuzzy = await supabase
+    .from("customers")
+    .select("id, customer_name")
+    .ilike("customer_name", `%${customerName}%`)
+    .limit(1)
+    .maybeSingle();
+
+  if (fuzzy.error) {
+    console.error("customers fuzzy lookup failed:", fuzzy.error.message);
+    return null;
+  }
+  return (fuzzy.data as CustomerLookupRow | null) ?? null;
+}
+
+async function upsertLineUser(
+  supabase: SupabaseClient,
+  userId: string,
+  displayName: string | null,
+  customerId: string | null,
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    line_user_id: userId,
+    display_name: displayName,
+  };
+  if (customerId !== null) row.customer_id = customerId;
+
+  const { error } = await supabase
+    .from("line_users")
+    .upsert(row, { onConflict: "line_user_id" });
 
   if (error) {
     throw new Error(error.message);
@@ -83,20 +137,40 @@ async function handleTextMessage(event: LineWebhookEvent, channelAccessToken: st
   const replyToken = event.replyToken?.trim();
   if (!replyToken) return;
 
-  if (isBindMessage(event)) {
-    const userId = event.source?.userId?.trim();
-    if (!userId) {
-      await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
-      return;
-    }
-
-    const displayName = await fetchLineDisplayName(userId, channelAccessToken);
-    await bindLineUser(userId, displayName);
-    await sendLineReplyMessage(replyToken, BIND_SUCCESS_REPLY, channelAccessToken);
+  const command = parseBindCommand(event.message?.text);
+  if (!command) {
+    await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
     return;
   }
 
-  await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
+  const userId = event.source?.userId?.trim();
+  if (!userId) {
+    await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
+    return;
+  }
+
+  const supabase = getSupabaseServer();
+  const displayName = await fetchLineDisplayName(userId, channelAccessToken);
+
+  if (command.customerName) {
+    const customer = await findCustomerByName(supabase, command.customerName);
+    if (!customer) {
+      await sendLineReplyMessage(replyToken, CUSTOMER_NOT_FOUND_REPLY, channelAccessToken);
+      return;
+    }
+
+    await upsertLineUser(supabase, userId, displayName, String(customer.id));
+    const matchedName = customer.customer_name?.trim() || command.customerName;
+    await sendLineReplyMessage(
+      replyToken,
+      `已綁定客戶：${matchedName} ✅`,
+      channelAccessToken,
+    );
+    return;
+  }
+
+  await upsertLineUser(supabase, userId, displayName, null);
+  await sendLineReplyMessage(replyToken, BIND_SUCCESS_REPLY, channelAccessToken);
 }
 
 export async function POST(req: Request) {
