@@ -49,6 +49,8 @@ import {
 } from "./lib/followUpWorkspace";
 import {
   formatClassifiedImportantDatesDisplay,
+  parseFirstDateYmdFromText,
+  parseFollowUpDateYmdFromChat,
   parseClassifiedImportantDatesFromChat,
   parseImportantDateFromChat,
 } from "./lib/dateParser";
@@ -448,7 +450,16 @@ export default function Home() {
       follow_up_mode: "manual",
     };
 
-    if (isHighDealProbability(dealProb)) {
+    const extractedFollowUpDate =
+      parseFollowUpDateYmdFromChat(lineText) ??
+      parseFollowUpDateYmdFromChat(analysis.importantDate) ??
+      parseFirstDateYmdFromText(analysis.followUp) ??
+      parseFirstDateYmdFromText(analysis.todo) ??
+      parseFirstDateYmdFromText(analysis.nextStep);
+
+    if (extractedFollowUpDate) {
+      insertRow.follow_up_date = extractedFollowUpDate;
+    } else if (isHighDealProbability(dealProb)) {
       insertRow.follow_up_date = computeHighPotentialFollowUpDate();
     }
 

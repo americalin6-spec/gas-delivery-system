@@ -65,6 +65,42 @@
       "namedRegex": "^/alerts(?:/)?$"
     },
     {
+      "page": "/api/analyze",
+      "regex": "^/api/analyze(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/analyze(?:/)?$"
+    },
+    {
+      "page": "/api/line-push-test",
+      "regex": "^/api/line\\-push\\-test(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/line\\-push\\-test(?:/)?$"
+    },
+    {
+      "page": "/api/line-webhook",
+      "regex": "^/api/line\\-webhook(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/line\\-webhook(?:/)?$"
+    },
+    {
+      "page": "/api/reminder-check",
+      "regex": "^/api/reminder\\-check(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/reminder\\-check(?:/)?$"
+    },
+    {
+      "page": "/api/reminder-settings",
+      "regex": "^/api/reminder\\-settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/reminder\\-settings(?:/)?$"
+    },
+    {
+      "page": "/api/save",
+      "regex": "^/api/save(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/save(?:/)?$"
+    },
+    {
       "page": "/calendar",
       "regex": "^/calendar(?:/)?$",
       "routeKeys": {},

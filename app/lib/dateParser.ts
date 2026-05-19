@@ -31,10 +31,15 @@ const WEEKDAY_CHAR_TO_JS: Record<string, number> = {
   六: 6,
 };
 
-const RELATIVE_DAY_RE = /今天|今日|明天|明日|後天|后天/gu;
+const RELATIVE_DAY_RE = /後天|后天|明天|明日|今天|今日|\bday\s+after\s+tomorrow\b|\btomorrow\b|\btoday\b/giu;
+
+const NUMERIC_DATE_RE = /(?:(\d{4})[\/\-年])?(\d{1,2})[\/\-月](\d{1,2})(?:日)?/gu;
 
 const WEEKDAY_EXPR_RE =
   /(下下週|下下星期|下下周|下週|下星期|下周|本週|本星期|本周|这周|這週|这週)(?:週|周|星期|禮拜|礼拜)?([一二三四五六日天])|(?:週|周|星期|禮拜|礼拜)([一二三四五六日天])/gu;
+
+const WEEK_ONLY_EXPR_RE =
+  /(下下週|下下星期|下下周|下週|下星期|下周|本週|本星期|本周|这周|這週|这週)(?![一二三四五六日天])|\b(next\s+week|this\s+week)\b/giu;
 
 const CLAUSE_SPLIT_RE = /[，,；;。！!？?\n]+/u;
 
@@ -48,7 +53,7 @@ const MEETING_CONTEXT_RE =
   /開會|會議|討論|碰面|見面|聊聊|視訊|拜訪|meeting|appointment|call\s*with/i;
 
 const FOLLOW_UP_CONTEXT_RE =
-  /追蹤|聯絡|回電|回覆我|follow\s*up|再聯絡|後續跟進|跟进|跟进联系/i;
+  /追蹤|聯絡|聯繫|联系|回電|回覆我|follow\s*up|contact|call\s*back|再聯絡|後續跟進|跟进|跟进联系/i;
 
 function startOfLocalDay(d: Date): Date {
   const x = new Date(d);
@@ -89,17 +94,30 @@ function dateForWeekday(ref: Date, weekOffset: number, jsWeekday: number): Date 
 
 function parseRelativeDayToken(token: string, ref: Date): Date | null {
   if (/今天|今日/.test(token)) return startOfLocalDay(ref);
-  if (/明天|明日/.test(token)) {
+  if (/today/i.test(token)) return startOfLocalDay(ref);
+  if (/明天|明日/.test(token) || /^tomorrow$/i.test(token)) {
     const d = startOfLocalDay(ref);
     d.setDate(d.getDate() + 1);
     return d;
   }
-  if (/後天|后天/.test(token)) {
+  if (/後天|后天/.test(token) || /day\s+after\s+tomorrow/i.test(token)) {
     const d = startOfLocalDay(ref);
     d.setDate(d.getDate() + 2);
     return d;
   }
   return null;
+}
+
+function parseNumericDateMatch(yearRaw: string | undefined, monthRaw: string, dayRaw: string, ref: Date): Date | null {
+  const year = yearRaw ? Number(yearRaw) : ref.getFullYear();
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return startOfLocalDay(d);
 }
 
 function ymdKey(d: Date): string {
@@ -131,6 +149,11 @@ export function parseDatesFromChat(text: string, referenceDate: Date = new Date(
   const ref = startOfLocalDay(referenceDate);
   const found: Date[] = [];
 
+  for (const m of raw.matchAll(NUMERIC_DATE_RE)) {
+    const d = parseNumericDateMatch(m[1], m[2], m[3], ref);
+    if (d) found.push(d);
+  }
+
   for (const m of raw.matchAll(RELATIVE_DAY_RE)) {
     const token = m[0];
     const d = parseRelativeDayToken(token, ref);
@@ -145,6 +168,13 @@ export function parseDatesFromChat(text: string, referenceDate: Date = new Date(
     if (jsWd == null) continue;
     const weekOffset = parseWeekOffset(prefix);
     found.push(dateForWeekday(ref, weekOffset, jsWd));
+  }
+
+  for (const m of raw.matchAll(WEEK_ONLY_EXPR_RE)) {
+    const zhPrefix = m[1];
+    const enPrefix = m[2];
+    const weekOffset = enPrefix ? (/\bnext/i.test(enPrefix) ? 1 : 0) : parseWeekOffset(zhPrefix);
+    found.push(dateForWeekday(ref, weekOffset, 1));
   }
 
   return dedupeSortDates(found);
@@ -164,9 +194,9 @@ export function classifyClauseDateIntent(clause: string): DateIntentType | null 
     return "shooting_date";
   }
 
-  if (/週|星期|周|禮拜|礼拜/.test(c)) return "shooting_date";
+  if (/週|星期|周|禮拜|礼拜|\bnext\s+week\b|\bthis\s+week\b/i.test(c)) return "shooting_date";
 
-  if (/明天|今天|後天|后天|今日|明日/.test(c)) return "follow_up_date";
+  if (/明天|今天|後天|后天|今日|明日|\btoday\b|\btomorrow\b/i.test(c)) return "follow_up_date";
 
   return null;
 }
@@ -211,6 +241,54 @@ export function formatImportantDates(dates: Date[], lang: "zh" | "en"): string {
   if (dates.length === 0) return "";
   const sep = lang === "zh" ? "、" : ", ";
   return dates.map((d) => formatImportantDateLabel(d, lang)).join(sep);
+}
+
+function formatYmd(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+/** First follow-up date in DB-safe YYYY-MM-DD format. */
+export function parseFollowUpDateYmdFromChat(
+  text: string,
+  referenceDate: Date = new Date(),
+): string | null {
+  const raw = text.trim();
+  if (!raw) return null;
+
+  const followUpDates: Date[] = [];
+  const clauses = splitClauses(raw);
+  const segments = clauses.length > 0 ? clauses : [raw];
+
+  for (const clause of segments) {
+    const dates = parseDatesFromChat(clause, referenceDate);
+    if (dates.length === 0) continue;
+
+    const intent = classifyClauseDateIntent(clause);
+    if (intent === "follow_up_date") {
+      mergeDatesIntoBucket(followUpDates, dates);
+    }
+  }
+
+  if (followUpDates.length > 0) return formatYmd(followUpDates[0]);
+
+  // This path is used for dedicated follow-up fields such as "明天追蹤" / "Contact next week".
+  if (FOLLOW_UP_CONTEXT_RE.test(raw)) {
+    const dates = parseDatesFromChat(raw, referenceDate);
+    if (dates.length > 0) return formatYmd(dates[0]);
+  }
+
+  return null;
+}
+
+/** First parsed date in DB-safe YYYY-MM-DD format; use only for dedicated date/follow-up fields. */
+export function parseFirstDateYmdFromText(
+  text: string,
+  referenceDate: Date = new Date(),
+): string | null {
+  const dates = parseDatesFromChat(text, referenceDate);
+  return dates.length > 0 ? formatYmd(dates[0]) : null;
 }
 
 /**

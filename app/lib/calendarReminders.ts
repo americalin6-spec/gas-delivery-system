@@ -16,6 +16,7 @@ export type ReminderCustomerRow = {
   estimated_amount?: string | null;
   success_rate?: string | null;
   follow_up_date?: string | null;
+  next_follow_up_at?: string | null;
   urgency?: string | null;
   reminder_status?: string | null;
   last_contacted_at?: string | null;

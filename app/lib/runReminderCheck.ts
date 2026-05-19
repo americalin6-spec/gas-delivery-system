@@ -18,10 +18,28 @@ export type ReminderCheckResult = {
   skipped?: boolean;
   reason?: string;
   dueCount: number;
+  /** Rows returned from `customers` select (helps debug RLS / empty data). */
+  fetchedRowCount?: number;
   sent: boolean;
   lineError?: string;
   preview?: string;
 };
+
+/** Load CRM rows and compute due list (Taipei calendar + follow_up_date / next_follow_up_at). */
+export async function fetchReminderCheckState(): Promise<{
+  rows: ReminderCustomerRow[];
+  error: string | null;
+  due: DueReminderCustomer[];
+}> {
+  const supabase = getSupabaseServer();
+  const { data, error } = await supabase.from("customers").select(REMINDER_CHECK_SELECT);
+  const rows = (data ?? []) as ReminderCustomerRow[];
+  return {
+    rows,
+    error: error?.message ?? null,
+    due: filterDueFollowUpCustomers(rows),
+  };
+}
 
 export async function runReminderCheck(options?: {
   force?: boolean;
@@ -31,15 +49,15 @@ export async function runReminderCheck(options?: {
   const settings = await loadLineReminderSettings();
 
   if (!settings.enabled && !options?.force) {
-    return { ok: true, skipped: true, reason: "disabled", dueCount: 0, sent: false };
+    return { ok: true, skipped: true, reason: "disabled", dueCount: 0, fetchedRowCount: 0, sent: false };
   }
 
   if (!settings.channel_access_token.trim()) {
-    return { ok: false, reason: "missing_channel_access_token", dueCount: 0, sent: false };
+    return { ok: false, reason: "missing_channel_access_token", dueCount: 0, fetchedRowCount: 0, sent: false };
   }
 
   if (!settings.user_id.trim()) {
-    return { ok: false, reason: "missing_user_id", dueCount: 0, sent: false };
+    return { ok: false, reason: "missing_user_id", dueCount: 0, fetchedRowCount: 0, sent: false };
   }
 
   if (!options?.force && !shouldRunScheduledReminder(settings)) {
@@ -48,22 +66,30 @@ export async function runReminderCheck(options?: {
       skipped: true,
       reason: "outside_schedule",
       dueCount: 0,
+      fetchedRowCount: 0,
       sent: false,
     };
   }
 
-  const supabase = getSupabaseServer();
-  const { data, error } = await supabase.from("customers").select(REMINDER_CHECK_SELECT);
+  const { rows, error, due } = await fetchReminderCheckState();
+  const fetchedRowCount = rows.length;
 
   if (error) {
-    return { ok: false, reason: error.message, dueCount: 0, sent: false };
+    return { ok: false, reason: error, dueCount: 0, fetchedRowCount: 0, sent: false };
   }
 
-  const due = filterDueFollowUpCustomers((data ?? []) as ReminderCustomerRow[]);
   const message = formatLineReminderMessage(due, lang);
 
   if (due.length === 0 && !options?.force) {
-    return { ok: true, skipped: true, reason: "no_due_customers", dueCount: 0, sent: false, preview: message };
+    return {
+      ok: true,
+      skipped: true,
+      reason: "no_due_customers",
+      dueCount: 0,
+      fetchedRowCount,
+      sent: false,
+      preview: message,
+    };
   }
 
   const notify = await sendLinePushMessage(
@@ -76,6 +102,7 @@ export async function runReminderCheck(options?: {
     return {
       ok: false,
       dueCount: due.length,
+      fetchedRowCount,
       sent: false,
       lineError: notify.error,
       preview: message,
@@ -89,14 +116,14 @@ export async function runReminderCheck(options?: {
   return {
     ok: true,
     dueCount: due.length,
+    fetchedRowCount,
     sent: true,
     preview: message,
   };
 }
 
 export async function fetchDueReminderCustomers(): Promise<DueReminderCustomer[]> {
-  const supabase = getSupabaseServer();
-  const { data, error } = await supabase.from("customers").select(REMINDER_CHECK_SELECT);
+  const { due, error } = await fetchReminderCheckState();
   if (error) return [];
-  return filterDueFollowUpCustomers((data ?? []) as ReminderCustomerRow[]);
+  return due;
 }

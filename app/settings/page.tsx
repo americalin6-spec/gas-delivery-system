@@ -10,12 +10,17 @@ const MOBILE_MAX = 1024;
 
 type SettingsResponse = {
   enabled: boolean;
-  notify_hour: number;
-  channel_access_token_set: boolean;
-  channel_access_token_masked: string;
+  reminder_time: string;
+  channel_access_token: string;
   user_id: string;
-  last_sent_date: string | null;
 };
+
+function reminderTimeToHour(reminderTime: string): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(reminderTime.trim());
+  if (!m) return 9;
+  const h = parseInt(m[1], 10);
+  return Number.isFinite(h) ? Math.min(23, Math.max(0, h)) : 9;
+}
 
 export default function LineReminderSettingsPage() {
   const { lang } = useAppLang();
@@ -28,8 +33,6 @@ export default function LineReminderSettingsPage() {
   const [channelAccessTokenInput, setChannelAccessTokenInput] = useState("");
   const [userId, setUserId] = useState("");
   const [channelAccessTokenSet, setChannelAccessTokenSet] = useState(false);
-  const [channelAccessTokenMasked, setChannelAccessTokenMasked] = useState("");
-  const [lastSent, setLastSent] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "test" | "run" | null>(null);
@@ -41,11 +44,10 @@ export default function LineReminderSettingsPage() {
       if (!res.ok) throw new Error(t.loadError);
       const data = (await res.json()) as SettingsResponse;
       setEnabled(data.enabled);
-      setNotifyHour(data.notify_hour);
-      setChannelAccessTokenSet(data.channel_access_token_set);
-      setChannelAccessTokenMasked(data.channel_access_token_masked);
+      setNotifyHour(reminderTimeToHour(data.reminder_time));
+      setChannelAccessTokenSet(Boolean(data.channel_access_token?.trim()));
       setUserId(data.user_id ?? "");
-      setLastSent(data.last_sent_date);
+      setChannelAccessTokenInput("");
     } catch {
       setError(t.loadError);
     } finally {
@@ -67,7 +69,7 @@ export default function LineReminderSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled,
-          notify_hour: notifyHour,
+          reminder_time: `${String(notifyHour).padStart(2, "0")}:00`,
           user_id: userId.trim(),
           ...(channelAccessTokenInput.trim()
             ? { channel_access_token: channelAccessTokenInput.trim() }
@@ -76,10 +78,8 @@ export default function LineReminderSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error ?? t.saveError);
-      setChannelAccessTokenSet(data.channel_access_token_set);
-      setChannelAccessTokenMasked(data.channel_access_token_masked);
+      setChannelAccessTokenSet(Boolean(data.channel_access_token?.trim()));
       setUserId(data.user_id ?? "");
-      setLastSent(data.last_sent_date);
       setChannelAccessTokenInput("");
       setStatus(t.saved);
     } catch (e) {
@@ -219,9 +219,9 @@ export default function LineReminderSettingsPage() {
 
           <div>
             <label style={{ display: "block", marginBottom: 8, fontWeight: 600 }}>{t.tokenLabel}</label>
-            {channelAccessTokenSet && channelAccessTokenMasked ? (
+            {channelAccessTokenSet ? (
               <p style={{ margin: "0 0 8px", fontSize: 14, opacity: 0.85 }}>
-                {t.tokenMasked} {channelAccessTokenMasked}
+                {lang === "zh" ? "已儲存 Channel Access Token（輸入新值可覆寫）" : "Channel Access Token saved (enter a new value to replace)"}
               </p>
             ) : null}
             <input
@@ -265,12 +265,6 @@ export default function LineReminderSettingsPage() {
             />
             <p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.7, lineHeight: 1.5 }}>{t.userIdHint}</p>
           </div>
-
-          {lastSent ? (
-            <p style={{ margin: 0, fontSize: 14, opacity: 0.85 }}>
-              {t.lastSent}：{lastSent}
-            </p>
-          ) : null}
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             <button

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { sendLinePushMessage } from "../../app/lib/lineMessaging";
-import { loadLineReminderSettings } from "../../app/lib/lineReminderSettingsServer";
-import { formatLineReminderMessage } from "../../app/lib/reminderCheck";
-import { fetchDueReminderCustomers } from "../../app/lib/runReminderCheck";
+import { sendLinePushMessage } from "../../lib/lineMessaging";
+import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
+import { formatLineReminderMessage } from "../../lib/reminderCheck";
+import { fetchDueReminderCustomers } from "../../lib/runReminderCheck";
 
 /** Send a test LINE Messaging API push to the configured personal User ID. */
 export async function POST(req: Request) {

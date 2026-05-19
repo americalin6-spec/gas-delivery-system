@@ -23,6 +23,43 @@ export function formatLocalYmd(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+/** Calendar YYYY-MM-DD for `d` interpreted in `timeZone` (e.g. Asia/Taipei). */
+export function formatYmdInTimeZone(d: Date, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return formatLocalYmd(d);
+  }
+}
+
+/** Today's calendar date in Asia/Taipei (for CRM follow-up vs server TZ). */
+export function getTaipeiTodayYmd(now: Date = new Date()): string {
+  return formatYmdInTimeZone(now, "Asia/Taipei");
+}
+
+/** Map a DB timestamptz / ISO string to its calendar date in Asia/Taipei. */
+export function timestampToTaipeiYmd(value: unknown): string | null {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(String(value).trim());
+  if (Number.isNaN(d.getTime())) return null;
+  return formatYmdInTimeZone(d, "Asia/Taipei");
+}
+
+/** Signed day difference between two YYYY-MM-DD strings (pure calendar, UTC-safe). */
+export function diffCalendarDaysYmd(fromYmd: string, toYmd: string): number | null {
+  const ma = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fromYmd);
+  const mb = /^(\d{4})-(\d{2})-(\d{2})$/.exec(toYmd);
+  if (!ma || !mb) return null;
+  const ta = Date.UTC(Number(ma[1]), Number(ma[2]) - 1, Number(ma[3]));
+  const tb = Date.UTC(Number(mb[1]), Number(mb[2]) - 1, Number(mb[3]));
+  return Math.round((tb - ta) / 86400000);
+}
+
 /** Random 1–3 days from today */
 export function computeHighPotentialFollowUpDate(): string {
   const offsetDays = 1 + Math.floor(Math.random() * 3);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { formatLineReminderMessage } from "../../app/lib/reminderCheck";
-import { fetchDueReminderCustomers, runReminderCheck } from "../../app/lib/runReminderCheck";
+import { formatLineReminderMessage } from "../../lib/reminderCheck";
+import { fetchReminderCheckState, runReminderCheck } from "../../lib/runReminderCheck";
 
 function isAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
@@ -26,10 +26,12 @@ export async function GET(req: Request) {
   const previewOnly = url.searchParams.get("preview") === "1";
 
   if (previewOnly) {
-    const due = await fetchDueReminderCustomers();
+    const { due, rows, error } = await fetchReminderCheckState();
     return NextResponse.json({
-      ok: true,
+      ok: !error,
+      ...(error ? { supabaseError: error } : {}),
       dueCount: due.length,
+      fetchedRowCount: rows.length,
       preview: formatLineReminderMessage(due, "zh"),
     });
   }
