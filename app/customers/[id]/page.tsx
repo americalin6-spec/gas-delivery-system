@@ -33,6 +33,7 @@ import {
   normalizeFollowUpMode,
   type FollowUpMode,
 } from "../../lib/followUpMode";
+import { CustomerConversationHistory } from "../../components/CustomerConversationHistory";
 import { LineOpenFallbackModal } from "../../components/LineOpenFallbackModal";
 import { tryOpenLineApp } from "../../lib/openLineApp";
 import { supabase } from "../../../supabase";
@@ -827,6 +828,12 @@ export default function CustomerDetailPage() {
                     copyWithFallback={copyWithFallback}
                   />
                 </section>
+
+                <CustomerConversationHistory
+                  customerId={String(customer.id)}
+                  isMobile={isMobile}
+                  lang={lang}
+                />
 
                 {(customer.created_at || customer.updated_at) && (
                   <section style={{ ...cardStyle(isMobile), opacity: 0.92 }}>

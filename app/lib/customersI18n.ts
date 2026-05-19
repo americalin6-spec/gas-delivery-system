@@ -187,5 +187,10 @@ export function customerDetailCopy(lang: AppLang) {
     simulatedSent: zh ? "已模擬送出追蹤訊息。" : "Follow-up simulated.",
     simulatedAutoSent: zh ? "已模擬自動發送追蹤訊息。" : "Auto follow-up simulated.",
     processingLine: zh ? "處理中…" : "Processing…",
+    conversationsTitle: zh ? "對話紀錄" : "Conversation history",
+    conversationsEmpty: "No conversations yet.",
+    conversationsLoading: zh ? "載入中…" : "Loading…",
+    directionInbound: zh ? "客戶" : "Inbound",
+    directionOutbound: zh ? "系統" : "Outbound",
   };
 }
