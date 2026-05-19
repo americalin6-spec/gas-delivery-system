@@ -6,6 +6,10 @@ type LineUserCustomerRow = {
   customer_id: string | null;
 };
 
+type LineUserIdRow = {
+  line_user_id: string | null;
+};
+
 /** Look up the CRM customer bound to a LINE user (via line_users.customer_id). */
 export async function findCustomerIdForLineUser(
   supabase: SupabaseClient,
@@ -26,6 +30,28 @@ export async function findCustomerIdForLineUser(
 
   const row = data as LineUserCustomerRow | null;
   return row?.customer_id?.toString().trim() || null;
+}
+
+/** Look up the LINE user bound to a CRM customer (via line_users.customer_id). */
+export async function findLineUserIdForCustomer(
+  supabase: SupabaseClient,
+  customerId: string,
+): Promise<string | null> {
+  if (!customerId.trim()) return null;
+
+  const { data, error } = await supabase
+    .from("line_users")
+    .select("line_user_id")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("line_users reverse lookup failed:", error.message);
+    return null;
+  }
+
+  const row = data as LineUserIdRow | null;
+  return row?.line_user_id?.toString().trim() || null;
 }
 
 /**

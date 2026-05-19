@@ -1,8 +1,88 @@
 import { NextResponse } from "next/server";
+import { findLineUserIdForCustomer } from "../../lib/conversationsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 
 const CONVERSATIONS_SELECT =
   "id, customer_id, line_user_id, message_text, direction, created_at";
+
+type ConversationInsertBody = {
+  customer_id?: string | null;
+  message_text?: string | null;
+  line_user_id?: string | null;
+  direction?: "inbound" | "outbound" | string | null;
+};
+
+/** Insert a conversation row (typically outbound messages sent/copied from CRM). */
+export async function POST(req: Request) {
+  let body: ConversationInsertBody = {};
+  try {
+    body = (await req.json()) as ConversationInsertBody;
+  } catch (err) {
+    console.error("[conversations] POST invalid JSON:", err);
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const customerId = body.customer_id?.toString().trim() ?? "";
+  const messageText = body.message_text?.toString() ?? "";
+
+  if (!customerId) {
+    return NextResponse.json(
+      { ok: false, error: "customer_id is required" },
+      { status: 400 },
+    );
+  }
+  if (!messageText.trim()) {
+    return NextResponse.json(
+      { ok: false, error: "message_text is required" },
+      { status: 400 },
+    );
+  }
+
+  const supabase = getSupabaseServer();
+  const direction = body.direction?.toString().trim() === "inbound" ? "inbound" : "outbound";
+
+  let lineUserId = body.line_user_id?.toString().trim() ?? "";
+  if (!lineUserId) {
+    lineUserId = (await findLineUserIdForCustomer(supabase, customerId)) ?? "";
+  }
+
+  const payload: Record<string, unknown> = {
+    customer_id: customerId,
+    message_text: messageText,
+    direction,
+    line_user_id: lineUserId || null,
+  };
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .insert(payload)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[conversations] POST insert error:", {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+      payload,
+    });
+    return NextResponse.json(
+      { ok: false, error: error.message },
+      { status: 500 },
+    );
+  }
+
+  console.log("[conversations] POST ok:", {
+    id: data?.id ?? null,
+    customerId,
+    direction,
+    lineUserId: lineUserId || null,
+    message_length: messageText.length,
+  });
+
+  return NextResponse.json({ ok: true, id: data?.id ?? null });
+}
 
 /** Fetch CRM conversation history for a customer. Server-side reads bypass anon RLS. */
 export async function GET(req: Request) {

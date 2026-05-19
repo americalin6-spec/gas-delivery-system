@@ -212,6 +212,39 @@ export default function CustomerDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [conversationRefresh, setConversationRefresh] = useState(0);
+
+  const logOutboundMessage = useCallback(
+    async (messageText: string): Promise<boolean> => {
+      const text = messageText.trim();
+      if (!id || !text) return false;
+      try {
+        const res = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customer_id: String(id),
+            message_text: text,
+            direction: "outbound",
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (!res.ok || !body.ok) {
+          console.error("[customers/[id]] outbound log failed:", {
+            status: res.status,
+            error: body.error,
+          });
+          return false;
+        }
+        setConversationRefresh((n) => n + 1);
+        return true;
+      } catch (err) {
+        console.error("[customers/[id]] outbound log threw:", err);
+        return false;
+      }
+    },
+    [id],
+  );
 
   const isMobile = useIsViewportBelow(MOBILE_MAX);
   const { lang } = useAppLang();
@@ -648,6 +681,7 @@ export default function CustomerDetailPage() {
                 showToast={setToast}
                 copyWithFallback={copyWithFallback}
                 onAfterSimulatedSend={() => void fetchCustomer()}
+                logOutboundMessage={logOutboundMessage}
               />
             )}
 
@@ -826,6 +860,7 @@ export default function CustomerDetailPage() {
                     isMobile={isMobile}
                     lang={lang}
                     copyWithFallback={copyWithFallback}
+                    logOutboundMessage={logOutboundMessage}
                   />
                 </section>
 
@@ -833,6 +868,7 @@ export default function CustomerDetailPage() {
                   customerId={String(customer.id)}
                   isMobile={isMobile}
                   lang={lang}
+                  refreshSignal={conversationRefresh}
                 />
 
                 {(customer.created_at || customer.updated_at) && (
@@ -908,6 +944,7 @@ function LineQuickActionsBar({
   showToast,
   copyWithFallback,
   onAfterSimulatedSend,
+  logOutboundMessage,
 }: {
   customer: Customer;
   customerId: string;
@@ -916,6 +953,7 @@ function LineQuickActionsBar({
   showToast: (message: string) => void;
   copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
   onAfterSimulatedSend: () => void | Promise<void>;
+  logOutboundMessage: (messageText: string) => Promise<boolean>;
 }) {
   const t = customerDetailCopy(lang);
   const [sendBusy, setSendBusy] = useState(false);
@@ -938,7 +976,7 @@ function LineQuickActionsBar({
     copiedLabel: "Copied!",
   };
 
-  async function copyClip(kind: string, text: string) {
+  async function copyClip(kind: string, text: string, logAsOutbound = false) {
     const body = text.trim();
     if (!body) {
       alert(t.nothingToCopy);
@@ -948,7 +986,10 @@ function LineQuickActionsBar({
       ...copyModalOpts,
       title: `Copy ${kind}`,
       description: "Tap the button to copy, then paste where you need it.",
-      onSuccess: () => alert(t.copiedKind(kind)),
+      onSuccess: () => {
+        alert(t.copiedKind(kind));
+        if (logAsOutbound) void logOutboundMessage(body);
+      },
     });
   }
 
@@ -1004,6 +1045,7 @@ function LineQuickActionsBar({
       return;
     }
 
+    void logOutboundMessage(followUpDraft);
     await onAfterSimulatedSend();
     showToast(t.followUpCopiedToast);
     window.setTimeout(() => openLineAppWithFallback(), 520);
@@ -1189,7 +1231,7 @@ function LineQuickActionsBar({
           <button
             type="button"
             style={btnGhostLine}
-            onClick={() => void copyClip(t.copyFollowUp, followUpDraft)}
+            onClick={() => void copyClip(t.copyFollowUp, followUpDraft, true)}
           >
 {t.copyFollowUp}
           </button>
@@ -1332,12 +1374,14 @@ function FollowUpMessagingBlock({
   isMobile,
   lang,
   copyWithFallback,
+  logOutboundMessage,
 }: {
   customer: Customer;
   mode: FollowUpMode;
   isMobile: boolean;
   lang: AppLang;
   copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
+  logOutboundMessage: (messageText: string) => Promise<boolean>;
 }) {
   const t = customerDetailCopy(lang);
   const suggested = buildSuggestedSalesFollowUp(customer, lang);
@@ -1379,7 +1423,10 @@ function FollowUpMessagingBlock({
       tapLabel: "Tap to Copy",
       closeLabel: t.close,
       copiedLabel: t.copiedExclaim,
-      onSuccess: () => alert(t.copied),
+      onSuccess: () => {
+        alert(t.copied);
+        void logOutboundMessage(body);
+      },
     });
   }
 
@@ -1398,6 +1445,7 @@ function FollowUpMessagingBlock({
     setBusy(false);
     const ts = new Date().toLocaleString("zh-TW");
     setLastSimulatedAt(ts);
+    void logOutboundMessage(body);
     alert(requireConfirm ? t.simulatedSent : t.simulatedAutoSent);
   }
 

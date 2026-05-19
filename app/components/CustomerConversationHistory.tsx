@@ -44,10 +44,13 @@ export function CustomerConversationHistory({
   customerId,
   isMobile,
   lang,
+  refreshSignal,
 }: {
   customerId: string;
   isMobile: boolean;
   lang: AppLang;
+  /** Bump to force a refetch (e.g. after the page logs a new outbound message). */
+  refreshSignal?: number;
 }) {
   const copy = customerDetailCopy(lang);
   const [messages, setMessages] = useState<ConversationRow[]>([]);
@@ -111,7 +114,7 @@ export function CustomerConversationHistory({
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, refreshSignal]);
 
   async function handleDeleteMessage(messageId: string | number) {
     if (typeof window === "undefined") return;
