@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 
@@ -25,8 +26,18 @@ type LineProfile = {
 
 const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 
+const BIND_SUCCESS_REPLY =
+  "綁定成功 ✅\n之後 CRM 提醒會傳到這個 LINE 帳號。";
+
+const BIND_INSTRUCTION_REPLY =
+  "我已收到您的訊息，目前請輸入「綁定」完成 LINE CRM 通知設定。";
+
+function isTextMessageEvent(event: LineWebhookEvent): boolean {
+  return event.type === "message" && event.message?.type === "text";
+}
+
 function isBindMessage(event: LineWebhookEvent): boolean {
-  return event.type === "message" && event.message?.type === "text" && event.message.text?.trim() === "綁定";
+  return isTextMessageEvent(event) && event.message?.text?.trim() === "綁定";
 }
 
 async function fetchLineDisplayName(userId: string, channelAccessToken: string): Promise<string | null> {
@@ -63,38 +74,49 @@ async function bindLineUser(userId: string, displayName: string | null): Promise
   }
 }
 
+async function resolveChannelAccessToken(): Promise<string> {
+  const settings = await loadLineReminderSettings();
+  return process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || settings.channel_access_token.trim();
+}
+
+async function handleTextMessage(event: LineWebhookEvent, channelAccessToken: string): Promise<void> {
+  const replyToken = event.replyToken?.trim();
+  if (!replyToken) return;
+
+  if (isBindMessage(event)) {
+    const userId = event.source?.userId?.trim();
+    if (!userId) {
+      await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
+      return;
+    }
+
+    const displayName = await fetchLineDisplayName(userId, channelAccessToken);
+    await bindLineUser(userId, displayName);
+    await sendLineReplyMessage(replyToken, BIND_SUCCESS_REPLY, channelAccessToken);
+    return;
+  }
+
+  await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as LineWebhookBody;
     const events = body.events ?? [];
-    const bindEvents = events.filter(isBindMessage);
+    const textEvents = events.filter(isTextMessageEvent);
 
-    if (bindEvents.length === 0) {
-      return NextResponse.json({ ok: true });
+    if (textEvents.length > 0) {
+      const channelAccessToken = await resolveChannelAccessToken();
+      await Promise.all(textEvents.map((event) => handleTextMessage(event, channelAccessToken)));
     }
 
-    const settings = await loadLineReminderSettings();
-    const channelAccessToken =
-      process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || settings.channel_access_token.trim();
-
-    await Promise.all(
-      bindEvents.map(async (event) => {
-        const userId = event.source?.userId?.trim();
-        if (!userId) return;
-
-        const displayName = await fetchLineDisplayName(userId, channelAccessToken);
-        await bindLineUser(userId, displayName);
-      }),
-    );
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
     console.error("line-webhook error:", err);
-    // LINE retries non-2xx responses, so acknowledge the webhook after logging.
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { status: 200 });
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }
