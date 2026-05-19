@@ -9,7 +9,7 @@ import {
 import { resolveCustomerHonorific } from "./customerHonorific";
 
 export const REMINDER_CHECK_SELECT =
-  "id, customer_name, company_name, customer_need, estimated_amount, next_step, follow_up, follow_up_date, next_follow_up_at, reminder_status, success_rate";
+  "id, customer_name, company_name, customer_need, estimated_amount, next_step, follow_up, follow_up_note, follow_up_date, next_follow_up_at, reminder_status, success_rate";
 
 /** Effective follow-up calendar day: explicit DATE column first, else next_follow_up_at in Taipei. */
 function effectiveReminderFollowUpYmd(row: ReminderCustomerRow): string | null {

@@ -1,3 +1,4 @@
+import { pushDueCustomerReminders, type CustomerPushResult } from "./customerLinePush";
 import { sendLinePushMessage } from "./lineMessaging";
 import {
   loadLineReminderSettings,
@@ -20,9 +21,12 @@ export type ReminderCheckResult = {
   dueCount: number;
   /** Rows returned from `customers` select (helps debug RLS / empty data). */
   fetchedRowCount?: number;
+  /** Salesperson summary push status. */
   sent: boolean;
   lineError?: string;
   preview?: string;
+  /** Per-customer LINE pushes to bound users (line_users.customer_id). */
+  customerPushes?: CustomerPushResult;
 };
 
 /** Load CRM rows and compute due list (Taipei calendar + follow_up_date / next_follow_up_at). */
@@ -47,40 +51,43 @@ export async function runReminderCheck(options?: {
 }): Promise<ReminderCheckResult> {
   const lang = options?.lang ?? "zh";
   const settings = await loadLineReminderSettings();
+  const channelAccessToken = settings.channel_access_token.trim();
+  const salespersonUserId = settings.user_id.trim();
+  const force = Boolean(options?.force);
 
-  if (!settings.enabled && !options?.force) {
-    return { ok: true, skipped: true, reason: "disabled", dueCount: 0, fetchedRowCount: 0, sent: false };
-  }
-
-  if (!settings.channel_access_token.trim()) {
-    return { ok: false, reason: "missing_channel_access_token", dueCount: 0, fetchedRowCount: 0, sent: false };
-  }
-
-  if (!settings.user_id.trim()) {
-    return { ok: false, reason: "missing_user_id", dueCount: 0, fetchedRowCount: 0, sent: false };
-  }
-
-  if (!options?.force && !shouldRunScheduledReminder(settings)) {
+  if (!channelAccessToken) {
     return {
-      ok: true,
-      skipped: true,
-      reason: "outside_schedule",
+      ok: false,
+      reason: "missing_channel_access_token",
       dueCount: 0,
       fetchedRowCount: 0,
       sent: false,
     };
   }
 
+  const salespersonEnabled = settings.enabled || force;
+  const salespersonInWindow = force || shouldRunScheduledReminder(settings);
+  const canPushSalesperson = salespersonEnabled && salespersonInWindow && salespersonUserId.length > 0;
+
   const { rows, error, due } = await fetchReminderCheckState();
   const fetchedRowCount = rows.length;
 
   if (error) {
-    return { ok: false, reason: error, dueCount: 0, fetchedRowCount: 0, sent: false };
+    return {
+      ok: false,
+      reason: error,
+      dueCount: 0,
+      fetchedRowCount: 0,
+      sent: false,
+    };
   }
 
   const message = formatLineReminderMessage(due, lang);
 
-  if (due.length === 0 && !options?.force) {
+  // Customer-side push always runs when channel access token is present and we have due rows.
+  const customerPushes = await pushDueCustomerReminders(due, channelAccessToken);
+
+  if (due.length === 0 && !force) {
     return {
       ok: true,
       skipped: true,
@@ -89,14 +96,28 @@ export async function runReminderCheck(options?: {
       fetchedRowCount,
       sent: false,
       preview: message,
+      customerPushes,
     };
   }
 
-  const notify = await sendLinePushMessage(
-    message,
-    settings.channel_access_token,
-    settings.user_id,
-  );
+  if (!canPushSalesperson) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: !settings.enabled
+        ? "salesperson_disabled"
+        : !salespersonUserId
+          ? "missing_user_id"
+          : "outside_schedule",
+      dueCount: due.length,
+      fetchedRowCount,
+      sent: false,
+      preview: message,
+      customerPushes,
+    };
+  }
+
+  const notify = await sendLinePushMessage(message, channelAccessToken, salespersonUserId);
 
   if (!notify.ok) {
     return {
@@ -106,10 +127,11 @@ export async function runReminderCheck(options?: {
       sent: false,
       lineError: notify.error,
       preview: message,
+      customerPushes,
     };
   }
 
-  if (!options?.force) {
+  if (!force) {
     await markReminderSentToday();
   }
 
@@ -119,6 +141,7 @@ export async function runReminderCheck(options?: {
     fetchedRowCount,
     sent: true,
     preview: message,
+    customerPushes,
   };
 }
 

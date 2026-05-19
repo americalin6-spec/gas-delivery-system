@@ -13,6 +13,7 @@ export type ReminderCustomerRow = {
   company_name?: string | null;
   next_step?: string | null;
   follow_up?: string | null;
+  follow_up_note?: string | null;
   estimated_amount?: string | null;
   success_rate?: string | null;
   follow_up_date?: string | null;
