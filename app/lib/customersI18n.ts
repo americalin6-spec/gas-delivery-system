@@ -58,6 +58,53 @@ export function customersListCopy(lang: AppLang) {
     companyPlaceholder: zh ? "公司名稱" : "Company name",
     phonePlaceholder: zh ? "電話" : "Phone",
     followUpTitle: (date: string) => (zh ? `追蹤：${date}` : `Follow-up: ${date}`),
+    salesStatus: zh ? "業務狀態" : "Sales status",
+    filtersTitle: zh ? "Pipeline 篩選" : "Pipeline filters",
+    filterStatus: zh ? "狀態" : "Status",
+    filterFollowUp: zh ? "追蹤日" : "Follow-up date",
+    filterUrgency: zh ? "緊急度" : "Urgency",
+    filterAll: zh ? "全部" : "All",
+    filterFollowHasDate: zh ? "已排程" : "Scheduled",
+    filterFollowNoDate: zh ? "未排程" : "Not scheduled",
+    filterFollowOverdue: zh ? "逾期" : "Overdue",
+    filterFollowToday: zh ? "今天" : "Today",
+    filterFollowNext7: zh ? "未來 7 天" : "Next 7 days",
+    filterUrgencyOverdueToday: zh ? "逾期／今日" : "Overdue / today",
+    filterUrgencyWithin3: zh ? "3 天內" : "Within 3 days",
+    filterUrgencyWithin7: zh ? "7 天內" : "Within 7 days",
+    filterUrgencyLater: zh ? "7 天以上" : "7+ days",
+    filterUrgencyCompleted: zh ? "已完成" : "Completed",
+    filterUrgencyNone: zh ? "未排程" : "Not scheduled",
+    openPipeline: zh ? "Pipeline 看板" : "Pipeline board",
+  };
+}
+
+export function pipelineBoardCopy(lang: AppLang) {
+  const zh = lang === "zh";
+  return {
+    title: zh ? "業務 Pipeline 看板" : "Sales pipeline board",
+    subtitle: (n: number) =>
+      zh ? `共 ${n} 位客戶` : `${n} customer${n === 1 ? "" : "s"}`,
+    backCustomers: zh ? "← 客戶列表" : "← Customer list",
+    backHome: zh ? "回首頁" : "Home",
+    statsTotal: zh ? "客戶總數" : "Total customers",
+    statsWon: zh ? "成交客戶" : "Won",
+    statsLost: zh ? "流失客戶" : "Lost",
+    statsConversion: zh ? "成交率" : "Conversion rate",
+    statsConversionHelp: zh
+      ? "成交 ÷ (成交 + 流失)"
+      : "Won ÷ (Won + Lost)",
+    emptyColumn: zh ? "目前沒有客戶" : "No customers yet",
+    moveTo: zh ? "移動到…" : "Move to…",
+    updating: zh ? "更新中…" : "Updating…",
+    updateFailed: zh ? "更新狀態失敗" : "Failed to update status",
+    dragHint: zh
+      ? "桌面：拖曳卡片切換狀態；手機：點選卡片上的下拉選單。"
+      : "Desktop: drag cards between columns. Mobile: use the dropdown on each card.",
+    unnamed: zh ? "未命名客戶" : "Unnamed",
+    followUpPrefix: zh ? "追蹤" : "Follow-up",
+    estimatedShort: zh ? "預估" : "Est.",
+    openCustomer: zh ? "查看" : "Open",
   };
 }
 
@@ -100,6 +147,7 @@ export function customerDetailCopy(lang: AppLang) {
       phone: zh ? "電話" : "Phone",
       line_id: "LINE",
       email: "Email",
+      status: zh ? "業務狀態" : "Sales status",
       note: zh ? "備註" : "Note",
       customer_need: zh ? "客戶需求" : "Customer needs",
       customer_emotion: zh ? "客戶情緒" : "Emotion",

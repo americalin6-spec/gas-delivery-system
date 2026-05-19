@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import {
   formatFollowUpDateDisplay,
   getFollowUpBadge,
+  getTaipeiTodayYmd,
+  diffCalendarDaysYmd,
   normalizeFollowUpDateValue,
   type FollowUpBadge,
 } from "../lib/followUpReminders";
@@ -14,9 +16,63 @@ import { useAppLang } from "../hooks/useAppLang";
 import { customersListCopy, followUpBadgeLabelForLang } from "../lib/customersI18n";
 import { translateDisplayValue } from "../lib/uiI18n";
 import type { AppLang } from "../lib/appLang";
+import {
+  normalizePipelineStatus,
+  PIPELINE_STATUSES,
+  pipelineStatusLabel,
+  type PipelineStatus,
+} from "../lib/pipelineStatus";
+import PipelineStatusBadge from "../components/PipelineStatusBadge";
 import { supabase } from "../../supabase";
 
+type StatusFilter = "all" | PipelineStatus;
+type FollowFilter = "all" | "has_date" | "no_date" | "overdue" | "today" | "next7";
+type UrgencyFilter =
+  | "all"
+  | "overdue_today"
+  | "within3"
+  | "within7"
+  | "later"
+  | "completed"
+  | "none";
+
 const CRM_MOBILE_MAX_WIDTH = 768;
+
+const filterSelectStyle: CSSProperties = {
+  width: "100%",
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(148,163,184,0.35)",
+  background: "#102742",
+  color: "white",
+  fontSize: 15,
+  fontWeight: 600,
+};
+
+function FilterColumn({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: "rgba(226,232,240,0.75)",
+        }}
+      >
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
 
 function crmFollowUpBadgeLook(
   badge: FollowUpBadge,
@@ -57,6 +113,11 @@ export default function CustomersPage() {
   const [customerName, setCustomerName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [phone, setPhone] = useState("");
+  const [newStatus, setNewStatus] = useState<PipelineStatus>("new_lead");
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [followFilter, setFollowFilter] = useState<FollowFilter>("all");
+  const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
 
   const isMobile = useIsViewportBelow(CRM_MOBILE_MAX_WIDTH);
   const { lang } = useAppLang();
@@ -92,6 +153,7 @@ export default function CustomersPage() {
         customer_name: customerName,
         company_name: companyName,
         phone: phone,
+        status: newStatus,
       },
     ]);
 
@@ -105,6 +167,7 @@ export default function CustomersPage() {
     setCustomerName("");
     setCompanyName("");
     setPhone("");
+    setNewStatus("new_lead");
 
     loadCustomers();
   }
@@ -127,17 +190,55 @@ export default function CustomersPage() {
     loadCustomers();
   }
 
-  const filteredCustomers = customers.filter((c) => {
-    const keyword = search.toLowerCase();
+  const filteredCustomers = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    const todayYmd = getTaipeiTodayYmd();
 
-    return (
-      (c.customer_name || "").toLowerCase().includes(keyword) ||
-      (c.company_name || "").toLowerCase().includes(keyword) ||
-      (c.phone || "").toLowerCase().includes(keyword) ||
-      (c.line_id || "").toLowerCase().includes(keyword) ||
-      (c.email || "").toLowerCase().includes(keyword)
-    );
-  });
+    return customers.filter((c) => {
+      if (keyword) {
+        const haystack = [
+          c.customer_name,
+          c.company_name,
+          c.phone,
+          c.line_id,
+          c.email,
+        ]
+          .map((v) => (v || "").toString().toLowerCase())
+          .join(" ");
+        if (!haystack.includes(keyword)) return false;
+      }
+
+      if (statusFilter !== "all") {
+        const s = normalizePipelineStatus(c.status);
+        if (s !== statusFilter) return false;
+      }
+
+      const followYmd = normalizeFollowUpDateValue(c.follow_up_date);
+      const dayDiff = followYmd ? diffCalendarDaysYmd(todayYmd, followYmd) : null;
+
+      if (followFilter !== "all") {
+        if (followFilter === "has_date" && !followYmd) return false;
+        if (followFilter === "no_date" && followYmd) return false;
+        if (followFilter === "overdue" && (dayDiff == null || dayDiff >= 0)) return false;
+        if (followFilter === "today" && dayDiff !== 0) return false;
+        if (followFilter === "next7" && (dayDiff == null || dayDiff < 1 || dayDiff > 7)) return false;
+      }
+
+      if (urgencyFilter !== "all") {
+        if (urgencyFilter === "none" && followYmd) return false;
+        if (urgencyFilter === "completed") {
+          const s = normalizePipelineStatus(c.status);
+          if (s !== "won" && s !== "lost") return false;
+        }
+        if (urgencyFilter === "overdue_today" && (dayDiff == null || dayDiff > 0)) return false;
+        if (urgencyFilter === "within3" && (dayDiff == null || dayDiff > 3)) return false;
+        if (urgencyFilter === "within7" && (dayDiff == null || dayDiff > 7)) return false;
+        if (urgencyFilter === "later" && (dayDiff == null || dayDiff <= 7)) return false;
+      }
+
+      return true;
+    });
+  }, [customers, search, statusFilter, followFilter, urgencyFilter]);
 
   const font =
     'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -193,23 +294,53 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <Link href="/">
-          <button
-            style={{
-              background: "#102742",
-              color: "white",
-              border: "none",
-              padding: isMobile ? "15px 20px" : "15px 26px",
-              borderRadius: 12,
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 16,
-              width: isMobile ? "100%" : "auto",
-            }}
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            flexDirection: isMobile ? "column" : "row",
+            width: isMobile ? "100%" : "auto",
+          }}
+        >
+          <Link
+            href="/pipeline"
+            style={{ width: isMobile ? "100%" : "auto" }}
           >
-            {t.backHome}
-          </button>
-        </Link>
+            <button
+              style={{
+                background: "#6366f1",
+                color: "white",
+                border: "none",
+                padding: isMobile ? "15px 20px" : "15px 26px",
+                borderRadius: 12,
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: 16,
+                width: isMobile ? "100%" : "auto",
+              }}
+            >
+              {t.openPipeline}
+            </button>
+          </Link>
+          <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>
+            <button
+              style={{
+                background: "#102742",
+                color: "white",
+                border: "none",
+                padding: isMobile ? "15px 20px" : "15px 26px",
+                borderRadius: 12,
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: 16,
+                width: isMobile ? "100%" : "auto",
+              }}
+            >
+              {t.backHome}
+            </button>
+          </Link>
+        </div>
       </div>
 
       <div
@@ -220,7 +351,7 @@ export default function CustomersPage() {
           flexDirection: isMobile ? "column" : "row",
         }}
       >
-        <div style={{ flex: 1, width: "100%" }}>
+        <div style={{ flex: 1, width: "100%", minWidth: 0 }}>
           <input
             placeholder={t.searchPlaceholder}
             value={search}
@@ -230,13 +361,70 @@ export default function CustomersPage() {
               padding: "18px 20px",
               borderRadius: 14,
               border: "none",
-              marginBottom: 28,
+              marginBottom: 16,
               background: "#102742",
               color: "white",
               fontSize: 17,
               boxSizing: "border-box",
             }}
           />
+
+          <div
+            style={{
+              background: "#081b33",
+              border: "1px solid rgba(148,163,184,0.18)",
+              padding: isMobile ? 16 : 18,
+              borderRadius: 14,
+              marginBottom: 28,
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              gap: 12,
+            }}
+          >
+            <FilterColumn label={t.filterStatus}>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                style={filterSelectStyle}
+              >
+                <option value="all">{t.filterAll}</option>
+                {PIPELINE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {pipelineStatusLabel(s, lang)}
+                  </option>
+                ))}
+              </select>
+            </FilterColumn>
+            <FilterColumn label={t.filterFollowUp}>
+              <select
+                value={followFilter}
+                onChange={(e) => setFollowFilter(e.target.value as FollowFilter)}
+                style={filterSelectStyle}
+              >
+                <option value="all">{t.filterAll}</option>
+                <option value="has_date">{t.filterFollowHasDate}</option>
+                <option value="no_date">{t.filterFollowNoDate}</option>
+                <option value="overdue">{t.filterFollowOverdue}</option>
+                <option value="today">{t.filterFollowToday}</option>
+                <option value="next7">{t.filterFollowNext7}</option>
+              </select>
+            </FilterColumn>
+            <FilterColumn label={t.filterUrgency}>
+              <select
+                value={urgencyFilter}
+                onChange={(e) => setUrgencyFilter(e.target.value as UrgencyFilter)}
+                style={filterSelectStyle}
+              >
+                <option value="all">{t.filterAll}</option>
+                <option value="overdue_today">{t.filterUrgencyOverdueToday}</option>
+                <option value="within3">{t.filterUrgencyWithin3}</option>
+                <option value="within7">{t.filterUrgencyWithin7}</option>
+                <option value="later">{t.filterUrgencyLater}</option>
+                <option value="completed">{t.filterUrgencyCompleted}</option>
+                <option value="none">{t.filterUrgencyNone}</option>
+              </select>
+            </FilterColumn>
+          </div>
 
           <div
             style={{
@@ -313,6 +501,7 @@ export default function CustomersPage() {
                         justifyContent: isMobile ? "flex-start" : "flex-end",
                       }}
                     >
+                      <PipelineStatusBadge status={c.status} lang={lang} />
                       {(() => {
                         const mode = normalizeFollowUpMode(c.follow_up_mode);
                         const mm = followUpModeBadgeMeta(mode, lang);
@@ -562,6 +751,48 @@ export default function CustomersPage() {
               fontSize: 17,
             }}
           />
+
+          <label
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              marginBottom: 14,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "rgba(226,232,240,0.7)",
+              }}
+            >
+              {t.salesStatus}
+            </span>
+            <select
+              value={newStatus}
+              onChange={(e) => setNewStatus(e.target.value as PipelineStatus)}
+              style={{
+                width: "100%",
+                padding: "14px 16px",
+                borderRadius: 10,
+                border: "none",
+                background: "#102742",
+                color: "white",
+                boxSizing: "border-box",
+                fontSize: 16,
+                fontWeight: 600,
+              }}
+            >
+              {PIPELINE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {pipelineStatusLabel(s, lang)}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <button
             onClick={handleAddCustomer}

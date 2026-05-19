@@ -35,6 +35,9 @@ import {
 } from "../../lib/followUpMode";
 import { CustomerConversationHistory } from "../../components/CustomerConversationHistory";
 import { LineOpenFallbackModal } from "../../components/LineOpenFallbackModal";
+import PipelineStatusBadge from "../../components/PipelineStatusBadge";
+import PipelineStatusSelect from "../../components/PipelineStatusSelect";
+import { normalizePipelineStatus } from "../../lib/pipelineStatus";
 import { tryOpenLineApp } from "../../lib/openLineApp";
 import { supabase } from "../../../supabase";
 
@@ -115,6 +118,7 @@ interface Customer {
   follow_up?: string | null;
   follow_up_date?: string | null;
   follow_up_mode?: string | null;
+  status?: string | null;
   note?: string | null;
   last_contacted_at?: string | null;
   line_send_history?: unknown;
@@ -130,6 +134,7 @@ const EDIT_FIELD_KEYS: (keyof Customer)[] = [
   "phone",
   "line_id",
   "email",
+  "status",
   "note",
   "customer_need",
   "customer_emotion",
@@ -154,6 +159,10 @@ function customerToDraft(c: Customer): Draft {
       d[k as string] = normalizeFollowUpMode(v);
       continue;
     }
+    if (k === "status") {
+      d[k as string] = normalizePipelineStatus(v);
+      continue;
+    }
     d[k as string] = v == null ? "" : String(v);
   }
   return d;
@@ -166,6 +175,7 @@ function draftToUpdatePayload(draft: Draft): Record<string, string | null> {
     out[k] = t === "" ? null : t;
   }
   out.follow_up_mode = normalizeFollowUpMode(out.follow_up_mode);
+  out.status = normalizePipelineStatus(out.status);
   return out;
 }
 
@@ -390,7 +400,7 @@ export default function CustomerDetailPage() {
     key: keyof Draft;
     label: string;
     multiline?: boolean;
-    inputKind?: "date" | "follow_up_mode";
+    inputKind?: "date" | "follow_up_mode" | "pipeline_status";
     section: "basic" | "ai" | "follow";
   }[] = [
     { key: "customer_name", label: fl.customer_name, section: "basic" },
@@ -398,6 +408,7 @@ export default function CustomerDetailPage() {
     { key: "phone", label: fl.phone, section: "basic" },
     { key: "line_id", label: fl.line_id, section: "basic" },
     { key: "email", label: fl.email, section: "basic" },
+    { key: "status", label: fl.status, inputKind: "pipeline_status", section: "basic" },
     { key: "note", label: fl.note, multiline: true, section: "basic" },
     { key: "customer_need", label: fl.customer_need, multiline: true, section: "ai" },
     { key: "customer_emotion", label: fl.customer_emotion, section: "ai" },
@@ -555,6 +566,7 @@ export default function CustomerDetailPage() {
                       alignItems: "center",
                     }}
                   >
+                    <PipelineStatusBadge status={customer.status} lang={lang} />
                     <span
                       style={{
                         fontSize: 15,
@@ -794,6 +806,21 @@ export default function CustomerDetailPage() {
                     <DetailRow label={fl.line_id} value={customer.line_id} />
                     <DetailRow label={fl.email} value={customer.email} span2 />
                     <DetailRow label={t.lastContact} value={formatLastContact(customer.last_contacted_at)} />
+                    <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          color: ui.faint,
+                          marginBottom: 8,
+                        }}
+                      >
+                        {fl.status}
+                      </div>
+                      <PipelineStatusBadge status={customer.status} lang={lang} />
+                    </div>
                     <DetailRow label={fl.note} value={customer.note} multiline span2 />
                   </div>
                 </section>
@@ -1849,14 +1876,18 @@ function FieldInput({
     key: keyof Draft;
     label: string;
     multiline?: boolean;
-    inputKind?: "date" | "follow_up_mode";
+    inputKind?: "date" | "follow_up_mode" | "pipeline_status";
   };
   draft: Draft;
   onChange: (k: string, v: string) => void;
   isMobile: boolean;
   lang: AppLang;
 }) {
-  const spanAll = cfg.multiline || cfg.inputKind === "date" || cfg.inputKind === "follow_up_mode";
+  const spanAll =
+    cfg.multiline ||
+    cfg.inputKind === "date" ||
+    cfg.inputKind === "follow_up_mode" ||
+    cfg.inputKind === "pipeline_status";
 
   if (cfg.inputKind === "follow_up_mode") {
     return (
@@ -1875,6 +1906,29 @@ function FieldInput({
           onChange={(m) => onChange(cfg.key as string, m)}
           isMobile={isMobile}
           lang={lang}
+        />
+      </div>
+    );
+  }
+
+  if (cfg.inputKind === "pipeline_status") {
+    return (
+      <div
+        style={{
+          gridColumn: "1 / -1",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          minWidth: 0,
+        }}
+      >
+        <span style={{ fontSize: 15, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
+        <PipelineStatusSelect
+          value={draft[cfg.key]}
+          onChange={(next) => onChange(cfg.key as string, next)}
+          lang={lang}
+          variant="segmented"
+          size={isMobile ? "sm" : "md"}
         />
       </div>
     );
