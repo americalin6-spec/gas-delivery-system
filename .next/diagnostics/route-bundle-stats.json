@@ -17,11 +17,11 @@
   },
   {
     "route": "/customers/[id]",
-    "firstLoadUncompressedJsBytes": 807646,
+    "firstLoadUncompressedJsBytes": 808102,
     "firstLoadChunkPaths": [
       ".next/static/chunks/1658s.jmfu3bl.js",
       ".next/static/chunks/0~xsfa46ru.-w.js",
-      ".next/static/chunks/16yl-sa9~v.hy.js",
+      ".next/static/chunks/0ed.2vkpqlpi1.js",
       ".next/static/chunks/0_t7vr6-missb.js",
       ".next/static/chunks/0a3nm8r6kmyn3.js",
       ".next/static/chunks/0jvyaixqsz1ap.js",

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../../supabase";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 
@@ -54,7 +53,8 @@ export function CustomerConversationHistory({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!customerId) return;
+    const id = customerId?.trim();
+    if (!id) return;
 
     let cancelled = false;
 
@@ -62,21 +62,47 @@ export function CustomerConversationHistory({
       setLoading(true);
       setError(null);
 
-      const { data, error: err } = await supabase
-        .from("conversations")
-        .select("id, customer_id, line_user_id, message_text, direction, created_at")
-        .eq("customer_id", customerId)
-        .order("created_at", { ascending: true });
+      try {
+        const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
+        console.log("[CustomerConversationHistory] fetching:", { customerId: id, url });
 
-      if (cancelled) return;
+        const res = await fetch(url, { cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          rows?: ConversationRow[];
+          error?: string;
+        };
 
-      if (err) {
-        setError(err.message);
+        if (cancelled) return;
+
+        if (!res.ok || !body.ok) {
+          const message = body.error || `HTTP ${res.status}`;
+          console.error("[CustomerConversationHistory] fetch error:", {
+            customerId: id,
+            status: res.status,
+            error: message,
+          });
+          setError(message);
+          setMessages([]);
+          return;
+        }
+
+        const rows = body.rows ?? [];
+        console.log("[CustomerConversationHistory] rows received:", {
+          customerId: id,
+          rowCount: rows.length,
+          rows,
+        });
+        setMessages(rows);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[CustomerConversationHistory] threw:", message);
+        setError(message);
         setMessages([]);
-      } else {
-        setMessages((data ?? []) as ConversationRow[]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     }
 
     void load();

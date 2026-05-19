@@ -71,6 +71,12 @@
       "namedRegex": "^/api/analyze(?:/)?$"
     },
     {
+      "page": "/api/conversations",
+      "regex": "^/api/conversations(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/conversations(?:/)?$"
+    },
+    {
       "page": "/api/line-push-test",
       "regex": "^/api/line\\-push\\-test(?:/)?$",
       "routeKeys": {},

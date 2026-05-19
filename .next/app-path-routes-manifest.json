@@ -3,6 +3,7 @@
   "/_not-found/page": "/_not-found",
   "/alerts/page": "/alerts",
   "/api/analyze/route": "/api/analyze",
+  "/api/conversations/route": "/api/conversations",
   "/api/line-push-test/route": "/api/line-push-test",
   "/api/line-webhook/route": "/api/line-webhook",
   "/api/reminder-check/route": "/api/reminder-check",

@@ -3,6 +3,7 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/alerts/page": "app/alerts/page.js",
   "/api/analyze/route": "app/api/analyze/route.js",
+  "/api/conversations/route": "app/api/conversations/route.js",
   "/api/line-push-test/route": "app/api/line-push-test/route.js",
   "/api/line-webhook/route": "app/api/line-webhook/route.js",
   "/api/reminder-check/route": "app/api/reminder-check/route.js",
