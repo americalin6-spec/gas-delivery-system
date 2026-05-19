@@ -3,9 +3,11 @@ import { sendLinePushMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { formatLineReminderMessage } from "../../lib/reminderCheck";
 import { fetchDueReminderCustomers } from "../../lib/runReminderCheck";
+import { getServerCompanyId } from "../../lib/companyContext";
 
 /** Send a test LINE Messaging API push to the configured personal User ID. */
 export async function POST(req: Request) {
+  const companyId = getServerCompanyId(req);
   try {
     const body = (await req.json()) as {
       channel_access_token?: string;
@@ -32,7 +34,7 @@ export async function POST(req: Request) {
 
     let message = body.message?.trim() ?? "";
     if (body.use_due_preview || !message) {
-      const due = await fetchDueReminderCustomers();
+      const due = await fetchDueReminderCustomers(companyId);
       message = formatLineReminderMessage(due, "zh");
     }
 

@@ -10,16 +10,44 @@ type LineUserIdRow = {
   line_user_id: string | null;
 };
 
-/** Look up the CRM customer bound to a LINE user (via line_users.customer_id). */
+type LineUserCompanyRow = {
+  company_id: number | string | null;
+};
+
+/** Resolve the company a LINE user is bound to. Falls back to null when unknown. */
+export async function findCompanyIdForLineUser(
+  supabase: SupabaseClient,
+  lineUserId: string,
+): Promise<number | null> {
+  if (!lineUserId.trim()) return null;
+  const { data, error } = await supabase
+    .from("line_users")
+    .select("company_id")
+    .eq("line_user_id", lineUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("line_users company lookup failed:", error.message);
+    return null;
+  }
+  const raw = (data as LineUserCompanyRow | null)?.company_id;
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** Look up the CRM customer bound to a LINE user (within the active company). */
 export async function findCustomerIdForLineUser(
   supabase: SupabaseClient,
   lineUserId: string,
+  companyId: number,
 ): Promise<string | null> {
   if (!lineUserId.trim()) return null;
 
   const { data, error } = await supabase
     .from("line_users")
     .select("customer_id")
+    .eq("company_id", companyId)
     .eq("line_user_id", lineUserId)
     .maybeSingle();
 
@@ -32,16 +60,18 @@ export async function findCustomerIdForLineUser(
   return row?.customer_id?.toString().trim() || null;
 }
 
-/** Look up the LINE user bound to a CRM customer (via line_users.customer_id). */
+/** Look up the LINE user bound to a CRM customer (within the active company). */
 export async function findLineUserIdForCustomer(
   supabase: SupabaseClient,
   customerId: string,
+  companyId: number,
 ): Promise<string | null> {
   if (!customerId.trim()) return null;
 
   const { data, error } = await supabase
     .from("line_users")
     .select("line_user_id")
+    .eq("company_id", companyId)
     .eq("customer_id", customerId)
     .maybeSingle();
 
@@ -55,15 +85,16 @@ export async function findLineUserIdForCustomer(
 }
 
 /**
- * Persist a LINE message to `conversations`. Customer_id is auto-resolved from
- * `line_users` when not provided. Errors are logged, never thrown — the LINE
- * webhook must always reply 200.
+ * Persist a LINE message to `conversations` within the active company.
+ * customer_id is auto-resolved from `line_users` when not provided. Errors
+ * are logged, never thrown — the LINE webhook must always reply 200.
  */
 export async function logLineConversation(
   supabase: SupabaseClient,
   args: {
     lineUserId: string;
     messageText: string;
+    companyId: number;
     direction?: ConversationDirection;
     customerId?: string | null;
   },
@@ -80,7 +111,7 @@ export async function logLineConversation(
 
   let customerId = args.customerId ?? null;
   if (customerId === null) {
-    customerId = await findCustomerIdForLineUser(supabase, lineUserId);
+    customerId = await findCustomerIdForLineUser(supabase, lineUserId, args.companyId);
   }
 
   const direction = args.direction ?? "inbound";
@@ -89,6 +120,7 @@ export async function logLineConversation(
     customer_id: customerId,
     message_text: messageText,
     direction,
+    company_id: args.companyId,
   };
 
   try {
@@ -114,6 +146,7 @@ export async function logLineConversation(
       line_user_id: lineUserId,
       customer_id: customerId,
       direction,
+      company_id: args.companyId,
       message_length: messageText.length,
     });
   } catch (err) {

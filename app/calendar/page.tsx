@@ -14,6 +14,7 @@ import {
   filterCalendarCustomers,
   type ReminderCustomerRow,
 } from "../lib/calendarReminders";
+import { useCurrentCompanyId } from "../lib/clientCompany";
 import { supabase } from "../supabase";
 
 const MOBILE_MAX = 1024;
@@ -32,6 +33,7 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
+  const companyId = useCurrentCompanyId();
 
   const viewYear = viewDate.getFullYear();
   const viewMonth = viewDate.getMonth();
@@ -43,6 +45,7 @@ export default function CalendarPage() {
     const { data, error } = await supabase
       .from("customers")
       .select(CALENDAR_CUSTOMER_SELECT)
+      .eq("company_id", companyId)
       .order("follow_up_date", { ascending: true, nullsFirst: false });
 
     if (error) {
@@ -57,7 +60,7 @@ export default function CalendarPage() {
     }
 
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void fetchCustomers();

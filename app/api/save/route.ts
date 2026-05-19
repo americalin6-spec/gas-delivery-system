@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "../../../supabase";
 import { parseFirstDateYmdFromText, parseFollowUpDateYmdFromChat } from "../../lib/dateParser";
 import { normalizeFollowUpDateValue } from "../../lib/followUpReminders";
+import { getServerCompanyId } from "../../lib/companyContext";
 
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -9,6 +10,7 @@ function asText(value: unknown): string {
 
 export async function POST(req: Request) {
   try {
+    const companyId = getServerCompanyId(req);
     const body = (await req.json()) as Record<string, unknown>;
     const followUpDate =
       normalizeFollowUpDateValue(body.follow_up_date) ??
@@ -18,7 +20,8 @@ export async function POST(req: Request) {
       parseFirstDateYmdFromText(asText(body.todo)) ??
       parseFirstDateYmdFromText(asText(body.next_step));
 
-    const row = followUpDate ? { ...body, follow_up_date: followUpDate } : body;
+    const baseRow = followUpDate ? { ...body, follow_up_date: followUpDate } : body;
+    const row = { ...baseRow, company_id: companyId };
 
     const { error } = await supabase.from("customers").insert([row]);
 

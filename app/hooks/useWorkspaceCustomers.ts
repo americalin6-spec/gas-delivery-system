@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { WORKSPACE_CUSTOMER_SELECT, type WorkspaceCustomerRow } from "../lib/followUpWorkspace";
+import { useCurrentCompanyId } from "../lib/clientCompany";
 import { supabase } from "../../supabase";
 
 export function useWorkspaceCustomers() {
   const [rows, setRows] = useState<WorkspaceCustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const companyId = useCurrentCompanyId();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -16,6 +18,7 @@ export function useWorkspaceCustomers() {
       const { data, error } = await supabase
         .from("customers")
         .select(WORKSPACE_CUSTOMER_SELECT)
+        .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(500);
 
@@ -30,7 +33,7 @@ export function useWorkspaceCustomers() {
       setLoadError("load failed");
     }
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void refresh();

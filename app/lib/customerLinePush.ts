@@ -31,6 +31,7 @@ export function formatCustomerFollowUpMessage(
 export async function pushDueCustomerReminders(
   due: DueReminderCustomer[],
   channelAccessToken: string,
+  companyId: number,
 ): Promise<CustomerPushResult> {
   const result: CustomerPushResult = { attempted: 0, sent: 0, failed: 0, errors: [] };
   if (due.length === 0) return result;
@@ -46,6 +47,7 @@ export async function pushDueCustomerReminders(
   const { data, error } = await supabase
     .from("line_users")
     .select("line_user_id, customer_id")
+    .eq("company_id", companyId)
     .in("customer_id", customerIds);
 
   if (error) {

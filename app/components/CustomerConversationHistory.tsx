@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
+import { companyIdHeader } from "../lib/clientCompany";
 
 type ConversationRow = {
   id: string | number;
@@ -70,7 +71,7 @@ export function CustomerConversationHistory({
       const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
       console.log("[CustomerConversationHistory] fetching:", { customerId: id, url });
 
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         rows?: ConversationRow[];
@@ -127,6 +128,7 @@ export function CustomerConversationHistory({
     try {
       const res = await fetch(`/api/conversations?id=${encodeURIComponent(idStr)}`, {
         method: "DELETE",
+        headers: companyIdHeader(),
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
@@ -158,7 +160,7 @@ export function CustomerConversationHistory({
     try {
       const res = await fetch(
         `/api/conversations?customer_id=${encodeURIComponent(id)}&all=1`,
-        { method: "DELETE" },
+        { method: "DELETE", headers: companyIdHeader() },
       );
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;

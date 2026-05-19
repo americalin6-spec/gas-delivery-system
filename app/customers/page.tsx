@@ -23,6 +23,10 @@ import {
   type PipelineStatus,
 } from "../lib/pipelineStatus";
 import PipelineStatusBadge from "../components/PipelineStatusBadge";
+import {
+  getClientCompanyId,
+  useCurrentCompanyId,
+} from "../lib/clientCompany";
 import { supabase } from "../../supabase";
 
 type StatusFilter = "all" | PipelineStatus;
@@ -119,6 +123,8 @@ export default function CustomersPage() {
   const [followFilter, setFollowFilter] = useState<FollowFilter>("all");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
 
+  const companyId = useCurrentCompanyId();
+
   const isMobile = useIsViewportBelow(CRM_MOBILE_MAX_WIDTH);
   const { lang } = useAppLang();
   const t = customersListCopy(lang);
@@ -129,12 +135,14 @@ export default function CustomersPage() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
   async function loadCustomers() {
     const { data, error } = await supabase
       .from("customers")
       .select("*")
+      .eq("company_id", companyId)
       .order("id", { ascending: false });
 
     if (!error && data) {
@@ -154,6 +162,7 @@ export default function CustomersPage() {
         company_name: companyName,
         phone: phone,
         status: newStatus,
+        company_id: getClientCompanyId(),
       },
     ]);
 
@@ -180,6 +189,7 @@ export default function CustomersPage() {
     const { error } = await supabase
       .from("customers")
       .delete()
+      .eq("company_id", companyId)
       .eq("id", id);
 
     if (error) {

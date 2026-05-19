@@ -39,6 +39,11 @@ import PipelineStatusBadge from "../../components/PipelineStatusBadge";
 import PipelineStatusSelect from "../../components/PipelineStatusSelect";
 import { normalizePipelineStatus } from "../../lib/pipelineStatus";
 import { tryOpenLineApp } from "../../lib/openLineApp";
+import {
+  companyIdHeader,
+  getClientCompanyId,
+  useCurrentCompanyId,
+} from "../../lib/clientCompany";
 import { supabase } from "../../../supabase";
 
 const MOBILE_MAX = 768;
@@ -223,6 +228,7 @@ export default function CustomerDetailPage() {
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [conversationRefresh, setConversationRefresh] = useState(0);
+  const companyId = useCurrentCompanyId();
 
   const logOutboundMessage = useCallback(
     async (messageText: string): Promise<boolean> => {
@@ -231,7 +237,7 @@ export default function CustomerDetailPage() {
       try {
         const res = await fetch("/api/conversations", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...companyIdHeader() },
           body: JSON.stringify({
             customer_id: String(id),
             message_text: text,
@@ -280,6 +286,7 @@ export default function CustomerDetailPage() {
     const { data, error } = await supabase
       .from("customers")
       .select("*")
+      .eq("company_id", companyId)
       .eq("id", id)
       .maybeSingle();
 
@@ -297,6 +304,7 @@ export default function CustomerDetailPage() {
         const { data: patched, error: patchErr } = await supabase
           .from("customers")
           .update({ follow_up_date: nd })
+          .eq("company_id", companyId)
           .eq("id", id)
           .select("*")
           .maybeSingle();
@@ -306,7 +314,7 @@ export default function CustomerDetailPage() {
     }
 
     setLoading(false);
-  }, [id]);
+  }, [id, companyId]);
 
   useEffect(() => {
     void fetchCustomer();
@@ -336,6 +344,7 @@ export default function CustomerDetailPage() {
     const { data, error } = await supabase
       .from("customers")
       .update(payload)
+      .eq("company_id", companyId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -361,7 +370,11 @@ export default function CustomerDetailPage() {
     if (!ok) return;
 
     setDeleting(true);
-    const { error } = await supabase.from("customers").delete().eq("id", id);
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("id", id);
     setDeleting(false);
 
     if (error) {
@@ -382,6 +395,7 @@ export default function CustomerDetailPage() {
     const { data, error } = await supabase
       .from("customers")
       .update({ follow_up_mode: mode })
+      .eq("company_id", companyId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -1047,9 +1061,11 @@ function LineQuickActionsBar({
   }
 
   async function completeSimulatedSend() {
+    const activeCompanyId = getClientCompanyId();
     const { data: row, error: selErr } = await supabase
       .from("customers")
       .select("line_send_history")
+      .eq("company_id", activeCompanyId)
       .eq("id", customerId)
       .maybeSingle();
 
@@ -1065,6 +1081,7 @@ function LineQuickActionsBar({
     const { error: upErr } = await supabase
       .from("customers")
       .update({ last_contacted_at: nowIso, line_send_history: next })
+      .eq("company_id", activeCompanyId)
       .eq("id", customerId);
 
     if (upErr) {

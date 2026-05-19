@@ -58,6 +58,11 @@ import {
   CALENDAR_CUSTOMER_SELECT,
   type ReminderCustomerRow,
 } from "./lib/calendarReminders";
+import {
+  companyIdHeader,
+  getClientCompanyId,
+  useCurrentCompanyId,
+} from "./lib/clientCompany";
 
 const HOME_MOBILE_MAX_WIDTH = 1024;
 
@@ -181,6 +186,7 @@ export default function Home() {
   const [lineText, setLineText] = useState(() => readHomeFormDraftFromClient().lineText);
   const { lang, setLang, toggleLang } = useAppLang();
   const ui = homePageCopy(lang);
+  const companyId = useCurrentCompanyId();
 
   function handleTestNotification() {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -244,7 +250,11 @@ export default function Home() {
 
   const loadCalendarRows = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from("customers").select(CALENDAR_CUSTOMER_SELECT).limit(200);
+      const { data, error } = await supabase
+        .from("customers")
+        .select(CALENDAR_CUSTOMER_SELECT)
+        .eq("company_id", companyId)
+        .limit(200);
       if (error) {
         setCalendarRows([]);
         return;
@@ -253,7 +263,7 @@ export default function Home() {
     } catch {
       setCalendarRows([]);
     }
-  }, []);
+  }, [companyId]);
 
   const loadWorkspaceRows = useCallback(async () => {
     setWorkspaceLoading(true);
@@ -262,6 +272,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from("customers")
         .select(WORKSPACE_CUSTOMER_SELECT)
+        .eq("company_id", companyId)
         .order("created_at", { ascending: false })
         .limit(500);
 
@@ -276,7 +287,7 @@ export default function Home() {
       setWorkspaceError("load failed");
     }
     setWorkspaceLoading(false);
-  }, []);
+  }, [companyId]);
 
   const loadFollowUpReminders = useCallback(async () => {
     try {
@@ -287,6 +298,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from("customers")
         .select("id, customer_name, company_name, follow_up_date, customer_need, next_step, follow_up")
+        .eq("company_id", companyId)
         .lte("follow_up_date", endStr)
         .order("follow_up_date", { ascending: true })
         .limit(40);
@@ -311,7 +323,7 @@ export default function Home() {
     } catch {
       setFollowUpReminders([]);
     }
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void loadFollowUpReminders();
@@ -429,7 +441,8 @@ export default function Home() {
     setLineId(crmFields.line_id);
     setEmail(crmFields.email);
     const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
-    const insertRow: Record<string, string | null> = {
+    const insertRow: Record<string, string | number | null> = {
+      company_id: getClientCompanyId(),
       customer_name: customerNameForCrm(crmFields.customer_name, lang),
       company_name: crmFields.company_name.trim() || null,
       phone: crmFields.phone.trim() || null,
@@ -608,7 +621,7 @@ export default function Home() {
     try {
       await fetch("/api/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...companyIdHeader() },
         body: JSON.stringify({
           raw_text: lineText,
           deal_probability: finalData.dealProbability,

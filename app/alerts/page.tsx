@@ -12,6 +12,7 @@ import {
   type ReminderCustomerRow,
 } from "../lib/calendarReminders";
 import { alertsPageCopy } from "../lib/calendarI18n";
+import { useCurrentCompanyId } from "../lib/clientCompany";
 import { supabase } from "../supabase";
 
 const MOBILE_MAX = 1024;
@@ -24,11 +25,15 @@ export default function AlertsPage() {
   const [rows, setRows] = useState<ReminderCustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const companyId = useCurrentCompanyId();
 
   const fetchRows = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
-    const { data, error } = await supabase.from("customers").select(CALENDAR_CUSTOMER_SELECT);
+    const { data, error } = await supabase
+      .from("customers")
+      .select(CALENDAR_CUSTOMER_SELECT)
+      .eq("company_id", companyId);
 
     if (error) {
       setRows([]);
@@ -37,7 +42,7 @@ export default function AlertsPage() {
       setRows((data ?? []) as ReminderCustomerRow[]);
     }
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void fetchRows();

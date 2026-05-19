@@ -28,6 +28,7 @@ import {
   type PipelineStatus,
 } from "../lib/pipelineStatus";
 import PipelineStatusBadge from "../components/PipelineStatusBadge";
+import { useCurrentCompanyId } from "../lib/clientCompany";
 import { supabase } from "../../supabase";
 
 const MOBILE_MAX = 768;
@@ -52,6 +53,7 @@ export default function PipelineBoardPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<PipelineStatus | null>(null);
+  const companyId = useCurrentCompanyId();
 
   const loadCustomers = useCallback(async () => {
     const { data, error } = await supabase
@@ -59,6 +61,7 @@ export default function PipelineBoardPage() {
       .select(
         "id, customer_name, company_name, status, follow_up_date, estimated_amount, success_rate",
       )
+      .eq("company_id", companyId)
       .order("id", { ascending: false });
 
     if (error) {
@@ -68,7 +71,7 @@ export default function PipelineBoardPage() {
     }
     setCustomers((data || []) as PipelineCustomer[]);
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void loadCustomers();
@@ -105,6 +108,7 @@ export default function PipelineBoardPage() {
       const { error } = await supabase
         .from("customers")
         .update({ status: next })
+        .eq("company_id", companyId)
         .eq("id", customerId);
 
       setUpdatingId(null);
@@ -115,7 +119,7 @@ export default function PipelineBoardPage() {
         setCustomers(prevSnapshot);
       }
     },
-    [customers, t.updateFailed],
+    [customers, companyId, t.updateFailed],
   );
 
   const handleDragStart = (

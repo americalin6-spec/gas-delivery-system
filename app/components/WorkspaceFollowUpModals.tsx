@@ -9,6 +9,7 @@ import {
   type WorkspaceCustomerRow,
 } from "../lib/followUpWorkspace";
 import type { AppLang } from "../lib/appLang";
+import { getClientCompanyId } from "../lib/clientCompany";
 import { supabase } from "../supabase";
 
 type ModalKind = "complete" | "postpone" | null;
@@ -59,6 +60,7 @@ export function useWorkspaceFollowUpActions(lang: AppLang, onRefresh: () => void
         follow_up_note: note.trim() || null,
         ...buildNextFollowUpPatch(next),
       })
+      .eq("company_id", getClientCompanyId())
       .eq("id", active.id);
 
     setBusy(false);
@@ -75,7 +77,11 @@ export function useWorkspaceFollowUpActions(lang: AppLang, onRefresh: () => void
     if (!active) return;
     setBusy(true);
     const next = postponePresetDate(preset);
-    const { error } = await supabase.from("customers").update(buildNextFollowUpPatch(next)).eq("id", active.id);
+    const { error } = await supabase
+      .from("customers")
+      .update(buildNextFollowUpPatch(next))
+      .eq("company_id", getClientCompanyId())
+      .eq("id", active.id);
     setBusy(false);
     if (error) {
       alert(error.message);

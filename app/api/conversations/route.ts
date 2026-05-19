@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { findLineUserIdForCustomer } from "../../lib/conversationsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
+import { getServerCompanyId } from "../../lib/companyContext";
 
 const CONVERSATIONS_SELECT =
-  "id, customer_id, line_user_id, message_text, direction, created_at";
+  "id, customer_id, line_user_id, message_text, direction, created_at, company_id";
 
 type ConversationInsertBody = {
   customer_id?: string | null;
@@ -14,6 +15,7 @@ type ConversationInsertBody = {
 
 /** Insert a conversation row (typically outbound messages sent/copied from CRM). */
 export async function POST(req: Request) {
+  const companyId = getServerCompanyId(req);
   let body: ConversationInsertBody = {};
   try {
     body = (await req.json()) as ConversationInsertBody;
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
 
   let lineUserId = body.line_user_id?.toString().trim() ?? "";
   if (!lineUserId) {
-    lineUserId = (await findLineUserIdForCustomer(supabase, customerId)) ?? "";
+    lineUserId = (await findLineUserIdForCustomer(supabase, customerId, companyId)) ?? "";
   }
 
   const payload: Record<string, unknown> = {
@@ -51,6 +53,7 @@ export async function POST(req: Request) {
     message_text: messageText,
     direction,
     line_user_id: lineUserId || null,
+    company_id: companyId,
   };
 
   const { data, error } = await supabase
@@ -78,6 +81,7 @@ export async function POST(req: Request) {
     customerId,
     direction,
     lineUserId: lineUserId || null,
+    companyId,
     message_length: messageText.length,
   });
 
@@ -86,6 +90,7 @@ export async function POST(req: Request) {
 
 /** Fetch CRM conversation history for a customer. Server-side reads bypass anon RLS. */
 export async function GET(req: Request) {
+  const companyId = getServerCompanyId(req);
   const url = new URL(req.url);
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
 
@@ -100,12 +105,14 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("conversations")
     .select(CONVERSATIONS_SELECT)
+    .eq("company_id", companyId)
     .eq("customer_id", customerId)
     .order("created_at", { ascending: true });
 
   if (error) {
     console.error("[conversations] GET error:", {
       customerId,
+      companyId,
       message: error.message,
       details: error.details,
       hint: error.hint,
@@ -120,6 +127,7 @@ export async function GET(req: Request) {
   const rows = data ?? [];
   console.log("[conversations] GET ok:", {
     customerId,
+    companyId,
     rowCount: rows.length,
     firstId: rows[0] && "id" in rows[0] ? rows[0].id : null,
   });
@@ -128,11 +136,12 @@ export async function GET(req: Request) {
 }
 
 /**
- * Delete conversations.
- * - `?id=...` removes a single row.
- * - `?customer_id=...&all=1` removes every conversation for the customer.
+ * Delete conversations within the active company.
+ * - `?id=...` removes a single row (only if it belongs to the active company).
+ * - `?customer_id=...&all=1` removes every conversation for the customer in that company.
  */
 export async function DELETE(req: Request) {
+  const companyId = getServerCompanyId(req);
   const url = new URL(req.url);
   const id = url.searchParams.get("id")?.trim() ?? "";
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
@@ -146,7 +155,7 @@ export async function DELETE(req: Request) {
   }
 
   const supabase = getSupabaseServer();
-  let query = supabase.from("conversations").delete();
+  let query = supabase.from("conversations").delete().eq("company_id", companyId);
   if (id) {
     query = query.eq("id", id);
   } else {
@@ -159,6 +168,7 @@ export async function DELETE(req: Request) {
     console.error("[conversations] DELETE error:", {
       id,
       customerId,
+      companyId,
       all,
       message: error.message,
       details: error.details,
@@ -172,7 +182,7 @@ export async function DELETE(req: Request) {
   }
 
   const deletedCount = data?.length ?? 0;
-  console.log("[conversations] DELETE ok:", { id, customerId, all, deletedCount });
+  console.log("[conversations] DELETE ok:", { id, customerId, companyId, all, deletedCount });
 
   return NextResponse.json({ ok: true, deletedCount });
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAppLang } from "../hooks/useAppLang";
 import { tasksPageCopy, translateDisplayValue } from "../lib/uiI18n";
+import { useCurrentCompanyId } from "../lib/clientCompany";
 import { supabase } from "../supabase";
 
 interface Customer {
@@ -30,6 +31,7 @@ export default function TasksPage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const companyId = useCurrentCompanyId();
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -39,6 +41,7 @@ export default function TasksPage() {
       .select(
         "id, customer_name, company_name, phone, line_id, todo, next_step, follow_up"
       )
+      .eq("company_id", companyId)
       .order("id", { ascending: false });
 
     if (error) {
@@ -49,7 +52,7 @@ export default function TasksPage() {
     }
 
     setLoading(false);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void fetchCustomers();

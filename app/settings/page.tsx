@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { lineReminderSettingsCopy } from "../lib/lineReminderI18n";
+import { CompanySwitcher } from "../components/CompanySwitcher";
 
 const MOBILE_MAX = 1024;
 
@@ -162,6 +163,10 @@ export default function LineReminderSettingsPage() {
 
       <h1 style={{ margin: "0 0 8px", fontSize: isMobile ? 26 : 32 }}>{t.title}</h1>
       <p style={{ margin: "0 0 28px", opacity: 0.88, lineHeight: 1.6, maxWidth: 640 }}>{t.subtitle}</p>
+
+      <div style={{ maxWidth: 560 }}>
+        <CompanySwitcher lang={lang} isMobile={isMobile} />
+      </div>
 
       {loading ? (
         <p style={{ opacity: 0.8 }}>{lang === "zh" ? "載入中…" : "Loading…"}</p>

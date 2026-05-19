@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { logLineConversation } from "../../lib/conversationsServer";
+import {
+  findCompanyIdForLineUser,
+  logLineConversation,
+} from "../../lib/conversationsServer";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
+import { DEFAULT_COMPANY_ID } from "../../lib/companyContext";
 
 type LineWebhookBody = {
   events?: LineWebhookEvent[];
@@ -76,14 +80,16 @@ async function fetchLineDisplayName(userId: string, channelAccessToken: string):
   return profile.displayName?.trim() || null;
 }
 
-/** Find a CRM customer by name: exact match first, then case-insensitive substring. */
+/** Find a CRM customer by name within the active company. */
 async function findCustomerByName(
   supabase: SupabaseClient,
   customerName: string,
+  companyId: number,
 ): Promise<CustomerLookupRow | null> {
   const exact = await supabase
     .from("customers")
     .select("id, customer_name")
+    .eq("company_id", companyId)
     .eq("customer_name", customerName)
     .limit(1)
     .maybeSingle();
@@ -97,6 +103,7 @@ async function findCustomerByName(
   const fuzzy = await supabase
     .from("customers")
     .select("id, customer_name")
+    .eq("company_id", companyId)
     .ilike("customer_name", `%${customerName}%`)
     .limit(1)
     .maybeSingle();
@@ -113,10 +120,12 @@ async function upsertLineUser(
   userId: string,
   displayName: string | null,
   customerId: string | null,
+  companyId: number,
 ): Promise<void> {
   const row: Record<string, unknown> = {
     line_user_id: userId,
     display_name: displayName,
+    company_id: companyId,
   };
   if (customerId !== null) row.customer_id = customerId;
 
@@ -136,6 +145,29 @@ async function resolveChannelAccessToken(): Promise<string> {
   } catch (err) {
     console.error("[line-webhook] resolveChannelAccessToken failed:", err);
     return process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";
+  }
+}
+
+/**
+ * Resolve which tenant this LINE message belongs to.
+ *
+ * 1. If the LINE user is already bound (line_users row exists), keep their company.
+ * 2. Otherwise fall back to DEFAULT_COMPANY_ID (env override `DEFAULT_COMPANY_ID`).
+ *
+ * The webhook is a single LINE channel — one tenant per channel — so the default
+ * is the right answer for any deployment with one company.
+ */
+async function resolveCompanyForLineUser(
+  supabase: SupabaseClient,
+  userId: string | null | undefined,
+): Promise<number> {
+  if (!userId) return DEFAULT_COMPANY_ID;
+  try {
+    const bound = await findCompanyIdForLineUser(supabase, userId);
+    return bound ?? DEFAULT_COMPANY_ID;
+  } catch (err) {
+    console.error("[line-webhook] resolveCompanyForLineUser failed:", err);
+    return DEFAULT_COMPANY_ID;
   }
 }
 
@@ -160,10 +192,12 @@ async function logInboundEvents(
       }
 
       try {
+        const companyId = await resolveCompanyForLineUser(supabase, userId);
         await logLineConversation(supabase, {
           lineUserId: userId,
           messageText,
           direction: "inbound",
+          companyId,
         });
       } catch (err) {
         console.error("[line-webhook] logLineConversation threw:", err);
@@ -193,16 +227,17 @@ async function handleTextMessage(
     return;
   }
 
+  const companyId = await resolveCompanyForLineUser(supabase, userId);
   const displayName = await fetchLineDisplayName(userId, channelAccessToken);
 
   if (command.customerName) {
-    const customer = await findCustomerByName(supabase, command.customerName);
+    const customer = await findCustomerByName(supabase, command.customerName, companyId);
     if (!customer) {
       await sendLineReplyMessage(replyToken, CUSTOMER_NOT_FOUND_REPLY, channelAccessToken);
       return;
     }
 
-    await upsertLineUser(supabase, userId, displayName, String(customer.id));
+    await upsertLineUser(supabase, userId, displayName, String(customer.id), companyId);
     const matchedName = customer.customer_name?.trim() || command.customerName;
     await sendLineReplyMessage(
       replyToken,
@@ -212,7 +247,7 @@ async function handleTextMessage(
     return;
   }
 
-  await upsertLineUser(supabase, userId, displayName, null);
+  await upsertLineUser(supabase, userId, displayName, null, companyId);
   await sendLineReplyMessage(replyToken, BIND_SUCCESS_REPLY, channelAccessToken);
 }
 
