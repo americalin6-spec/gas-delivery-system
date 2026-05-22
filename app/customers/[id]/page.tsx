@@ -23,20 +23,19 @@ import {
   isHighDealProbability,
   normalizeFollowUpDateValue,
 } from "../../lib/followUpReminders";
-import { buildAiLineFollowUpReply } from "../../lib/lineFollowUpReply";
 import {
   followUpModeBadgeMeta,
   normalizeFollowUpMode,
   type FollowUpMode,
 } from "../../lib/followUpMode";
-import { BoundLineAccountsSection } from "../../components/BoundLineAccountsSection";
 import { CustomerConversationHistory } from "../../components/CustomerConversationHistory";
+import { LineCustomerContactSection } from "../../components/LineCustomerContactSection";
+import { LineReplySection } from "../../components/LineReplySection";
 import { CustomerInsightSections } from "../../components/CustomerInsightSections";
 import {
   buildSanitizedCrmDatePayload,
   sanitizeImportantDateFields,
 } from "../../lib/sanitizeImportantDateFields";
-import { LineOpenFallbackModal } from "../../components/LineOpenFallbackModal";
 import PipelineStatusBadge from "../../components/PipelineStatusBadge";
 import PipelineStatusSelect from "../../components/PipelineStatusSelect";
 import {
@@ -45,7 +44,6 @@ import {
   normalizeCustomerStatus,
 } from "../../lib/customerStatus";
 import { computeCustomerUrgencyFromImportantDate } from "../../lib/customerUrgency";
-import { tryOpenLineApp } from "../../lib/openLineApp";
 import {
   formatCustomerCreatedAtDisplay,
   softDeleteCustomerPayload,
@@ -167,23 +165,6 @@ function draftToUpdatePayload(draft: Draft): Record<string, string | boolean | n
   return out;
 }
 
-type LineSendLogEntry = { at: string; kind?: string };
-
-function parseSendHistory(raw: unknown): LineSendLogEntry[] {
-  if (!Array.isArray(raw)) return [];
-  const out: LineSendLogEntry[] = [];
-  for (const item of raw) {
-    if (item && typeof item === "object" && "at" in item) {
-      const at = (item as { at: unknown }).at;
-      if (typeof at === "string") {
-        const kind = (item as { kind?: unknown }).kind;
-        out.push({ at, kind: typeof kind === "string" ? kind : undefined });
-      }
-    }
-  }
-  return out;
-}
-
 function formatLastContact(iso?: string | null): string {
   if (!iso?.trim()) return "—";
   try {
@@ -217,39 +198,6 @@ export default function CustomerDetailPage() {
   const conversationSectionRef = useRef<HTMLElement | null>(null);
   const [manualFollowUpYmd, setManualFollowUpYmd] = useState<string | null>(null);
   const { companyId, ready: companyReady } = useActiveCompany();
-
-  const logOutboundMessage = useCallback(
-    async (messageText: string): Promise<boolean> => {
-      const text = messageText.trim();
-      if (!id || !text) return false;
-      try {
-        const res = await fetch("/api/conversations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...companyIdHeader() },
-          body: JSON.stringify({
-            customer_id: String(id),
-            message_text: text,
-            direction: "outbound",
-            ...(selectedLineUserId ? { line_user_id: selectedLineUserId } : {}),
-          }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        if (!res.ok || !body.ok) {
-          console.error("[customers/[id]] outbound log failed:", {
-            status: res.status,
-            error: body.error,
-          });
-          return false;
-        }
-        setConversationRefresh((n) => n + 1);
-        return true;
-      } catch (err) {
-        console.error("[customers/[id]] outbound log threw:", err);
-        return false;
-      }
-    },
-    [id, selectedLineUserId],
-  );
 
   const isMobile = useIsViewportBelow(MOBILE_MAX);
   const { lang } = useAppLang();
@@ -328,12 +276,9 @@ export default function CustomerDetailPage() {
     setLoading(false);
   }, [id, companyId, companyReady]);
 
-  const openConversationForLineUser = useCallback((lineUserId: string, displayLabel: string) => {
+  const selectLineUserForTimeline = useCallback((lineUserId: string, displayLabel: string) => {
     setSelectedLineUserId(lineUserId);
     setSelectedLineLabel(displayLabel);
-    window.setTimeout(() => {
-      conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
   }, []);
 
   useEffect(() => {
@@ -566,7 +511,7 @@ export default function CustomerDetailPage() {
                 alignItems: isMobile ? "stretch" : "flex-start",
                 justifyContent: "space-between",
                 gap: 24,
-                marginBottom: isMobile ? 28 : 36,
+                marginBottom: isMobile ? 18 : 22,
               }}
             >
               <div style={{ display: "flex", gap: 18, minWidth: 0 }}>
@@ -721,74 +666,62 @@ export default function CustomerDetailPage() {
             </header>
 
             {!isEditing && (
-              <LineQuickActionsBar
-                customer={customer}
-                customerId={id}
-                companyId={companyId}
-                isMobile={isMobile}
-                lang={lang}
-                showToast={setToast}
-                copyWithFallback={copyWithFallback}
-                onAfterSimulatedSend={() => void fetchCustomer()}
-                logOutboundMessage={logOutboundMessage}
-              />
-            )}
-
-            {!isEditing && (
-              <BoundLineAccountsSection
-                customerId={String(customer.id)}
-                primaryLineUserId={customer.line_user_id}
-                isMobile={isMobile}
-                lang={lang}
-                selectedLineUserId={selectedLineUserId}
-                onSelectLineUser={setSelectedLineUserId}
-                onOpenConversation={openConversationForLineUser}
-              />
-            )}
-
-            {!isEditing && (
-              <section
-                style={{
-                  ...cardStyle(isMobile),
-                  marginBottom: isMobile ? 28 : 36,
-                  border: "1px solid rgba(99,102,241,0.28)",
-                  background:
-                    "linear-gradient(155deg, rgba(99,102,241,0.14) 0%, rgba(15,23,42,0.72) 55%, rgba(15,23,42,0.92) 100%)",
-                  boxShadow: "0 18px 40px rgba(0,0,0,0.35)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: isMobile ? "column" : "row",
-                    justifyContent: "space-between",
-                    alignItems: isMobile ? "stretch" : "flex-start",
-                    gap: 18,
-                    marginBottom: 20,
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <h2 style={{ ...sectionHeading, marginBottom: 10 }}>{t.followUpModeTitle}</h2>
-                    <p style={{ margin: 0, color: ui.muted, fontSize: 15, lineHeight: 1.55 }}>
-                      {followUpModeBadgeMeta(normalizeFollowUpMode(customer.follow_up_mode), lang).subtitle}
-                      {" · "}
-                      <span style={{ color: ui.faint }}>{t.lineNotConnected}</span>
-                    </p>
-                  </div>
-                  {modeSaving ? (
-                    <span style={{ fontSize: 14, color: ui.faint, fontWeight: 600, flexShrink: 0 }}>
-                      {t.syncing}
-                    </span>
-                  ) : null}
-                </div>
-                <FollowUpModeSegmented
-                  value={normalizeFollowUpMode(customer.follow_up_mode)}
-                  onChange={(m) => void persistFollowUpMode(m)}
-                  disabled={modeSaving}
+              <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
+                <LineCustomerContactSection
+                  customerId={id}
+                  companyId={companyId}
+                  lineId={customer.line_id}
+                  lastContactedAt={customer.last_contacted_at}
+                  primaryLineUserId={customer.line_user_id}
+                  selectedLineUserId={selectedLineUserId}
                   isMobile={isMobile}
-                  lang={lang}
+                  showToast={setToast}
+                  copyWithFallback={copyWithFallback}
+                  onLineIdSaved={() => void fetchCustomer()}
+                  onSelectLineUser={selectLineUserForTimeline}
+                  cardStyle={{
+                    ...compactCard(isMobile),
+                    border: "1px solid rgba(6, 199, 85, 0.35)",
+                    background:
+                      "linear-gradient(155deg, rgba(6,199,85,0.08) 0%, rgba(15,23,42,0.88) 100%)",
+                  }}
                 />
-              </section>
+
+                <LineReplySection
+                  customer={customer}
+                  customerId={id}
+                  lineUserId={selectedLineUserId ?? customer.line_user_id ?? null}
+                  isMobile={isMobile}
+                  showToast={setToast}
+                  copyWithFallback={copyWithFallback}
+                  onAfterLineSend={() => {
+                    setConversationRefresh((n) => n + 1);
+                    void fetchCustomer();
+                  }}
+                  cardStyle={{
+                    ...compactCard(isMobile),
+                    border: "1px solid rgba(99,102,241,0.35)",
+                    background:
+                      "linear-gradient(155deg, rgba(99,102,241,0.1) 0%, rgba(15,23,42,0.88) 100%)",
+                  }}
+                />
+
+                <section ref={conversationSectionRef} id="customer-conversation-history">
+                  <CustomerConversationHistory
+                    customerId={String(customer.id)}
+                    isMobile={isMobile}
+                    lang="zh"
+                    refreshSignal={conversationRefresh}
+                    lineUserId={selectedLineUserId}
+                    compact
+                    titleOverride={
+                      selectedLineLabel
+                        ? `對話時間軸 · ${selectedLineLabel}`
+                        : "對話時間軸"
+                    }
+                  />
+                </section>
+              </div>
             )}
 
             {isEditing ? (
@@ -837,157 +770,41 @@ export default function CustomerDetailPage() {
                 </EditSection>
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-                <section style={cardStyle(isMobile)}>
-                  <h2 style={sectionHeading}>{t.sectionBasic}</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
+                <section style={compactCard(isMobile)}>
+                  <h2 style={compactSectionHeading}>基本資料</h2>
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "1fr"
-                        : "repeat(2, minmax(0, 1fr))",
-                      gap: isMobile ? 18 : 22,
+                      gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                      gap: isMobile ? 12 : 14,
                     }}
                   >
-                    <DetailRow label={fl.customer_name} value={customer.customer_name} />
-                    <DetailRow label={fl.company_name} value={customer.company_name} />
-                    <DetailRow label={fl.phone} value={customer.phone} />
-                    <DetailRow label={fl.line_id} value={customer.line_id} />
-                    <DetailRow label={fl.email} value={customer.email} span2 />
-                    <DetailRow
-                      label={t.createdAt}
-                      value={
-                        formatCustomerCreatedAtDisplay(customer.created_at, lang) ?? "—"
-                      }
-                    />
-                    <DetailRow label={t.lastContact} value={formatLastContact(customer.last_contacted_at)} />
-                    <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          letterSpacing: "0.06em",
-                          textTransform: "uppercase",
-                          color: ui.faint,
-                          marginBottom: 8,
-                        }}
-                      >
-                        {fl.customer_status}
+                    <CompactDetailRow label="客戶姓名" value={customer.customer_name} />
+                    <CompactDetailRow label="公司" value={customer.company_name} />
+                    <CompactDetailRow label="電話" value={customer.phone} />
+                    <CompactDetailRow label="電子郵件" value={customer.email} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+                        客戶狀態
                       </div>
-                      <PipelineStatusBadge status={getRawCustomerStatus(customer)} lang={lang} />
+                      <PipelineStatusBadge status={getRawCustomerStatus(customer)} lang="zh" />
                     </div>
-                    <DetailRow label={fl.note} value={customer.note} multiline span2 />
+                    <CompactDetailRow
+                      label="最後聯絡時間"
+                      value={formatLastContact(customer.last_contacted_at)}
+                    />
                   </div>
                 </section>
 
-                <section style={cardStyle(isMobile)}>
-                  <h2 style={sectionHeading}>{t.sectionMetrics}</h2>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "1fr"
-                        : "repeat(4, minmax(0, 1fr))",
-                      gap: 16,
-                      marginBottom: 26,
-                    }}
-                  >
-                    <MetricCard label={fl.success_rate} value={displayValue(customer.success_rate)} />
-                    <MetricCard label={fl.customer_level} value={displayValue(customer.customer_level)} />
-                    <MetricCard label={fl.churn_risk} value={displayValue(customer.churn_risk)} />
-                    <MetricCard label={fl.estimated_amount} value={displayValue(customer.estimated_amount)} />
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "1fr"
-                        : "repeat(2, minmax(0, 1fr))",
-                      gap: isMobile ? 18 : 22,
-                    }}
-                  >
-                    <DetailRow label={fl.customer_need} value={displayValue(customer.customer_need)} multiline span2 />
-                    <DetailRow label={fl.customer_emotion} value={displayValue(customer.customer_emotion)} />
-                    {displayImportantDate ? (
-                      <DetailRow label={fl.important_date} value={displayImportantDate} />
-                    ) : null}
-                  </div>
-                </section>
-
-                <section style={cardStyle(isMobile)}>
-                  <h2 style={sectionHeading}>{t.sectionFollowPanel}</h2>
-                  <Panel label={fl.next_step} value={displayValue(customer.next_step)} />
-                  <CustomerInsightSections
-                    lang={lang}
-                    sourceText={conversationSourceText}
-                    labels={{
-                      todo: fl.todo,
-                      replySuggestion: fl.reply_suggestion,
-                      followUp: fl.follow_up,
-                      aiSend: fl.follow_up_mode,
-                      note: fl.note,
-                      noExplicitDate: fl.noExplicitFollowUpDate,
-                    }}
-                    todo={customer.todo}
-                    reply_suggestion={customer.reply_suggestion}
-                    follow_up={customer.follow_up}
-                    follow_up_mode={customer.follow_up_mode}
-                    showFollowUpReminder={false}
-                    showNote={false}
-                    clampLongText={false}
-                  />
-                  <FollowUpMessagingBlock
-                    customer={customer}
-                    mode={normalizeFollowUpMode(customer.follow_up_mode)}
-                    isMobile={isMobile}
-                    lang={lang}
-                    copyWithFallback={copyWithFallback}
-                    logOutboundMessage={logOutboundMessage}
-                  />
-                </section>
-
-                <section ref={conversationSectionRef} id="customer-conversation-history">
-                  <CustomerConversationHistory
-                    customerId={String(customer.id)}
-                    isMobile={isMobile}
-                    lang={lang}
-                    refreshSignal={conversationRefresh}
-                    lineUserId={selectedLineUserId}
-                    titleOverride={
-                      selectedLineLabel
-                        ? t.conversationsFiltered(selectedLineLabel)
-                        : t.sectionTimeline
-                    }
-                  />
-                </section>
-
-                {(customer.created_at || customer.updated_at) && (
-                  <section style={{ ...cardStyle(isMobile), opacity: 0.92 }}>
-                    <h2 style={sectionHeading}>{t.sectionRecords}</h2>
-                    <div
-                      style={{
-                        display: "grid",
-                        gap: 14,
-                        fontSize: 15,
-                        lineHeight: 1.55,
-                        color: ui.muted,
-                      }}
-                    >
-                      {customer.created_at && (
-                        <div>
-                          {t.createdAt}：
-                          {formatCustomerCreatedAtDisplay(customer.created_at, lang) ??
-                            formatTs(customer.created_at)}
-                        </div>
-                      )}
-                      {customer.updated_at && (
-                        <div>
-                          {t.updatedAt}：{formatTs(customer.updated_at)}
-                        </div>
-                      )}
-                    </div>
-                  </section>
-                )}
+                <AdvancedAnalysisSection
+                  customer={customer}
+                  conversationSourceText={conversationSourceText}
+                  displayImportantDate={displayImportantDate}
+                  isMobile={isMobile}
+                  modeSaving={modeSaving}
+                  onPersistFollowUpMode={(m) => void persistFollowUpMode(m)}
+                />
               </div>
             )}
           </>
@@ -1026,469 +843,210 @@ export default function CustomerDetailPage() {
   );
 }
 
-const LINE_BRAND = "#06C755";
+const compactSectionHeading: CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: 14,
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: ui.faint,
+};
 
-function LineQuickActionsBar({
+function compactCard(isMobile: boolean): CSSProperties {
+  return {
+    borderRadius: ui.radiusLg,
+    border: `1px solid ${ui.border}`,
+    background: ui.surface,
+    boxShadow: ui.shadow,
+    padding: isMobile ? 14 : 18,
+    width: "100%",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    minWidth: 0,
+  };
+}
+
+function CompactDetailRow({ label, value }: { label: string; value?: string | null }) {
+  const text = value?.trim();
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 14,
+          color: text ? ui.text : ui.muted,
+          lineHeight: 1.5,
+          wordBreak: "break-word",
+          whiteSpace: text && text.length > 80 ? "pre-wrap" : "normal",
+        }}
+      >
+        {text || "尚無資料"}
+      </div>
+    </div>
+  );
+}
+
+function AdvancedAnalysisSection({
   customer,
-  customerId,
-  companyId,
+  conversationSourceText,
+  displayImportantDate,
   isMobile,
-  lang,
-  showToast,
-  copyWithFallback,
-  onAfterSimulatedSend,
-  logOutboundMessage,
+  modeSaving,
+  onPersistFollowUpMode,
 }: {
   customer: Customer;
-  customerId: string;
-  companyId: number;
+  conversationSourceText: string;
+  displayImportantDate: string | null;
   isMobile: boolean;
-  lang: AppLang;
-  showToast: (message: string) => void;
-  copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
-  onAfterSimulatedSend: () => void | Promise<void>;
-  logOutboundMessage: (messageText: string) => Promise<boolean>;
+  modeSaving: boolean;
+  onPersistFollowUpMode: (mode: FollowUpMode) => void;
 }) {
-  const t = customerDetailCopy(lang);
-  const [sendBusy, setSendBusy] = useState(false);
-  const [lineOpenFallback, setLineOpenFallback] = useState(false);
-  const openLineCleanupRef = useRef<(() => void) | null>(null);
-
-  const lid = customer.line_id?.trim() ?? "";
-  const aiReply = buildAiLineFollowUpReply(customer, lang);
-  const [copyAiBusy, setCopyAiBusy] = useState(false);
-  const historyEntries = parseSendHistory(customer.line_send_history)
-    .slice()
-    .reverse()
-    .slice(0, 20);
-
-  const copyModalOpts = {
-    title: t.copyAiLineReplyTitle,
-    description: t.copyAiLineReplyDesc,
-    tapLabel: t.tapToCopy,
-    closeLabel: t.close,
-    copiedLabel: t.copiedExclaim,
-  };
-
-  useEffect(() => {
-    return () => {
-      openLineCleanupRef.current?.();
-    };
-  }, []);
-
-  function openLineAppWithFallback() {
-    openLineCleanupRef.current?.();
-    openLineCleanupRef.current = tryOpenLineApp(() => setLineOpenFallback(true));
-  }
-
-  async function copyLineId() {
-    if (!lid) {
-      alert(t.noLineIdAlert);
-      return;
-    }
-    await copyWithFallback(lid, {
-      title: t.copyLineId,
-      description: t.openLineSearch,
-      tapLabel: t.tapToCopy,
-      closeLabel: t.close,
-      copiedLabel: t.copiedExclaim,
-      onSuccess: () => showToast(t.lineIdCopied),
-    });
-  }
-
-  async function completeSimulatedSend() {
-    const { data: row, error: selErr } = await supabase
-      .from("customers")
-      .select("line_send_history")
-      .eq("company_id", companyId)
-      .eq("id", customerId)
-      .maybeSingle();
-
-    if (selErr) {
-      showToast(selErr.message);
-      return;
-    }
-
-    const prev = parseSendHistory(row?.line_send_history);
-    const nowIso = new Date().toISOString();
-    const next = [...prev, { at: nowIso, kind: "simulated_send" }].slice(-80);
-
-    const { error: upErr } = await supabase
-      .from("customers")
-      .update({ last_contacted_at: nowIso, line_send_history: next })
-      .eq("company_id", companyId)
-      .eq("id", customerId);
-
-    if (upErr) {
-      showToast(upErr.message);
-      return;
-    }
-
-    void logOutboundMessage(aiReply);
-    await onAfterSimulatedSend();
-    showToast(t.followUpCopiedToast);
-    window.setTimeout(() => openLineAppWithFallback(), 520);
-  }
-
-  async function updateLastContactedAt() {
-    const nowIso = new Date().toISOString();
-    const { error } = await supabase
-      .from("customers")
-      .update({ last_contacted_at: nowIso })
-      .eq("company_id", companyId)
-      .eq("id", customerId);
-    if (error) {
-      showToast(error.message);
-      return false;
-    }
-    void logOutboundMessage(aiReply);
-    await onAfterSimulatedSend();
-    return true;
-  }
-
-  async function copyAiLineReply() {
-    const msg = aiReply.trim();
-    if (!msg || copyAiBusy) {
-      if (!msg) showToast(t.noFollowUpToCopy);
-      return;
-    }
-    setCopyAiBusy(true);
-    await copyWithFallback(msg, {
-      ...copyModalOpts,
-      onSuccess: async () => {
-        const ok = await updateLastContactedAt();
-        if (ok) showToast(t.aiLineReplyCopiedToast);
-      },
-    });
-    setCopyAiBusy(false);
-  }
-
-  async function handleSimulatedSendToLine() {
-    if (!lid || sendBusy) return;
-    const msg = aiReply.trim();
-    if (!msg) {
-      showToast(t.noFollowUpToCopy);
-      return;
-    }
-
-    setSendBusy(true);
-    const copied = await copyWithFallback(msg, {
-      ...copyModalOpts,
-      onSuccess: () => void completeSimulatedSend(),
-    });
-    setSendBusy(false);
-    if (!copied) {
-      // Modal shown; onSuccess runs after user taps "Tap to Copy"
-    }
-  }
-
-  const shell: CSSProperties = {
-    ...cardStyle(isMobile),
-    marginBottom: isMobile ? 22 : 28,
-    border: `1px solid rgba(6, 199, 85, 0.35)`,
-    background:
-      "linear-gradient(155deg, rgba(6,199,85,0.14) 0%, rgba(15,23,42,0.78) 48%, rgba(15,23,42,0.94) 100%)",
-    boxShadow: "0 18px 44px rgba(0,0,0,0.32)",
-  };
-
-  const row: CSSProperties = {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 12,
-    alignItems: "stretch",
-  };
-
-  const pillLabel: CSSProperties = {
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: "0.08em",
-    padding: "6px 11px",
-    borderRadius: 999,
-    background: LINE_BRAND,
-    color: "#fff",
-    flexShrink: 0,
-  };
-
-  const btnGhostLine: CSSProperties = {
-    flex: isMobile ? "1 1 100%" : "1 1 calc(50% - 6px)",
-    minWidth: isMobile ? 0 : 160,
-    padding: "14px 18px",
-    borderRadius: ui.radiusMd,
-    border: `1px solid rgba(255,255,255,0.14)`,
-    background: "rgba(0,0,0,0.22)",
-    color: ui.text,
-    fontWeight: 700,
-    fontSize: 15,
-    cursor: "pointer",
-    textAlign: "center",
-    textDecoration: "none",
-    boxSizing: "border-box",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    transition: "border-color 0.15s, background 0.15s",
-  };
-
-  const btnPrimaryLine: CSSProperties = {
-    ...btnGhostLine,
-    border: `1px solid rgba(6,199,85,0.55)`,
-    background: `linear-gradient(135deg, ${LINE_BRAND}, #05a849)`,
-    color: "#fff",
-    boxShadow: "0 10px 26px rgba(6,199,85,0.35)",
-  };
-
-  const btnSendSimulated: CSSProperties = {
-    width: "100%",
-    padding: "16px 20px",
-    borderRadius: ui.radiusMd,
-    border: "2px solid rgba(255,255,255,0.35)",
-    background: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(6,199,85,0.35))`,
-    color: "#fff",
-    fontWeight: 800,
-    fontSize: 16,
-    cursor: lid && !sendBusy ? "pointer" : "not-allowed",
-    opacity: lid && !sendBusy ? 1 : 0.5,
-    boxShadow: "0 14px 36px rgba(6,199,85,0.25)",
-    boxSizing: "border-box",
-  };
+  const [open, setOpen] = useState(false);
 
   return (
-    <section style={shell} aria-label="LINE 快速操作">
-      <div
+    <section style={compactCard(isMobile)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
         style={{
+          width: "100%",
           display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "stretch" : "flex-start",
+          alignItems: "center",
           justifyContent: "space-between",
-          gap: 14,
-          marginBottom: 18,
+          gap: 12,
+          padding: 0,
+          border: "none",
+          background: "transparent",
+          color: ui.text,
+          cursor: "pointer",
+          textAlign: "left",
         }}
       >
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0 }}>
-          <span style={pillLabel}>LINE</span>
-          <div style={{ minWidth: 0 }}>
-            <h2 style={{ ...sectionHeading, marginBottom: 8 }}>{t.lineQuickContact}</h2>
-            <p style={{ margin: 0, color: ui.muted, fontSize: 15, lineHeight: 1.55 }}>
-              {t.lineQuickLead}
-              {lid ? (
-                <>
-                  {" "}
-                  {t.lineLastSend}
-                  <span style={{ color: ui.text, fontWeight: 700 }}>{formatLastContact(customer.last_contacted_at)}</span>
-                </>
-              ) : (
-                <>{t.lineNoId}</>
-              )}
-            </p>
+        <h2 style={{ ...compactSectionHeading, margin: 0 }}>進階分析</h2>
+        <span style={{ fontSize: 13, color: ui.muted, fontWeight: 600 }}>{open ? "收起" : "展開"}</span>
+      </button>
+
+      {open ? (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>AI 追蹤發送模式</h3>
+            <FollowUpModeSegmented
+              value={normalizeFollowUpMode(customer.follow_up_mode)}
+              onChange={onPersistFollowUpMode}
+              disabled={modeSaving}
+              isMobile={isMobile}
+            />
           </div>
-        </div>
-      </div>
 
-      <div
-        style={{
-          marginBottom: 18,
-          padding: isMobile ? 16 : 20,
-          borderRadius: ui.radiusMd,
-          border: "1px solid rgba(129,140,248,0.45)",
-          background:
-            "linear-gradient(155deg, rgba(99,102,241,0.12) 0%, rgba(15,23,42,0.55) 100%)",
-        }}
-      >
-        <h3
-          style={{
-            margin: "0 0 8px",
-            fontSize: isMobile ? 17 : 18,
-            fontWeight: 800,
-            color: "#c7d2fe",
-            letterSpacing: "0.02em",
-          }}
-        >
-          {t.aiLineReplyTitle}
-        </h3>
-        <p style={{ margin: "0 0 14px", fontSize: 14, color: ui.muted, lineHeight: 1.5 }}>
-          {t.aiLineReplyLead}
-        </p>
-        <div
-          style={{
-            padding: "14px 16px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.1)",
-            background: "rgba(0,0,0,0.32)",
-            fontSize: 15,
-            lineHeight: 1.65,
-            color: ui.text,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            marginBottom: 14,
-            maxHeight: 220,
-            overflowY: "auto",
-          }}
-        >
-          {aiReply}
-        </div>
-        <button
-          type="button"
-          style={{
-            ...btnPrimaryLine,
-            width: "100%",
-            flex: "unset",
-            border: "1px solid rgba(129,140,248,0.55)",
-            background: "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(139,92,246,0.92))",
-            boxShadow: "0 10px 26px rgba(99,102,241,0.35)",
-            opacity: copyAiBusy ? 0.65 : 1,
-            cursor: copyAiBusy ? "wait" : "pointer",
-          }}
-          disabled={copyAiBusy || !aiReply.trim()}
-          onClick={() => void copyAiLineReply()}
-        >
-          {copyAiBusy ? t.processingLine : t.copyAiLineReply}
-        </button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <button
-          type="button"
-          style={btnSendSimulated}
-          disabled={!lid || sendBusy}
-          onClick={() => void handleSimulatedSendToLine()}
-        >
-          {sendBusy ? t.processingLine : t.sendToLine}
-        </button>
-        <p style={{ margin: 0, fontSize: 13, color: ui.faint, lineHeight: 1.45 }}>
-          {t.sendToLineHint}
-        </p>
-
-        <div
-          style={{
-            padding: 16,
-            borderRadius: ui.radiusMd,
-            border: "1px solid rgba(6,199,85,0.35)",
-            background: "rgba(6,199,85,0.08)",
-          }}
-        >
-          <p style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: "#86efac", lineHeight: 1.45 }}>
-{t.openLineSearch}
-          </p>
-          <div
-            style={{
-              padding: "12px 14px",
-              borderRadius: 10,
-              background: "rgba(0,0,0,0.28)",
-              fontSize: 17,
-              fontWeight: 700,
-              wordBreak: "break-all",
-              textAlign: "center",
-              marginBottom: 14,
-              color: lid ? ui.text : ui.faint,
-            }}
-          >
-{lid || t.noLineId}
-          </div>
-          <div style={{ ...row, marginBottom: 0 }}>
-            <button
-              type="button"
-              style={{ ...btnPrimaryLine, flex: isMobile ? "1 1 100%" : "1 1 auto" }}
-              disabled={!lid}
-              onClick={() => void copyLineId()}
+          <div>
+            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>指標與分析</h3>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
+                gap: 10,
+              }}
             >
-{t.copyLineId}
-            </button>
-            <button type="button" style={{ ...btnGhostLine, flex: isMobile ? "1 1 100%" : "1 1 auto" }} onClick={openLineAppWithFallback}>
-{t.openLineApp}
-            </button>
+              <CompactDetailRow label="成交機率" value={customer.success_rate} />
+              <CompactDetailRow label="客戶等級" value={customer.customer_level} />
+              <CompactDetailRow label="流失風險" value={customer.churn_risk} />
+              <CompactDetailRow label="預估金額" value={customer.estimated_amount} />
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                gap: 10,
+                marginTop: 10,
+              }}
+            >
+              <CompactDetailRow label="客戶需求" value={customer.customer_need} />
+              <CompactDetailRow label="客戶情緒" value={customer.customer_emotion} />
+              {displayImportantDate ? (
+                <CompactDetailRow label="重要日期" value={displayImportantDate} />
+              ) : null}
+            </div>
           </div>
-        </div>
-      </div>
 
-      <LineOpenFallbackModal
-        open={lineOpenFallback}
-        lineId={lid}
-        isMobile={isMobile}
-        onClose={() => setLineOpenFallback(false)}
-        onCopiedId={() => showToast(t.lineIdCopied)}
-      />
-
-      <div
-        style={{
-          marginTop: 22,
-          paddingTop: 18,
-          borderTop: `1px solid rgba(255,255,255,0.1)`,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", color: ui.faint, marginBottom: 12 }}>
-{t.sendHistory}
-        </div>
-        {historyEntries.length === 0 ? (
-<p style={{ margin: 0, fontSize: 14, color: ui.muted }}>{t.noSendHistory}</p>
-        ) : (
-          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
-            {historyEntries.map((e, i) => (
-              <li
-                key={`${e.at}-${i}`}
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  justifyContent: "space-between",
-                  gap: 10,
-                  padding: "12px 14px",
-                  borderRadius: ui.radiusMd,
-                  border: `1px solid rgba(255,255,255,0.08)`,
-                  background: "rgba(0,0,0,0.18)",
-                  fontSize: 14,
+          <div>
+            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>追蹤與回覆</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <CompactDetailRow label="下一步" value={customer.next_step} />
+              <CustomerInsightSections
+                lang="zh"
+                sourceText={conversationSourceText}
+                labels={{
+                  todo: "待辦事項",
+                  replySuggestion: "專業回覆",
+                  followUp: "追蹤訊息",
+                  aiSend: "AI 追蹤發送模式",
+                  note: "備註",
+                  noExplicitDate: "無明確日期",
                 }}
-              >
-                <span style={{ color: ui.text, fontWeight: 600 }}>
-                  {formatLastContact(e.at)}
-                </span>
-                <span style={{ color: ui.faint, fontSize: 13 }}>
-                  {e.kind === "simulated_send" ? t.simulatedSend : e.kind ?? "—"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                todo={customer.todo}
+                reply_suggestion={customer.reply_suggestion}
+                follow_up={customer.follow_up}
+                follow_up_mode={customer.follow_up_mode}
+                showFollowUpReminder={false}
+                showNote={false}
+                clampLongText
+              />
+              <CompactDetailRow label="備註" value={customer.note} />
+            </div>
+          </div>
+
+          {(customer.created_at || customer.updated_at) && (
+            <div style={{ fontSize: 12, color: ui.muted, lineHeight: 1.5 }}>
+              {customer.created_at ? (
+                <div>
+                  建檔時間：
+                  {formatCustomerCreatedAtDisplay(customer.created_at, "zh") ?? customer.created_at}
+                </div>
+              ) : null}
+              {customer.updated_at ? <div>更新時間：{formatTs(customer.updated_at)}</div> : null}
+            </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
+
 
 function FollowUpModeSegmented({
   value,
   onChange,
   disabled,
   isMobile,
-  lang,
 }: {
   value: FollowUpMode;
   onChange: (m: FollowUpMode) => void;
   disabled?: boolean;
   isMobile: boolean;
-  lang: AppLang;
+  lang?: AppLang;
 }) {
-  const t = customerDetailCopy(lang);
   const modes: FollowUpMode[] = ["manual", "assisted", "auto"];
   const labels: Record<FollowUpMode, string> = {
-    manual: t.modeManual,
-    assisted: t.modeAssisted,
-    auto: t.modeAuto,
+    manual: "手動",
+    assisted: "輔助",
+    auto: "自動",
   };
   const hints: Record<FollowUpMode, string> = {
-    manual: t.modeHintManual,
-    assisted: t.modeHintAssisted,
-    auto: t.modeHintAuto,
+    manual: "提醒與建議",
+    assisted: "草稿＋確認",
+    auto: "自動送出",
   };
 
   return (
     <div
       role="radiogroup"
-      aria-label={t.modeRadiogroup}
+      aria-label="AI 追蹤發送模式"
       style={{
         display: "flex",
         flexDirection: isMobile ? "column" : "row",
-        gap: 10,
-        padding: 6,
-        borderRadius: ui.radiusLg,
+        gap: 8,
+        padding: 4,
+        borderRadius: ui.radiusMd,
         background: "rgba(0,0,0,0.28)",
         border: `1px solid ${ui.borderStrong}`,
       }}
@@ -1507,280 +1065,24 @@ function FollowUpModeSegmented({
               flex: isMobile ? "unset" : 1,
               width: isMobile ? "100%" : "auto",
               textAlign: "left",
-              padding: "14px 18px",
+              padding: isMobile ? "10px 12px" : "10px 14px",
               borderRadius: ui.radiusMd,
               border: active ? `1px solid rgba(129,140,248,0.85)` : `1px solid transparent`,
               cursor: disabled ? "not-allowed" : "pointer",
               fontWeight: 700,
-              fontSize: 16,
+              fontSize: 14,
               color: active ? "#fff" : ui.muted,
               background: active
                 ? "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(139,92,246,0.92))"
                 : "transparent",
-              boxShadow: active ? "0 12px 28px rgba(99,102,241,0.35)" : "none",
               opacity: disabled ? 0.65 : 1,
-              transition: "background 0.18s, box-shadow 0.18s, border-color 0.18s",
             }}
           >
-            <div style={{ marginBottom: 4 }}>{labels[m]}</div>
-            <div style={{ fontSize: 13, fontWeight: 500, opacity: active ? 0.92 : 0.75 }}>{hints[m]}</div>
+            <div>{labels[m]}</div>
+            <div style={{ fontSize: 11, fontWeight: 500, opacity: 0.8 }}>{hints[m]}</div>
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function FollowUpMessagingBlock({
-  customer,
-  mode,
-  isMobile,
-  lang,
-  copyWithFallback,
-  logOutboundMessage,
-}: {
-  customer: Customer;
-  mode: FollowUpMode;
-  isMobile: boolean;
-  lang: AppLang;
-  copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
-  logOutboundMessage: (messageText: string) => Promise<boolean>;
-}) {
-  const t = customerDetailCopy(lang);
-  const suggested = buildAiLineFollowUpReply(customer, lang);
-  const [assistedDraft, setAssistedDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [lastSimulatedAt, setLastSimulatedAt] = useState<string | null>(null);
-  const [autoBanner, setAutoBanner] = useState<string | null>(null);
-  const autoRanForId = useRef<string | null>(null);
-
-  useEffect(() => {
-    setAssistedDraft("");
-    setLastSimulatedAt(null);
-    setAutoBanner(null);
-    autoRanForId.current = null;
-  }, [customer.id]);
-
-  useEffect(() => {
-    if (mode !== "auto") return;
-    const key = String(customer.id);
-    if (autoRanForId.current === key) return;
-    autoRanForId.current = key;
-    const timer = window.setTimeout(() => {
-      const ts = new Date().toLocaleString(lang === "zh" ? "zh-TW" : undefined);
-      setLastSimulatedAt(ts);
-      setAutoBanner(t.autoBanner);
-    }, 850);
-    return () => window.clearTimeout(timer);
-  }, [mode, customer.id]);
-
-  async function copy(text: string) {
-    const body = text.trim();
-    if (!body) {
-      alert(t.nothingToCopy);
-      return;
-    }
-    await copyWithFallback(body, {
-      title: t.copyFollowUpTitle,
-      description: t.copyFollowUpDesc,
-      tapLabel: t.tapToCopy,
-      closeLabel: t.close,
-      copiedLabel: t.copiedExclaim,
-      onSuccess: () => {
-        alert(t.copied);
-        void logOutboundMessage(body);
-      },
-    });
-  }
-
-  async function simulateSend(payload: string, requireConfirm: boolean) {
-    const body = payload.trim();
-    if (!body) {
-      alert(t.nothingToSend);
-      return;
-    }
-    if (requireConfirm) {
-      const ok = confirm(t.confirmSimulated);
-      if (!ok) return;
-    }
-    setBusy(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setBusy(false);
-    const ts = new Date().toLocaleString("zh-TW");
-    setLastSimulatedAt(ts);
-    void logOutboundMessage(body);
-    alert(requireConfirm ? t.simulatedSent : t.simulatedAutoSent);
-  }
-
-  const manualHint = t.manualHint;
-  const assistedHint = t.assistedHint;
-  const autoHint = t.autoHint;
-
-  const bannerStyle: CSSProperties = {
-    marginBottom: 16,
-    padding: "14px 18px",
-    borderRadius: ui.radiusMd,
-    border: `1px solid ${ui.borderStrong}`,
-    background: "rgba(99,102,241,0.08)",
-    color: ui.muted,
-    fontSize: 15,
-    lineHeight: 1.55,
-  };
-
-  return (
-    <div style={{ marginTop: isMobile ? 22 : 26 }}>
-      {mode === "manual" && (
-        <>
-          <div style={bannerStyle}>{manualHint}</div>
-          <div
-            style={{
-              borderRadius: ui.radiusMd,
-              border: "1px solid rgba(99,102,241,0.45)",
-              background: "rgba(99,102,241,0.08)",
-              padding: isMobile ? 18 : 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                color: "#a5b4fc",
-                marginBottom: 12,
-              }}
-            >
-              {t.suggestedNotSent}
-            </div>
-            <textarea readOnly value={suggested} style={{ ...inputBase(true), minHeight: 120, marginBottom: 14 }} />
-            <button type="button" onClick={() => void copy(suggested)} style={btnPrimary(isMobile)}>
-              {t.copySuggested}
-            </button>
-          </div>
-        </>
-      )}
-
-      {mode === "assisted" && (
-        <>
-          <div style={bannerStyle}>{assistedHint}</div>
-          <div
-            style={{
-              borderRadius: ui.radiusMd,
-              border: "1px solid rgba(245,158,11,0.35)",
-              background: "rgba(245,158,11,0.07)",
-              padding: isMobile ? 18 : 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                color: "#fcd34d",
-                marginBottom: 12,
-              }}
-            >
-              {t.aiDraftTitle}
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setAssistedDraft(suggested)}
-                style={{
-                  ...btnGhost(isMobile),
-                  borderColor: "rgba(251,191,36,0.35)",
-                  color: "#fde68a",
-                }}
-              >
-                {t.generateDraft}
-              </button>
-              <button type="button" disabled={busy} onClick={() => void copy(assistedDraft || suggested)} style={btnGhost(isMobile)}>
-                {t.copyDraft}
-              </button>
-            </div>
-            <textarea
-              value={assistedDraft}
-              onChange={(e) => setAssistedDraft(e.target.value)}
-              placeholder={t.draftPlaceholder}
-              style={{ ...inputBase(true), minHeight: 140, marginBottom: 14 }}
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void simulateSend(assistedDraft || suggested, true)}
-              style={{
-                ...btnPrimary(isMobile),
-                background: "linear-gradient(135deg,#f59e0b,#ea580c)",
-                boxShadow: "0 8px 22px rgba(245,158,11,0.35)",
-              }}
-            >
-              {busy ? t.processing : t.confirmSimulatedSend}
-            </button>
-          </div>
-        </>
-      )}
-
-      {mode === "auto" && (
-        <>
-          <div style={{ ...bannerStyle, borderColor: "rgba(74,222,128,0.35)", background: "rgba(34,197,94,0.08)" }}>
-            {autoHint}
-          </div>
-          {autoBanner ? (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: "12px 16px",
-                borderRadius: ui.radiusMd,
-                border: "1px solid rgba(74,222,128,0.45)",
-                background: "rgba(34,197,94,0.12)",
-                color: "#bbf7d0",
-                fontSize: 15,
-                fontWeight: 600,
-              }}
-            >
-              {autoBanner}
-            </div>
-          ) : null}
-          <div
-            style={{
-              borderRadius: ui.radiusMd,
-              border: "1px solid rgba(74,222,128,0.35)",
-              background: "rgba(34,197,94,0.06)",
-              padding: isMobile ? 18 : 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                color: "#86efac",
-                marginBottom: 12,
-              }}
-            >
-              {t.autoPreviewTitle}
-            </div>
-            <textarea readOnly value={suggested} style={{ ...inputBase(true), minHeight: 120, marginBottom: 14 }} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <button type="button" disabled={busy} onClick={() => void copy(suggested)} style={btnGhost(isMobile)}>
-                {t.copyPreview}
-              </button>
-              <button type="button" disabled={busy} onClick={() => void simulateSend(suggested, false)} style={btnPrimary(isMobile)}>
-                {busy ? t.simulating : t.simulateAutoAgain}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {lastSimulatedAt ? (
-        <p style={{ margin: "18px 0 0", fontSize: 14, color: ui.faint }}>
-          {t.lastSimulatedAt}{lastSimulatedAt}
-        </p>
-      ) : null}
     </div>
   );
 }

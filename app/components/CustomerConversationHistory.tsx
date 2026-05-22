@@ -48,6 +48,7 @@ export function CustomerConversationHistory({
   refreshSignal,
   lineUserId,
   titleOverride,
+  compact = false,
 }: {
   customerId: string;
   isMobile: boolean;
@@ -57,6 +58,7 @@ export function CustomerConversationHistory({
   /** When set, only messages for this official LINE userId are shown. */
   lineUserId?: string | null;
   titleOverride?: string;
+  compact?: boolean;
 }) {
   const copy = customerDetailCopy(lang);
   const [messages, setMessages] = useState<ConversationRow[]>([]);
@@ -231,15 +233,20 @@ export function CustomerConversationHistory({
 
   const hasMessages = messages.length > 0;
 
+  const title = titleOverride ?? (compact ? "對話時間軸" : copy.conversationsTitle);
+  const directionInbound = compact ? "客戶" : copy.directionInbound;
+  const directionOutbound = compact ? "系統" : copy.directionOutbound;
+
   return (
     <section
       style={{
         background: SURFACE,
         border: `1px solid ${BORDER}`,
-        borderRadius: 16,
-        padding: isMobile ? 20 : 28,
-        boxShadow:
-          "0 1px 0 rgba(255,255,255,0.06) inset, 0 18px 48px rgba(0,0,0,0.35)",
+        borderRadius: compact ? 12 : 16,
+        padding: compact ? (isMobile ? 12 : 14) : isMobile ? 20 : 28,
+        boxShadow: compact
+          ? "0 1px 0 rgba(255,255,255,0.04) inset"
+          : "0 1px 0 rgba(255,255,255,0.06) inset, 0 18px 48px rgba(0,0,0,0.35)",
       }}
     >
       <div
@@ -248,20 +255,20 @@ export function CustomerConversationHistory({
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
-          marginBottom: 16,
+          marginBottom: compact ? 10 : 16,
           flexWrap: "wrap",
         }}
       >
         <h2
           style={{
-            fontSize: 18,
+            fontSize: compact ? 16 : 18,
             margin: 0,
             color: TEXT,
             fontWeight: 700,
             letterSpacing: 0.2,
           }}
         >
-          {titleOverride ?? copy.conversationsTitle}
+          {title}
         </h2>
         {hasMessages ? (
           <button
@@ -286,16 +293,25 @@ export function CustomerConversationHistory({
       </div>
 
       {loading ? (
-        <div style={{ color: MUTED, fontSize: 15 }}>{copy.conversationsLoading}</div>
+        <div style={{ color: MUTED, fontSize: compact ? 13 : 15 }}>載入中…</div>
       ) : error ? (
-        <div style={{ color: DANGER, fontSize: 15 }}>{error}</div>
+        <div style={{ color: DANGER, fontSize: compact ? 13 : 15 }}>{error}</div>
       ) : !hasMessages ? (
-        <div style={{ color: MUTED, fontSize: 15 }}>{copy.conversationsEmpty}</div>
+        <div style={{ color: MUTED, fontSize: compact ? 13 : 15 }}>尚無對話紀錄</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: compact ? 6 : 10,
+            maxHeight: compact ? 360 : undefined,
+            overflowY: compact ? "auto" : undefined,
+            paddingRight: compact ? 4 : 0,
+          }}
+        >
           {messages.map((msg) => {
             const isOutbound = isOutboundDirection(msg.direction);
-            const directionLabel = isOutbound ? copy.directionOutbound : copy.directionInbound;
+            const directionLabel = isOutbound ? directionOutbound : directionInbound;
             const isDeleting = pendingDeleteId === String(msg.id);
             return (
               <div
@@ -318,29 +334,29 @@ export function CustomerConversationHistory({
                 )}
                 <div
                   style={{
-                    maxWidth: isMobile ? "82%" : "70%",
+                    maxWidth: isMobile ? "88%" : "72%",
                     background: isOutbound ? OUTBOUND_BG : INBOUND_BG,
                     border: `1px solid ${isOutbound ? OUTBOUND_BORDER : INBOUND_BORDER}`,
                     color: TEXT,
-                    borderRadius: 14,
-                    padding: "10px 14px",
-                    boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+                    borderRadius: compact ? 12 : 14,
+                    padding: compact ? "8px 10px" : "10px 14px",
+                    boxShadow: compact ? "none" : "0 6px 18px rgba(0,0,0,0.25)",
                   }}
                 >
                   <div
                     style={{
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                      fontSize: 15,
-                      lineHeight: 1.5,
+                      fontSize: compact ? 13 : 15,
+                      lineHeight: 1.45,
                     }}
                   >
                     {msg.message_text}
                   </div>
                   <div
                     style={{
-                      marginTop: 6,
-                      fontSize: 12,
+                      marginTop: compact ? 4 : 6,
+                      fontSize: compact ? 11 : 12,
                       color: MUTED,
                       textAlign: isOutbound ? "right" : "left",
                     }}

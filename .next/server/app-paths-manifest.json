@@ -10,6 +10,7 @@
   "/api/line-push-test/route": "app/api/line-push-test/route.js",
   "/api/line-users/route": "app/api/line-users/route.js",
   "/api/line-webhook/route": "app/api/line-webhook/route.js",
+  "/api/line/send-message/route": "app/api/line/send-message/route.js",
   "/api/notifications/route": "app/api/notifications/route.js",
   "/api/reminder-check/route": "app/api/reminder-check/route.js",
   "/api/reminder-settings/route": "app/api/reminder-settings/route.js",

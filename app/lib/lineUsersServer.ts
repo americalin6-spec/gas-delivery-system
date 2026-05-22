@@ -10,11 +10,52 @@ export type { LineUserBindingRow } from "./lineCustomerBinding";
 
 const SELECT_COLUMNS = "line_user_id, display_name, created_at, customer_id";
 
+export type LineUsersQueryLog = {
+  label: string;
+  rowCount: number;
+  error: string | null;
+  sampleCustomerIds: (string | null)[];
+  sampleLineUserIds: string[];
+};
+
+export type FetchLineUsersDebug = {
+  customerIdInput: string;
+  companyId: number | null;
+  matchCandidates: string[];
+  authKeyKind: "service_role" | "missing_service_role";
+  queries: LineUsersQueryLog[];
+  tableProbeCount: number;
+  finalReturnedRows: number;
+};
+
+function mapLineUserRow(row: Record<string, unknown>): LineUserBindingRow | null {
+  const line_user_id = String(row.line_user_id ?? "").trim();
+  if (!line_user_id) return null;
+  return {
+    line_user_id,
+    display_name:
+      row.display_name == null || row.display_name === ""
+        ? null
+        : String(row.display_name),
+    created_at: row.created_at == null ? null : String(row.created_at),
+    customer_id:
+      row.customer_id == null || row.customer_id === ""
+        ? null
+        : String(row.customer_id).trim(),
+  };
+}
+
+function mergeRow(merged: Map<string, LineUserBindingRow>, row: LineUserBindingRow | null): void {
+  if (!row?.line_user_id) return;
+  merged.set(row.line_user_id, row);
+}
+
 function normalizeIdToken(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function customerIdsMatch(stored: unknown, candidates: string[]): boolean {
+/** In-memory match when PostgREST filters are unreliable. */
+export function customerIdsMatch(stored: unknown, candidates: string[]): boolean {
   const s = normalizeIdToken(stored);
   if (!s) return false;
 
@@ -31,44 +72,26 @@ function customerIdsMatch(stored: unknown, candidates: string[]): boolean {
   return false;
 }
 
-function rowMatchesCustomer(row: LineUserBindingRow, candidates: string[]): boolean {
-  return customerIdsMatch(row.customer_id, candidates);
-}
-
-function absorbRows(
-  merged: Map<string, LineUserBindingRow>,
-  data: LineUserBindingRow[] | null,
-  candidates: string[],
+function logQuery(
+  logs: LineUsersQueryLog[],
+  label: string,
+  data: Record<string, unknown>[] | null,
+  error: { message: string } | null,
 ): void {
-  for (const row of data ?? []) {
-    const lineUserId = row.line_user_id?.trim();
-    if (!lineUserId || !rowMatchesCustomer(row, candidates)) continue;
-    merged.set(lineUserId, {
-      line_user_id: lineUserId,
-      display_name: row.display_name ?? null,
-      created_at: row.created_at ?? null,
-      customer_id: row.customer_id != null ? String(row.customer_id).trim() : null,
-    });
-  }
-}
-
-function addRowByLineUserId(
-  merged: Map<string, LineUserBindingRow>,
-  row: LineUserBindingRow | null | undefined,
-  fallbackCustomerId: string,
-): void {
-  const lineUserId = row?.line_user_id?.trim();
-  if (!lineUserId) return;
-  const storedCid = row.customer_id != null ? String(row.customer_id).trim() : "";
-  merged.set(lineUserId, {
-    line_user_id: lineUserId,
-    display_name: row.display_name ?? null,
-    created_at: row.created_at ?? null,
-    customer_id: storedCid || fallbackCustomerId,
+  const rows = data ?? [];
+  logs.push({
+    label,
+    rowCount: rows.length,
+    error: error?.message ?? null,
+    sampleCustomerIds: rows.slice(0, 5).map((r) => {
+      const v = r.customer_id;
+      return v == null ? null : String(v);
+    }),
+    sampleLineUserIds: rows.slice(0, 5).map((r) => String(r.line_user_id ?? "")),
   });
 }
 
-/** Read customers.line_user_id for this CRM customer (id may be uuid or bigint string). */
+/** Read customers.line_user_id for this CRM customer. */
 export async function resolveCustomerLineUserId(
   supabase: SupabaseClient,
   customerId: string,
@@ -83,10 +106,7 @@ export async function resolveCustomerLineUserId(
       .eq("id", cid)
       .maybeSingle();
 
-    if (error) {
-      console.warn("[lineUsers] resolveCustomerLineUserId error:", error.message, { cid });
-      continue;
-    }
+    if (error) continue;
     const lineId = data?.line_user_id;
     if (typeof lineId === "string" && lineId.trim()) return lineId.trim();
   }
@@ -99,131 +119,153 @@ export async function resolveCustomerLineUserId(
     .limit(1)
     .maybeSingle();
 
-  if (error) {
-    console.warn("[lineUsers] resolveCustomerLineUserId or() error:", error.message);
-    return null;
-  }
-
+  if (error) return null;
   const lineId = data?.line_user_id;
   return typeof lineId === "string" && lineId.trim() ? lineId.trim() : null;
 }
 
-async function fetchLineUserByLineUserId(
-  supabase: SupabaseClient,
-  lineUserId: string,
-): Promise<LineUserBindingRow | null> {
-  const { data, error } = await supabase
-    .from("line_users")
-    .select(SELECT_COLUMNS)
-    .eq("line_user_id", lineUserId)
-    .maybeSingle();
-
-  if (error) {
-    console.warn("[lineUsers] fetch by line_user_id error:", error.message, { lineUserId });
-    return null;
-  }
-  return (data as LineUserBindingRow) ?? null;
-}
-
 /**
- * Load every line_users row for a CRM customer.
- * Matches line_users.customer_id = customers.id OR customers.line_user_id = line_users.line_user_id.
+ * Load line_users for a CRM customer.
+ * Does not apply company_id to row matching — only customer_id + customers.line_user_id.
  */
 export async function fetchLineUsersForCustomer(
   supabase: SupabaseClient,
   customerId: string,
   companyId?: number,
-  options?: { primaryLineUserId?: string | null; skipSync?: boolean },
+  options?: {
+    primaryLineUserId?: string | null;
+    skipSync?: boolean;
+    debug?: FetchLineUsersDebug;
+  },
 ): Promise<{ rows: LineUserBindingRow[]; error: string | null }> {
-  const candidates = customerIdMatchValues(customerId);
+  const customerIdInput = customerId.trim();
+  const candidates = customerIdMatchValues(customerIdInput);
+  const queryLogs: LineUsersQueryLog[] = [];
+
+  const debug: FetchLineUsersDebug = options?.debug ?? {
+    customerIdInput,
+    companyId: companyId ?? null,
+    matchCandidates: candidates,
+    authKeyKind: "service_role",
+    queries: queryLogs,
+    tableProbeCount: 0,
+    finalReturnedRows: 0,
+  };
+  debug.queries = queryLogs;
+
   if (candidates.length === 0) {
+    debug.finalReturnedRows = 0;
     return { rows: [], error: null };
   }
 
   if (!options?.skipSync) {
-    await syncCustomerPrimaryLineUserId(supabase, customerId, companyId);
+    await syncCustomerPrimaryLineUserId(supabase, customerIdInput, companyId);
   }
 
   const merged = new Map<string, LineUserBindingRow>();
   let lastError: string | null = null;
 
-  const customerLineUserId =
-    options?.primaryLineUserId?.trim() ||
-    (await resolveCustomerLineUserId(supabase, customerId));
-
-  const logStats = {
-    customerId,
-    companyId: companyId ?? null,
-    matchCandidates: candidates,
-    customerLineUserId: customerLineUserId ?? null,
-    viaCustomerLineUserId: false,
-    directOrCount: 0,
-    companyScanCount: 0,
-    broadScanCount: 0,
-  };
-
-  // 1) customers.line_user_id → line_users.line_user_id (always show when linked)
-  if (customerLineUserId) {
-    const byLine = await fetchLineUserByLineUserId(supabase, customerLineUserId);
-    if (byLine) {
-      logStats.viaCustomerLineUserId = true;
-      addRowByLineUserId(merged, byLine, customerId);
-    }
+  const probe = await supabase
+    .from("line_users")
+    .select("line_user_id, customer_id")
+    .limit(10);
+  debug.tableProbeCount = probe.data?.length ?? 0;
+  if (probe.error) {
+    lastError = probe.error.message;
+    logQuery(queryLogs, "table_probe", null, probe.error);
+  } else {
+    logQuery(queryLogs, "table_probe", probe.data as Record<string, unknown>[], null);
   }
 
-  // 2) line_users.customer_id = customer.id
-  const orParts = candidates.map((c) => `customer_id.eq.${c}`);
-  if (orParts.length > 0) {
-    const direct = await supabase
+  // 1) Direct .eq per candidate — trust Supabase filter; no in-memory re-filter
+  for (const cid of candidates) {
+    const res = await supabase
       .from("line_users")
       .select(SELECT_COLUMNS)
-      .or(orParts.join(","))
+      .eq("customer_id", cid)
       .order("created_at", { ascending: false })
       .limit(500);
 
-    if (direct.error) {
-      lastError = direct.error.message;
-      console.warn("[lineUsers] direct or() query error:", direct.error.message);
-    } else {
-      logStats.directOrCount = (direct.data ?? []).length;
-      absorbRows(merged, direct.data as LineUserBindingRow[], candidates);
+    logQuery(queryLogs, `eq.customer_id.${cid}`, res.data as Record<string, unknown>[], res.error);
+    if (res.error) {
+      lastError = res.error.message;
+      continue;
+    }
+    for (const raw of res.data ?? []) {
+      mergeRow(merged, mapLineUserRow(raw as Record<string, unknown>));
     }
   }
 
-  // 3) Company-scoped scan + in-memory customer_id match
-  if (companyId != null && companyId > 0) {
-    const scoped = await supabase
-      .from("line_users")
-      .select(SELECT_COLUMNS)
-      .or(`company_id.eq.${companyId},company_id.is.null`)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-
-    if (scoped.error) {
-      lastError = scoped.error.message;
-      console.warn("[lineUsers] company scan error:", scoped.error.message);
-    } else {
-      logStats.companyScanCount = (scoped.data ?? []).length;
-      absorbRows(merged, scoped.data as LineUserBindingRow[], candidates);
-    }
-  }
-
-  // 4) Broad scan when still empty
+  // 2) PostgREST or() fallback (single round-trip)
   if (merged.size === 0) {
-    const broad = await supabase
+    const orParts = candidates.map((c) => `customer_id.eq.${c}`).join(",");
+    const res = await supabase
+      .from("line_users")
+      .select(SELECT_COLUMNS)
+      .or(orParts)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    logQuery(queryLogs, "or.customer_id", res.data as Record<string, unknown>[], res.error);
+    if (res.error) {
+      lastError = res.error.message;
+    } else {
+      for (const raw of res.data ?? []) {
+        mergeRow(merged, mapLineUserRow(raw as Record<string, unknown>));
+      }
+    }
+  }
+
+  // 3) Full table scan + in-memory match (no company_id gate on matching)
+  if (merged.size === 0) {
+    const res = await supabase
       .from("line_users")
       .select(SELECT_COLUMNS)
       .order("created_at", { ascending: false })
-      .limit(2000);
+      .limit(3000);
 
-    if (broad.error) {
-      lastError = broad.error.message;
+    logQuery(queryLogs, "scan_all_line_users", res.data as Record<string, unknown>[], res.error);
+    if (res.error) {
+      lastError = res.error.message;
     } else {
-      logStats.broadScanCount = (broad.data ?? []).length;
-      absorbRows(merged, broad.data as LineUserBindingRow[], candidates);
-      if (customerLineUserId) {
-        const byLine = await fetchLineUserByLineUserId(supabase, customerLineUserId);
-        if (byLine) addRowByLineUserId(merged, byLine, customerId);
+      for (const raw of res.data ?? []) {
+        const row = mapLineUserRow(raw as Record<string, unknown>);
+        if (!row) continue;
+        if (customerIdsMatch(row.customer_id, candidates)) {
+          mergeRow(merged, row);
+        }
+      }
+    }
+  }
+
+  // 4) customers.line_user_id → line_users.line_user_id
+  const customerLineUserId =
+    options?.primaryLineUserId?.trim() ||
+    (await resolveCustomerLineUserId(supabase, customerIdInput));
+
+  if (customerLineUserId) {
+    const res = await supabase
+      .from("line_users")
+      .select(SELECT_COLUMNS)
+      .eq("line_user_id", customerLineUserId)
+      .maybeSingle();
+
+    logQuery(
+      queryLogs,
+      `eq.line_user_id.${customerLineUserId.slice(0, 12)}…`,
+      res.data ? [res.data as Record<string, unknown>] : [],
+      res.error,
+    );
+
+    if (res.error) {
+      lastError = lastError ?? res.error.message;
+    } else if (res.data) {
+      const row = mapLineUserRow(res.data as Record<string, unknown>);
+      if (row) {
+        mergeRow(merged, {
+          ...row,
+          customer_id: row.customer_id || customerIdInput,
+        });
       }
     }
   }
@@ -234,11 +276,18 @@ export async function fetchLineUsersForCustomer(
     return tb - ta;
   });
 
+  debug.finalReturnedRows = rows.length;
+
   console.log("[lineUsers] fetchLineUsersForCustomer:", {
-    ...logStats,
-    matchedCount: rows.length,
+    customerIdInput,
+    companyId: companyId ?? null,
+    matchCandidates: candidates,
+    authKeyKind: debug.authKeyKind,
+    tableProbeCount: debug.tableProbeCount,
+    finalReturnedRows: rows.length,
     lineUserIds: rows.map((r) => r.line_user_id),
     storedCustomerIds: rows.map((r) => r.customer_id),
+    queries: queryLogs,
   });
 
   if (rows.length === 0 && lastError) {

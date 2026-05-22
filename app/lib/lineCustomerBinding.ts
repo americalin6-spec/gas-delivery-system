@@ -70,14 +70,41 @@ export function pickPrimaryLineBinding(
 export async function fetchLineUserRowsByCustomerId(
   supabase: SupabaseClient,
   customerId: string,
-  companyId?: number,
+  _companyId?: number,
 ): Promise<LineUserBindingRow[]> {
   const candidates = customerIdMatchValues(customerId);
   if (candidates.length === 0) return [];
 
   const merged = new Map<string, LineUserBindingRow>();
 
-  const absorb = (data: LineUserBindingRow[] | null) => {
+  for (const cid of candidates) {
+    const { data, error } = await supabase
+      .from("line_users")
+      .select(LINE_USER_SELECT)
+      .eq("customer_id", cid)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) continue;
+    for (const row of data ?? []) {
+      const lineUserId = row.line_user_id?.trim();
+      if (!lineUserId) continue;
+      merged.set(lineUserId, {
+        line_user_id: lineUserId,
+        display_name: row.display_name ?? null,
+        created_at: row.created_at ?? null,
+        customer_id: row.customer_id != null ? String(row.customer_id).trim() : null,
+      });
+    }
+  }
+
+  if (merged.size === 0) {
+    const { data } = await supabase
+      .from("line_users")
+      .select(LINE_USER_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(3000);
+
     for (const row of data ?? []) {
       const lineUserId = row.line_user_id?.trim();
       if (!lineUserId || !customerIdsMatch(row.customer_id, candidates)) continue;
@@ -88,37 +115,6 @@ export async function fetchLineUserRowsByCustomerId(
         customer_id: row.customer_id != null ? String(row.customer_id).trim() : null,
       });
     }
-  };
-
-  const orParts = candidates.map((c) => `customer_id.eq.${c}`);
-  if (orParts.length > 0) {
-    const direct = await supabase
-      .from("line_users")
-      .select(LINE_USER_SELECT)
-      .or(orParts.join(","))
-      .order("created_at", { ascending: false })
-      .limit(500);
-    if (!direct.error) absorb(direct.data as LineUserBindingRow[]);
-  }
-
-  if (merged.size === 0 && companyId != null && companyId > 0) {
-    const scoped = await supabase
-      .from("line_users")
-      .select(LINE_USER_SELECT)
-      .or(`company_id.eq.${companyId},company_id.is.null`)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    if (!scoped.error) absorb(scoped.data as LineUserBindingRow[]);
-  }
-
-  if (merged.size === 0) {
-    const broad = await supabase
-      .from("line_users")
-      .select(LINE_USER_SELECT)
-      .not("customer_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    if (!broad.error) absorb(broad.data as LineUserBindingRow[]);
   }
 
   return Array.from(merged.values());

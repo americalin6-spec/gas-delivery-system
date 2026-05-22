@@ -5,6 +5,7 @@ import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 import { formatCustomerCreatedAtDisplay } from "../lib/customerSoftDelete";
 import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
+import { buildLineChatUrl, openLineChat } from "../lib/openLineApp";
 import type { LineUserBindingRow } from "../lib/lineUsersServer";
 import { useActiveCompany } from "./ActiveCompanyProvider";
 
@@ -22,9 +23,7 @@ const ui = {
   text: "#f8fafc",
   muted: "#94a3b8",
   faint: "#64748b",
-  accent: "#6366f1",
   line: "rgba(6,199,85,0.45)",
-  lineBg: "rgba(6,199,85,0.1)",
   primaryBorder: "rgba(6,199,85,0.65)",
   primaryBg: "rgba(6,199,85,0.16)",
   shadow: "0 1px 0 rgba(255,255,255,0.06) inset, 0 18px 48px rgba(0,0,0,0.35)",
@@ -62,22 +61,243 @@ function formatBoundAt(value: string | null, lang: AppLang): string {
   return formatCustomerCreatedAtDisplay(value, lang) ?? value;
 }
 
+function EmbeddedAccountCard({
+  account,
+  selected,
+  label,
+  onSelect,
+}: {
+  account: BoundLineAccount;
+  selected: boolean;
+  label: string;
+  onSelect: (lineUserId: string, displayLabel: string) => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(account.line_user_id, label)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(account.line_user_id, label);
+        }
+      }}
+      style={{
+        padding: "10px 12px",
+        borderRadius: 10,
+        border: selected ? `2px solid ${ui.primaryBorder}` : `1px solid ${ui.border}`,
+        background: selected ? ui.primaryBg : ui.surface,
+        cursor: "pointer",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 6,
+        }}
+      >
+        <span style={{ fontWeight: 700, fontSize: 14, color: ui.text }}>{label}</span>
+        {account.isPrimary ? (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "rgba(6,199,85,0.35)",
+              color: "#bbf7d0",
+            }}
+          >
+            主要 LINE
+          </span>
+        ) : null}
+        <span style={{ fontSize: 11, color: ui.faint }}>點選以篩選對話</span>
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          fontFamily: "ui-monospace, monospace",
+          color: "#86efac",
+          wordBreak: "break-all",
+        }}
+      >
+        {account.line_user_id}
+      </div>
+    </div>
+  );
+}
+
+function FullAccountCard({
+  account,
+  selected,
+  label,
+  isMobile,
+  lang,
+  canOpenLine,
+  onSelect,
+  onOpenLine,
+}: {
+  account: BoundLineAccount;
+  selected: boolean;
+  label: string;
+  isMobile: boolean;
+  lang: AppLang;
+  canOpenLine: boolean;
+  onSelect: (lineUserId: string, displayLabel: string) => void;
+  onOpenLine: () => void;
+}) {
+  const t = customerDetailCopy(lang);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(account.line_user_id, label)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(account.line_user_id, label);
+        }
+      }}
+      style={{
+        padding: isMobile ? 14 : 16,
+        borderRadius: ui.radiusMd,
+        border: selected
+          ? `2px solid ${ui.primaryBorder}`
+          : account.isPrimary
+            ? `1px solid ${ui.primaryBorder}`
+            : `1px solid ${ui.border}`,
+        background: selected
+          ? ui.primaryBg
+          : account.isPrimary
+            ? "rgba(6,199,85,0.08)"
+            : ui.surface,
+        transition: "border-color 0.15s, background 0.15s",
+        cursor: "pointer",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 12,
+        }}
+      >
+        <span style={{ fontWeight: 800, fontSize: 16, color: ui.text }}>{label}</span>
+        {account.isPrimary ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              padding: "4px 10px",
+              borderRadius: 999,
+              background: "rgba(6,199,85,0.35)",
+              color: "#bbf7d0",
+            }}
+          >
+            {t.primaryLineAccount}
+          </span>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+          gap: isMobile ? 10 : 14,
+          fontSize: 14,
+          color: ui.muted,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+            {t.lineDisplayNameLabel}
+          </div>
+          <div style={{ color: ui.text, wordBreak: "break-word" }}>{account.display_name || "—"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+            {t.lineUserIdLabel}
+          </div>
+          <div
+            style={{
+              color: "#86efac",
+              fontFamily: "ui-monospace, monospace",
+              fontSize: 13,
+              wordBreak: "break-all",
+            }}
+          >
+            {account.line_user_id}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+            {t.lineBoundAtLabel}
+          </div>
+          <div style={{ color: ui.text }}>{formatBoundAt(account.created_at, lang)}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          disabled={!canOpenLine}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenLine();
+          }}
+          style={{
+            width: isMobile ? "100%" : "auto",
+            padding: "10px 18px",
+            borderRadius: 10,
+            border: `1px solid ${canOpenLine ? ui.line : ui.border}`,
+            background: canOpenLine ? "rgba(6,199,85,0.22)" : "rgba(15,23,42,0.5)",
+            color: canOpenLine ? "#ecfdf5" : ui.muted,
+            fontWeight: 700,
+            fontSize: 14,
+            cursor: canOpenLine ? "pointer" : "not-allowed",
+            opacity: canOpenLine ? 1 : 0.65,
+          }}
+        >
+          {canOpenLine ? t.openLineAddFriend : t.lineIdRequiredForChat}
+        </button>
+        {canOpenLine ? (
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: ui.faint, lineHeight: 1.45 }}>
+            {t.openLineAddFriendQrHint}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function BoundLineAccountsSection({
   customerId,
   primaryLineUserId,
+  customerLineId,
   isMobile,
   lang,
   selectedLineUserId,
   onSelectLineUser,
-  onOpenConversation,
+  embedded = false,
 }: {
   customerId: string;
   primaryLineUserId?: string | null;
+  customerLineId?: string | null;
   isMobile: boolean;
   lang: AppLang;
   selectedLineUserId: string | null;
-  onSelectLineUser: (lineUserId: string) => void;
-  onOpenConversation: (lineUserId: string, displayLabel: string) => void;
+  onSelectLineUser: (lineUserId: string, displayLabel: string) => void;
+  embedded?: boolean;
 }) {
   const t = customerDetailCopy(lang);
   const { companyId, ready: companyReady } = useActiveCompany();
@@ -99,23 +319,16 @@ export function BoundLineAccountsSection({
       const primary = primaryLineUserId?.trim();
       if (primary) query.set("primary_line_user_id", primary);
 
-      const url = `/api/line-users?${query.toString()}`;
-      const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
+      const res = await fetch(`/api/line-users?${query.toString()}`, {
+        cache: "no-store",
+        headers: companyIdHeader(),
+      });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         rows?: LineUserBindingRow[];
         count?: number;
         error?: string;
       };
-
-      console.log("[boundLineAccounts] API response:", {
-        customerId: id,
-        companyId,
-        httpOk: res.ok,
-        apiOk: body.ok,
-        count: body.count ?? body.rows?.length ?? 0,
-        error: body.error ?? null,
-      });
 
       if (!res.ok || !body.ok) {
         setError(body.error ?? `HTTP ${res.status}`);
@@ -125,8 +338,7 @@ export function BoundLineAccountsSection({
       }
 
       const rows = Array.isArray(body.rows) ? body.rows : [];
-      const count = typeof body.count === "number" ? body.count : rows.length;
-      setRowCount(count);
+      setRowCount(typeof body.count === "number" ? body.count : rows.length);
       setAccounts(toBoundAccounts(rows, primaryLineUserId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -141,186 +353,89 @@ export function BoundLineAccountsSection({
     void load();
   }, [load]);
 
-  const cardStyle: CSSProperties = {
-    borderRadius: ui.radiusLg,
-    padding: isMobile ? 20 : 24,
-    border: `1px solid ${ui.line}`,
-    background:
-      "linear-gradient(155deg, rgba(6,199,85,0.1) 0%, rgba(15,23,42,0.78) 48%, rgba(15,23,42,0.94) 100%)",
-    boxShadow: ui.shadow,
-    marginBottom: isMobile ? 22 : 28,
-  };
+  const canOpenLine = Boolean(buildLineChatUrl(customerLineId));
 
-  const sectionHeading: CSSProperties = {
+  function handleOpenLineChat() {
+    openLineChat(customerLineId);
+  }
+
+  const shellStyle: CSSProperties = embedded
+    ? { margin: 0, padding: 0, border: "none", background: "transparent", boxShadow: "none" }
+    : {
+        borderRadius: ui.radiusLg,
+        padding: isMobile ? 20 : 24,
+        border: `1px solid ${ui.line}`,
+        background:
+          "linear-gradient(155deg, rgba(6,199,85,0.1) 0%, rgba(15,23,42,0.78) 48%, rgba(15,23,42,0.94) 100%)",
+        boxShadow: ui.shadow,
+        marginBottom: isMobile ? 22 : 28,
+      };
+
+  const headingStyle: CSSProperties = {
     margin: "0 0 6px",
-    fontSize: isMobile ? 20 : 22,
+    fontSize: embedded ? 14 : isMobile ? 20 : 22,
     fontWeight: 800,
     color: ui.text,
     letterSpacing: "-0.02em",
   };
 
-  function handleOpen(lineUserId: string, displayLabel: string) {
-    onSelectLineUser(lineUserId);
-    onOpenConversation(lineUserId, displayLabel);
-  }
+  const accountCards = accounts.map((account) => {
+    const selected = selectedLineUserId === account.line_user_id;
+    const label = account.display_name || account.line_user_id;
 
-  return (
-    <section style={cardStyle} aria-labelledby="bound-line-accounts-heading">
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 18,
-        }}
-      >
-        <div>
-          <h2 id="bound-line-accounts-heading" style={sectionHeading}>
-            {t.boundLineAccountsTitle}
-          </h2>
-          <p style={{ margin: 0, fontSize: 14, color: ui.muted, lineHeight: 1.5 }}>
-            {loading ? t.conversationsLoading : t.boundLineCount(rowCount)}
-          </p>
-        </div>
+    if (embedded) {
+      return (
+        <EmbeddedAccountCard
+          key={account.line_user_id}
+          account={account}
+          selected={selected}
+          label={label}
+          onSelect={onSelectLineUser}
+        />
+      );
+    }
+
+    return (
+      <FullAccountCard
+        key={account.line_user_id}
+        account={account}
+        selected={selected}
+        label={label}
+        isMobile={isMobile}
+        lang={lang}
+        canOpenLine={canOpenLine}
+        onSelect={onSelectLineUser}
+        onOpenLine={handleOpenLineChat}
+      />
+    );
+  });
+
+  const inner = (
+    <div>
+      <div style={{ marginBottom: embedded ? 12 : 18 }}>
+        <h3 id="bound-line-accounts-heading" style={headingStyle}>
+          {embedded ? "已綁定 LINE 帳號" : t.boundLineAccountsTitle}
+        </h3>
+        <p style={{ margin: 0, fontSize: embedded ? 12 : 14, color: ui.muted, lineHeight: 1.5 }}>
+          {loading ? "載入中…" : embedded ? `已綁定 ${rowCount} 個帳號` : t.boundLineCount(rowCount)}
+        </p>
       </div>
 
-      {error ? (
-        <p style={{ margin: 0, color: "#fca5a5", fontSize: 14 }}>{error}</p>
-      ) : null}
+      {error ? <p style={{ margin: "0 0 10px", color: "#fca5a5", fontSize: 14 }}>{error}</p> : null}
 
       {!loading && !error && rowCount === 0 ? (
-        <p style={{ margin: 0, fontSize: 15, color: ui.muted, lineHeight: 1.55 }}>{t.noBoundLineAccounts}</p>
+        <p style={{ margin: "0 0 10px", fontSize: embedded ? 13 : 15, color: ui.muted, lineHeight: 1.55 }}>
+          {t.noBoundLineAccounts}
+        </p>
       ) : null}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {accounts.map((account) => {
-          const selected = selectedLineUserId === account.line_user_id;
-          const label = account.display_name || account.line_user_id;
-          return (
-            <div
-              key={account.line_user_id}
-              role="button"
-              tabIndex={0}
-              onClick={() => handleOpen(account.line_user_id, label)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  handleOpen(account.line_user_id, label);
-                }
-              }}
-              style={{
-                padding: isMobile ? 14 : 16,
-                borderRadius: ui.radiusMd,
-                border: selected
-                  ? `2px solid ${ui.primaryBorder}`
-                  : account.isPrimary
-                    ? `1px solid ${ui.primaryBorder}`
-                    : `1px solid ${ui.border}`,
-                background: selected
-                  ? ui.primaryBg
-                  : account.isPrimary
-                    ? "rgba(6,199,85,0.08)"
-                    : ui.surface,
-                cursor: "pointer",
-                transition: "border-color 0.15s, background 0.15s",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 10,
-                  marginBottom: 12,
-                }}
-              >
-                <span style={{ fontWeight: 800, fontSize: 16, color: ui.text }}>{label}</span>
-                {account.isPrimary ? (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 800,
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      background: "rgba(6,199,85,0.35)",
-                      color: "#bbf7d0",
-                    }}
-                  >
-                    {t.primaryLineAccount}
-                  </span>
-                ) : null}
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
-                  gap: isMobile ? 10 : 14,
-                  fontSize: 14,
-                  color: ui.muted,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
-                    {t.lineDisplayNameLabel}
-                  </div>
-                  <div style={{ color: ui.text, wordBreak: "break-word" }}>
-                    {account.display_name || "—"}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
-                    {t.lineUserIdLabel}
-                  </div>
-                  <div
-                    style={{
-                      color: "#86efac",
-                      fontFamily: "ui-monospace, monospace",
-                      fontSize: 13,
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {account.line_user_id}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
-                    {t.lineBoundAtLabel}
-                  </div>
-                  <div style={{ color: ui.text }}>{formatBoundAt(account.created_at, lang)}</div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpen(account.line_user_id, label);
-                }}
-                style={{
-                  marginTop: 14,
-                  width: isMobile ? "100%" : "auto",
-                  padding: "10px 18px",
-                  borderRadius: 10,
-                  border: `1px solid ${ui.line}`,
-                  background: "rgba(6,199,85,0.22)",
-                  color: "#ecfdf5",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: "pointer",
-                }}
-              >
-                {t.openConversation}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+      <div style={{ display: "flex", flexDirection: "column", gap: embedded ? 8 : 12 }}>{accountCards}</div>
+    </div>
   );
+
+  if (embedded) {
+    return <div style={shellStyle}>{inner}</div>;
+  }
+
+  return <section style={shellStyle}>{inner}</section>;
 }

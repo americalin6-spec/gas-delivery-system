@@ -1,5 +1,6 @@
 import type { AppLang } from "./appLang";
 import { resolveCustomerHonorific } from "./customerHonorific";
+import { dedupeGreetingPrefix } from "./lineGreetingUtils";
 import {
   customerStatusLabel,
   getRawCustomerStatus,
@@ -148,7 +149,9 @@ export function buildAiLineFollowUpReply(
     const statusPart =
       status !== "new_lead" ? `目前階段為「${statusLabel}」，` : "";
 
-    return `${greetingZh}，${gap}${companyPart}${needPart}${statusPart}${statusFollowAngleZh(status)}${notePart}${ratePart}${stepPart}若方便的話歡迎回覆，謝謝您！`
+    return dedupeGreetingPrefix(
+      `${greetingZh}，${gap}${companyPart}${needPart}${statusPart}${statusFollowAngleZh(status)}${notePart}${ratePart}${stepPart}若方便的話歡迎回覆，謝謝您！`,
+    )
       .replace(/，{2,}/g, "，")
       .replace(/。+/g, "。");
   }

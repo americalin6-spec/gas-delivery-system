@@ -774,6 +774,25 @@ export default function Home() {
             loadError={workspaceError}
           />
 
+          <section style={{ ...block(), display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={statCard}>
+              <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.dealProbability}</div>
+              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.dealProbability)}</div>
+            </div>
+            <div style={statCard}>
+              <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.customerLevel}</div>
+              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.customerLevel)}</div>
+            </div>
+            <div style={statCard}>
+              <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.leakRisk}</div>
+              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.leakRisk)}</div>
+            </div>
+            <div style={statCard}>
+              <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.estimatedAmount}</div>
+              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.estimatedAmount)}</div>
+            </div>
+          </section>
+
           <section style={{ ...block(), background: "#132846", borderRadius: 16, padding: 18 }}>
             <h2 style={{ ...block(), margin: "0 0 14px", fontSize: 22 }}>{ui.workspace}</h2>
             <div style={{ ...block(), display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -906,25 +925,6 @@ export default function Home() {
           <section style={{ ...block(), display: "flex", flexDirection: "column", gap: 16 }}>
             <h2 style={{ ...block(), margin: 0, fontSize: 22 }}>{ui.analysisResults}</h2>
 
-            <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={statCard}>
-                <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.dealProbability}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.dealProbability)}</div>
-              </div>
-              <div style={statCard}>
-                <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.customerLevel}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.customerLevel)}</div>
-              </div>
-              <div style={statCard}>
-                <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.leakRisk}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.leakRisk)}</div>
-              </div>
-              <div style={statCard}>
-                <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.estimatedAmount}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.estimatedAmount)}</div>
-              </div>
-            </div>
-
             <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 14 }}>
               {analysisFields.map((field) => (
                 <div key={field.title} style={resultBox}>
@@ -971,13 +971,6 @@ export default function Home() {
         </div>
       </div>
 
-      <div style={s.cards}>
-        <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
-        <Card styles={s} title={ui.customerLevel} value={analysisStatValue(analysis.customerLevel)} />
-        <Card styles={s} title={ui.leakRisk} value={analysisStatValue(analysis.leakRisk)} />
-        <Card styles={s} title={ui.estimatedAmount} value={analysisStatValue(analysis.estimatedAmount)} />
-      </div>
-
       <TodayFollowUpWorkspace
         rows={workspaceRows}
         lang={lang}
@@ -985,6 +978,13 @@ export default function Home() {
         loading={workspaceLoading}
         loadError={workspaceError}
       />
+
+      <div style={s.cards}>
+        <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
+        <Card styles={s} title={ui.customerLevel} value={analysisStatValue(analysis.customerLevel)} />
+        <Card styles={s} title={ui.leakRisk} value={analysisStatValue(analysis.leakRisk)} />
+        <Card styles={s} title={ui.estimatedAmount} value={analysisStatValue(analysis.estimatedAmount)} />
+      </div>
 
       <div style={s.layout}>
         <aside style={s.sidebar}>

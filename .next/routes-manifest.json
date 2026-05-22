@@ -95,6 +95,12 @@
       "namedRegex": "^/api/customers(?:/)?$"
     },
     {
+      "page": "/api/line/send-message",
+      "regex": "^/api/line/send\\-message(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/line/send\\-message(?:/)?$"
+    },
+    {
       "page": "/api/line-push-test",
       "regex": "^/api/line\\-push\\-test(?:/)?$",
       "routeKeys": {},

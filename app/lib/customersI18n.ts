@@ -229,10 +229,15 @@ export function customerDetailCopy(lang: AppLang) {
       : "Copy LINE ID and search in LINE (no official API connected).",
     lineLastSend: zh ? "上次模擬發送：" : "Last simulated send: ",
     lineNoId: zh ? " 尚未填寫 LINE 帳號 — 請先編輯客戶資料。" : " No LINE ID — edit customer first.",
-    sendToLine: zh ? "傳送到 LINE（一鍵模擬）" : "Send to LINE (simulated)",
+    sendToLine: zh ? "傳送到 LINE" : "Send to LINE",
     sendToLineHint: zh
-      ? "將複製建議追蹤文案、記錄發送時間並嘗試開啟 LINE App；在 LINE 搜尋貼上 ID 後傳訊。"
-      : "Copies follow-up text, logs send time, and opens LINE app; paste ID in LINE search to message.",
+      ? "透過 LINE Messaging API 推送至已綁定的官方帳號使用者（需設定 Channel Access Token）。"
+      : "Pushes to the bound LINE user via Messaging API (Channel Access Token required).",
+    linePushSuccess: zh ? "已透過 LINE 傳送訊息" : "Message sent via LINE",
+    linePushFailed: zh ? "LINE 傳送失敗" : "LINE send failed",
+    lineUserRequiredForSend: zh
+      ? "請先綁定 LINE 官方帳號，或點選下方帳號卡片"
+      : "Bind a LINE account first, or select an account card below",
     openLineSearch: zh ? "打開 LINE 並貼上此 ID 搜尋" : "Open LINE and paste this ID into search",
     noLineId: zh ? "尚未填 LINE 帳號" : "No LINE ID on file",
     aiLineReplyTitle: zh ? "AI 建議 LINE 回覆" : "AI-suggested LINE reply",
@@ -244,11 +249,12 @@ export function customerDetailCopy(lang: AppLang) {
     copyAiLineReplyDesc: zh
       ? "複製後會更新「最後聯絡時間」。若無法自動複製，請點下方按鈕。"
       : "Copying also updates last contact time. Tap the button below if auto-copy fails.",
-    aiLineReplyCopiedToast: zh
-      ? "已複製 AI 回覆並更新最後聯絡時間。"
-      : "AI reply copied and last contact time updated.",
+    aiLineReplyCopiedToast: zh ? "已複製 AI 回覆訊息" : "AI reply copied",
     copyLineId: zh ? "複製 LINE 帳號" : "Copy LINE ID",
-    openLineApp: zh ? "開啟 LINE App" : "Open LINE app",
+    openLineAddFriend: zh ? "開啟 LINE 加好友" : "Open LINE add friend",
+    openLineAddFriendQrHint: zh
+      ? "桌機瀏覽器會顯示 QR Code，請用手機 LINE 掃描加入好友。"
+      : "On desktop browsers you will see a QR code—scan it with LINE on your phone to add this friend.",
     copyFollowUp: zh ? "複製追蹤訊息" : "Copy follow-up",
     sendHistory: zh ? "發送紀錄（模擬）" : "Send history (simulated)",
     noSendHistory: zh ? "尚無紀錄。按下「傳送到 LINE」後會寫入時間軸。" : "No entries yet. Use Send to LINE to log.",
@@ -314,7 +320,11 @@ export function customerDetailCopy(lang: AppLang) {
     boundLineCount: (n: number) =>
       zh ? `已綁定 ${n} 個 LINE 帳號` : `${n} bound LINE account${n === 1 ? "" : "s"}`,
     primaryLineAccount: zh ? "主要 LINE" : "Primary LINE",
-    openConversation: zh ? "開啟對話" : "Open conversation",
+    lineIdRequiredForChat: zh ? "請先填寫客戶 LINE ID" : "Add customer LINE ID first",
+    customerLineIdLabel: zh ? "客戶 LINE ID" : "Customer LINE ID",
+    customerLineIdPlaceholder: zh ? "例如 lin19790724" : "e.g. lin19790724",
+    saveLineId: zh ? "儲存 LINE ID" : "Save LINE ID",
+    lineIdSavedToast: zh ? "已儲存 LINE ID" : "LINE ID saved",
     noBoundLineAccounts: zh
       ? "尚無綁定的 LINE 官方帳號。客戶在 LINE 傳送「綁定」後會顯示於此。"
       : "No bound LINE accounts yet. They appear after the customer sends「綁定」in LINE.",
