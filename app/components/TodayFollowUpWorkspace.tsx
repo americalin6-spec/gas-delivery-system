@@ -7,10 +7,10 @@ import {
   filterHighDeal,
   filterOverdue,
   filterRecent,
+  filterTrackingEligible,
   type WorkspaceCustomerRow,
 } from "../lib/followUpWorkspace";
 import { followUpWorkspaceCopy } from "../lib/followUpWorkspaceI18n";
-import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 import { workspaceCategoryPath } from "../lib/workspaceCategories";
 import { WorkspaceSummaryCard } from "./WorkspaceSummaryCard";
 
@@ -26,15 +26,15 @@ export function TodayFollowUpWorkspace({
   isMobile: boolean;
   loading: boolean;
   loadError: string | null;
-  onRefresh: () => void;
-  copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
 }) {
   const labels = followUpWorkspaceCopy(lang);
 
-  const dueToday = useMemo(() => filterDueToday(rows), [rows]);
-  const overdue = useMemo(() => filterOverdue(rows), [rows]);
-  const highDeal = useMemo(() => filterHighDeal(rows), [rows]);
-  const recent = useMemo(() => filterRecent(rows), [rows]);
+  const activeRows = useMemo(() => filterTrackingEligible(rows), [rows]);
+
+  const dueToday = useMemo(() => filterDueToday(activeRows), [activeRows]);
+  const overdue = useMemo(() => filterOverdue(activeRows), [activeRows]);
+  const highDeal = useMemo(() => filterHighDeal(activeRows), [activeRows]);
+  const recent = useMemo(() => filterRecent(activeRows), [activeRows]);
 
   const grid: CSSProperties = {
     display: "grid",
@@ -63,10 +63,12 @@ export function TodayFollowUpWorkspace({
         overflow: "hidden",
       }}
     >
-      <h2 style={{ margin: "0 0 16px", fontSize: isMobile ? 24 : 28, fontWeight: 800 }}>{labels.title}</h2>
+      <h2 style={{ margin: "0 0 14px", fontSize: isMobile ? 24 : 28, fontWeight: 800 }}>
+        {labels.title}
+      </h2>
 
       {loadError ? (
-        <p style={{ color: "#fecaca", marginBottom: 12, lineHeight: 1.5 }}>
+        <p style={{ color: "#fecaca", marginBottom: 12, lineHeight: 1.5, fontSize: 14 }}>
           {labels.loadError}: {loadError}
           <br />
           <span style={{ fontSize: 14, opacity: 0.9 }}>{labels.sqlHint}</span>
@@ -74,7 +76,7 @@ export function TodayFollowUpWorkspace({
       ) : null}
 
       {loading ? (
-        <p style={{ color: "#94a3b8" }}>{labels.loading}</p>
+        <p style={{ color: "#94a3b8", margin: 0, fontSize: 14 }}>{labels.loading}</p>
       ) : (
         <div style={grid}>
           {summaries.map((item) => (

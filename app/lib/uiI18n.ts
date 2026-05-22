@@ -51,6 +51,12 @@ export function sharedUiCopy(lang: AppLang) {
     saving: zh ? "儲存中…" : "Saving…",
     close: zh ? "關閉" : "Close",
     copied: zh ? "已複製" : "Copied",
+    copiedExclaim: zh ? "已複製！" : "Copied!",
+    tapToCopy: zh ? "點此複製" : "Tap to Copy",
+    copyFallbackTitle: zh ? "複製內容" : "Copy message",
+    copyFallbackDesc: zh
+      ? "此裝置無法自動複製，請點下方按鈕後貼到 LINE。"
+      : "Automatic copy is not available on this device. Tap the button below, then paste into LINE.",
     copyFailed: zh ? "複製失敗，請手動複製" : "Copy failed — please copy manually",
     comingSoon: zh ? "功能準備中" : "Coming soon",
   };
@@ -81,12 +87,14 @@ export function homePageCopy(lang: AppLang) {
     tagline: zh
       ? "把 LINE 對話變成成交率、待辦、漏單提醒與專業回覆。"
       : "Turn LINE conversations into sales probability, tasks, deal alerts, and professional replies.",
-    workspace: zh ? "工作區" : "Workspace",
+    workspace: zh ? "儀表板" : "Workspace",
     pasteLine: zh ? "貼上 LINE 對話" : "Paste LINE Conversation",
     pasteLead: zh
       ? "貼上對話後開始分析：自動擷取客戶資料填入上方欄位（可手動修改），並產出成交洞察。"
       : "After pasting, run analysis to extract CRM fields above (editable) plus deal insights.",
-    linePlaceholder: zh ? "客戶：我們想拍品牌影片..." : "Client: We want a brand video...",
+    linePlaceholder: zh
+      ? "客戶：您好，我們想了解貴公司的方案與報價…"
+      : "Client: We want a brand video...",
     clearText: zh ? "清除文字" : "Clear Text",
     analyzing: zh ? "分析中..." : "Analyzing...",
     startAnalysis: zh ? "開始 AI 分析" : "Start AI Analysis",
@@ -104,12 +112,12 @@ export function homePageCopy(lang: AppLang) {
     nextStep: zh ? "下一步建議" : "Next Step",
     todo: zh ? "待辦事項" : "Todo",
     replySuggestion: zh ? "專業回覆" : "Reply Suggestion",
-    followUp: zh ? "追蹤訊息" : "Follow Up",
+    followUp: zh ? "客戶追蹤" : "Follow Up",
     menuNew: zh ? "新分析" : "New Analysis",
     menuCustomers: zh ? "客戶列表" : "Customers",
     menuTasks: zh ? "待辦事項" : "Tasks",
-    menuAlerts: zh ? "通知中心 Alerts" : "Alerts",
-    menuCalendar: zh ? "行事曆 Calendar" : "Calendar",
+    menuAlerts: zh ? "通知中心" : "Alerts",
+    menuCalendar: zh ? "行事曆" : "Calendar",
     menuQuotes: zh ? "報價追蹤" : "Quotes",
     menuReplies: zh ? "AI 回覆庫" : "AI Replies",
     remindersTitle: zh ? "近期追蹤提醒" : "Upcoming follow-ups",
@@ -140,8 +148,8 @@ export function homePageCopy(lang: AppLang) {
     fieldCustomerName: zh ? "客戶姓名" : "Customer Name",
     fieldCompanyName: zh ? "公司名稱" : "Company Name",
     fieldPhone: zh ? "電話" : "Phone",
-    fieldLineId: "LINE ID",
-    fieldEmail: "Email",
+    fieldLineId: zh ? "LINE 帳號" : "LINE ID",
+    fieldEmail: zh ? "電子郵件" : "Email",
     fieldNote: zh ? "客戶備註" : "Customer Note",
   };
 }
@@ -163,7 +171,7 @@ export function tasksPageCopy(lang: AppLang) {
     phone: zh ? "電話" : "Phone",
     todo: zh ? "待辦事項" : "Todo",
     nextStep: zh ? "下一步" : "Next step",
-    followUp: zh ? "追蹤訊息" : "Follow-up message",
+    followUp: zh ? "客戶追蹤" : "Follow-up message",
     copyFollowUp: zh ? "複製追蹤訊息" : "Copy follow-up",
     copiedFollowUp: zh ? "已複製追蹤訊息" : "Follow-up message copied",
     markedDone: zh ? "已標記追蹤完成" : "Marked as followed up",

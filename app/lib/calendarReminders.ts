@@ -20,6 +20,8 @@ export type ReminderCustomerRow = {
   next_follow_up_at?: string | null;
   urgency?: string | null;
   reminder_status?: string | null;
+  customer_status?: string | null;
+  status?: string | null;
   last_contacted_at?: string | null;
   line_id?: string | null;
 };

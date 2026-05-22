@@ -4,16 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { supabase } from "../supabase";
-import {
-  buildSuggestedSalesFollowUp,
-  computeHighPotentialFollowUpDate,
-  formatFollowUpDateDisplay,
-  formatLocalYmd,
-  getFollowUpBadge,
-  isHighDealProbability,
-  normalizeFollowUpDateValue,
-  type FollowUpBadge,
-} from "./lib/followUpReminders";
+import { formatLocalYmd } from "./lib/followUpReminders";
 import { useViewportWidth } from "./hooks/useViewportWidth";
 import { useAppLang } from "./hooks/useAppLang";
 import { useCopyWithFallback } from "./hooks/useCopyWithFallback";
@@ -22,23 +13,21 @@ import type { AppLang } from "./lib/appLang";
 import {
   customerNameForCrm,
   extractCustomerFromLineChat,
-  mergeCustomerExtraction,
-  refineCustomerNeedAndNote,
+  extractHonorificCustomerName,
+  isValidExtractedCustomerName,
+  NAME_NOT_PROVIDED_EN,
+  NAME_NOT_PROVIDED_ZH,
   resolveCustomerNameForForm,
-  sanitizeAiCustomerFields,
   sanitizeCustomerData,
-  toFinalMergedCustomerFields,
   type AiAnalyzeCustomerPayload,
   type ExtractedCustomerProfile,
 } from "./lib/extractCustomerFromLineChat";
-import { HomeAlertsSection, HomeCalendarSection } from "./components/HomeCalendarAlerts";
+import { AiAnalyzingIndicator } from "./components/AiAnalyzingIndicator";
 import { TodayFollowUpWorkspace } from "./components/TodayFollowUpWorkspace";
 import { HomeLandingHero } from "./components/HomeLandingHero";
 import {
   clearDraft,
-  emptyAnalysisDraft,
   emptyHomeFormDraft,
-  readHomeFormDraftFromClient,
   restoreDraft,
   saveDraft,
   type HomeFormDraft,
@@ -47,22 +36,75 @@ import {
   WORKSPACE_CUSTOMER_SELECT,
   type WorkspaceCustomerRow,
 } from "./lib/followUpWorkspace";
+import { buildHomeAnalysisMapping } from "./lib/aiAnalysisMapping";
 import {
-  formatClassifiedImportantDatesDisplay,
-  parseFirstDateYmdFromText,
-  parseFollowUpDateYmdFromChat,
-  parseClassifiedImportantDatesFromChat,
-  parseImportantDateFromChat,
-} from "./lib/dateParser";
-import {
-  CALENDAR_CUSTOMER_SELECT,
-  type ReminderCustomerRow,
-} from "./lib/calendarReminders";
-import { companyIdHeader, logActiveCompany } from "./lib/clientCompany";
+  buildSanitizedCrmDatePayload,
+  sanitizeImportantDateFields,
+} from "./lib/sanitizeImportantDateFields";
+import { activeCustomersOnly } from "./lib/customerSoftDelete";
+import { logActiveCompany } from "./lib/clientCompany";
 import { useActiveCompany } from "./components/ActiveCompanyProvider";
-import { customerInsertPayload } from "./lib/customersTenant";
+import { upsertCustomerForCompany } from "./lib/customersTenant";
+import {
+  getCustomerWriteEvents,
+  logCustomerWrite,
+  subscribeCustomerWriteEvents,
+  type CustomerWriteEvent,
+} from "./lib/customerWriteDebug";
+import {
+  beginHomepageSave,
+  endHomepageSave,
+  getWritesThisSaveClick,
+  HOMEPAGE_SAVE_SOURCE,
+} from "./lib/customerWriteGate";
+import { saveManualPasteConversation } from "./lib/saveManualPasteConversation";
+import { customerStatusWritePayload } from "./lib/customerStatus";
+import { computeCustomerUrgencyFromImportantDate } from "./lib/customerUrgency";
+import { postCrmNotification } from "./lib/crmNotificationsClient";
 
 const HOME_MOBILE_MAX_WIDTH = 1024;
+const HOME_DEBUG_ENABLED = process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1";
+
+/** Analyze must never persist to CRM — save only via saveToCrm(). */
+const ANALYZE_AUTO_SAVE_ENABLED = false;
+
+type AnalyzeResultSnapshot = {
+  customer_name: string;
+  at: string;
+};
+
+function pickCustomerNameForForm(
+  mergedName: string,
+  parserName: string,
+  lineTextInput: string,
+  lang: AppLang,
+): string {
+  const candidates = [
+    parserName.trim(),
+    extractHonorificCustomerName(lineTextInput),
+    mergedName.trim(),
+  ].filter(Boolean);
+
+  for (const name of candidates) {
+    if (isValidExtractedCustomerName(name)) {
+      return name;
+    }
+  }
+
+  return lang === "zh" ? NAME_NOT_PROVIDED_ZH : NAME_NOT_PROVIDED_EN;
+}
+
+const UNNAMED_CUSTOMER_ZH = "未命名客戶";
+const UNNAMED_CUSTOMER_EN = "Unnamed customer";
+
+/** CRM insert name — never empty; uses 「未命名客戶」 when extraction/AI left name blank. */
+function crmSaveCustomerName(raw: string, lang: AppLang): string {
+  const crm = customerNameForCrm(resolveCustomerNameForForm(raw, lang), lang);
+  if (!crm.trim() || crm === NAME_NOT_PROVIDED_ZH || crm === NAME_NOT_PROVIDED_EN) {
+    return lang === "zh" ? UNNAMED_CUSTOMER_ZH : UNNAMED_CUSTOMER_EN;
+  }
+  return crm;
+}
 
 function extractAmount(text: string, lang: string) {
   const patterns = [
@@ -119,58 +161,7 @@ function calculateDealProbability(text: string, lang: string) {
   return lang === "zh" ? "低" : "Low";
 }
 
-const emptyAnalysis = emptyAnalysisDraft();
-
-type DashboardReminder = {
-  id: string | number;
-  customer_name?: string | null;
-  company_name?: string | null;
-  follow_up_date?: string | null;
-  customer_need?: string | null;
-  next_step?: string | null;
-  follow_up?: string | null;
-};
-
-function followUpBadgeLabel(badge: FollowUpBadge, lang: string): string {
-  const zh: Record<FollowUpBadge, string> = {
-    none: "",
-    overdue: "逾期",
-    soon: "即將到期",
-    upcoming: "已排程",
-  };
-  const en: Record<FollowUpBadge, string> = {
-    none: "",
-    overdue: "Overdue",
-    soon: "Due soon",
-    upcoming: "Scheduled",
-  };
-  return lang === "zh" ? zh[badge] : en[badge];
-}
-
-function followUpBadgeColors(badge: FollowUpBadge): { bg: string; color: string; border: string } {
-  switch (badge) {
-    case "overdue":
-      return {
-        bg: "rgba(239,68,68,0.22)",
-        color: "#fecaca",
-        border: "rgba(248,113,113,0.45)",
-      };
-    case "soon":
-      return {
-        bg: "rgba(245,158,11,0.22)",
-        color: "#fde68a",
-        border: "rgba(251,191,36,0.45)",
-      };
-    case "upcoming":
-      return {
-        bg: "rgba(59,130,246,0.2)",
-        color: "#bfdbfe",
-        border: "rgba(96,165,250,0.45)",
-      };
-    default:
-      return { bg: "transparent", color: "#fff", border: "transparent" };
-  }
-}
+const emptyFormDefaults = emptyHomeFormDraft();
 
 export default function Home() {
  
@@ -179,46 +170,39 @@ export default function Home() {
 
   const viewportWidth = useViewportWidth();
   const isMobile = viewportWidth === null || viewportWidth < HOME_MOBILE_MAX_WIDTH;
-  const { copyWithFallback, fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile);
 
-  const [lineText, setLineText] = useState(() => readHomeFormDraftFromClient().lineText);
+  const [mounted, setMounted] = useState(false);
+  const [lineText, setLineText] = useState(emptyFormDefaults.lineText);
   const { lang, setLang, toggleLang } = useAppLang();
+  const { fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile, lang);
   const ui = homePageCopy(lang);
   const { companyId, ready: companyReady } = useActiveCompany();
 
-  function handleTestNotification() {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    try {
-      new Notification("CRM 測試通知", {
-        body: "瀏覽器通知正常運作",
-      });
-    } catch {
-      /* browser may block without permission */
-    }
-  }
-  const displayValue = (value: string) => translateDisplayValue(value === "--" ? "" : value, lang);
   const [loading, setLoading] = useState(false);
   const [savingCrm, setSavingCrm] = useState(false);
+  const savingRef = useRef(false);
+  const saveRequestCountRef = useRef(0);
+  const [saveClickCount, setSaveClickCount] = useState(0);
+  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResultSnapshot | null>(null);
+  const [customerWriteEvents, setCustomerWriteEvents] = useState<CustomerWriteEvent[]>([]);
+  const draftRestoredRef = useRef(false);
   const [activeMenu, setActiveMenu] = useState(0);
 
-  const [customerName, setCustomerName] = useState(() => readHomeFormDraftFromClient().customerName);
-  const [companyName, setCompanyName] = useState(() => readHomeFormDraftFromClient().companyName);
-  const [phone, setPhone] = useState(() => readHomeFormDraftFromClient().phone);
-  const [lineId, setLineId] = useState(() => readHomeFormDraftFromClient().lineId);
-  const [email, setEmail] = useState(() => readHomeFormDraftFromClient().email);
-  const [note, setNote] = useState(() => readHomeFormDraftFromClient().note);
+  const [customerName, setCustomerName] = useState(emptyFormDefaults.customerName);
+  const [companyName, setCompanyName] = useState(emptyFormDefaults.companyName);
+  const [phone, setPhone] = useState(emptyFormDefaults.phone);
+  const [lineId, setLineId] = useState(emptyFormDefaults.lineId);
+  const [email, setEmail] = useState(emptyFormDefaults.email);
+  const [note, setNote] = useState(emptyFormDefaults.note);
 
-  const [analysis, setAnalysis] = useState(() => readHomeFormDraftFromClient().analysis);
-  const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(
-    () => readHomeFormDraftFromClient().extractedPreview,
-  );
-  const [followUpReminders, setFollowUpReminders] = useState<DashboardReminder[]>([]);
-  const [calendarRows, setCalendarRows] = useState<ReminderCustomerRow[]>([]);
+  const [analysis, setAnalysis] = useState(emptyFormDefaults.analysis);
+  const [hasExplicitImportantDate, setHasExplicitImportantDate] = useState(false);
+  const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(null);
   const [workspaceRows, setWorkspaceRows] = useState<WorkspaceCustomerRow[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
-  const draftHydratedRef = useRef(typeof window !== "undefined");
+  const draftHydratedRef = useRef(false);
   const draftSnapshotRef = useRef<HomeFormDraft>(emptyHomeFormDraft());
 
   function buildDraftSnapshot(overrides: Partial<HomeFormDraft> = {}): HomeFormDraft {
@@ -246,36 +230,19 @@ export default function Home() {
     saveDraft(snapshot);
   }
 
-  const loadCalendarRows = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
-    try {
-      logActiveCompany("homepage.loadCalendarRows", { companyId });
-      const { data, error } = await supabase
-        .from("customers")
-        .select(CALENDAR_CUSTOMER_SELECT)
-        .eq("company_id", companyId)
-        .limit(200);
-      if (error) {
-        setCalendarRows([]);
-        return;
-      }
-      setCalendarRows((data ?? []) as ReminderCustomerRow[]);
-    } catch {
-      setCalendarRows([]);
-    }
-  }, [companyId, companyReady]);
-
   const loadWorkspaceRows = useCallback(async () => {
     if (!companyReady || companyId <= 0) return;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       logActiveCompany("homepage.loadWorkspaceRows", { companyId });
-      const { data, error } = await supabase
-        .from("customers")
-        .select(WORKSPACE_CUSTOMER_SELECT)
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
+      const { data, error } = await activeCustomersOnly(
+        supabase
+          .from("customers")
+          .select(WORKSPACE_CUSTOMER_SELECT)
+          .eq("company_id", companyId),
+      )
+        .order("created_at", { ascending: false, nullsFirst: false })
         .limit(500);
 
       if (error) {
@@ -291,64 +258,49 @@ export default function Home() {
     setWorkspaceLoading(false);
   }, [companyId, companyReady]);
 
-  const loadFollowUpReminders = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
-    try {
-      logActiveCompany("homepage.loadFollowUpReminders", { companyId });
-      const end = new Date();
-      end.setDate(end.getDate() + 14);
-      const endStr = formatLocalYmd(end);
-
-      const { data, error } = await supabase
-        .from("customers")
-        .select("id, customer_name, company_name, follow_up_date, customer_need, next_step, follow_up")
-        .eq("company_id", companyId)
-        .lte("follow_up_date", endStr)
-        .order("follow_up_date", { ascending: true })
-        .limit(40);
-
-      if (error) {
-        setFollowUpReminders([]);
-        return;
-      }
-
-      const processed: DashboardReminder[] = [];
-      for (const row of data ?? []) {
-        if (row == null || row.id === undefined || row.id === null || String(row.id).length === 0) {
-          continue;
-        }
-        const fd = normalizeFollowUpDateValue(row.follow_up_date);
-        if (!fd || fd > endStr) continue;
-        processed.push({ ...(row as DashboardReminder), follow_up_date: fd });
-        if (processed.length >= 15) break;
-      }
-
-      setFollowUpReminders(processed);
-    } catch {
-      setFollowUpReminders([]);
-    }
-  }, [companyId, companyReady]);
-
   useEffect(() => {
     if (!companyReady || companyId <= 0) return;
-    void loadFollowUpReminders();
-    void loadCalendarRows();
     void loadWorkspaceRows();
-  }, [loadFollowUpReminders, loadCalendarRows, loadWorkspaceRows, companyReady, companyId]);
+  }, [loadWorkspaceRows, companyReady, companyId]);
 
   useEffect(() => {
-    const draft = restoreDraft();
-    setLineText(draft.lineText);
-    setCustomerName(draft.customerName);
-    setCompanyName(draft.companyName);
-    setPhone(draft.phone);
-    setLineId(draft.lineId);
-    setEmail(draft.email);
-    setNote(draft.note);
-    setAnalysis(draft.analysis);
-    setExtractedPreview(draft.extractedPreview);
-    setLang(draft.lang);
-    draftHydratedRef.current = true;
+    const sync = () => setCustomerWriteEvents(getCustomerWriteEvents());
+    sync();
+    return subscribeCustomerWriteEvents(sync);
+  }, []);
+
+  useEffect(() => {
+    if (!draftRestoredRef.current) {
+      draftRestoredRef.current = true;
+      const draft = restoreDraft();
+      setLineText(draft.lineText);
+      setCustomerName(draft.customerName);
+      setCompanyName(draft.companyName);
+      setPhone(draft.phone);
+      setLineId(draft.lineId);
+      setEmail(draft.email);
+      setNote(draft.note);
+      const restoredDates = sanitizeImportantDateFields(
+        draft.analysis as unknown as Record<string, unknown>,
+        draft.lineText,
+        draft.lang,
+      );
+      setAnalysis({
+        ...draft.analysis,
+        importantDate: restoredDates.important_date || "--",
+      });
+      setHasExplicitImportantDate(restoredDates.hasExplicitImportantDate);
+      setExtractedPreview(draft.extractedPreview);
+      setLang(draft.lang);
+      if (draft.analysis.customerName && draft.analysis.customerName !== "--") {
+        setAnalyzeResult({
+          customer_name: draft.analysis.customerName,
+          at: "restored-draft",
+        });
+      }
+      draftHydratedRef.current = true;
+    }
+    setMounted(true);
   }, [setLang]);
 
   useEffect(() => {
@@ -365,6 +317,12 @@ export default function Home() {
     };
   }, []);
 
+  const displayValue = (value: string) => translateDisplayValue(value === "--" ? "" : value, lang);
+  /** Extracted / analysis result panels — stable "-" until client mount + draft restore. */
+  const analysisResultValue = (value: string) => (mounted ? displayValue(value) : "-");
+  /** Dashboard stat cards (deal probability, level, risk, amount). */
+  const analysisStatValue = (value: string) => (mounted ? displayValue(value) : "-");
+
   function clearFormDraft() {
     clearDraft();
     const empty = emptyHomeFormDraft();
@@ -376,6 +334,7 @@ export default function Home() {
     setEmail(empty.email);
     setNote(empty.note);
     setAnalysis(empty.analysis);
+    setHasExplicitImportantDate(false);
     setExtractedPreview(empty.extractedPreview);
   }
 
@@ -425,82 +384,174 @@ export default function Home() {
     alert(ui.comingSoon);
   }
 
+  /** Only entry point for homepage Save — do not call saveToCrm elsewhere. */
+  function handleHomepageSave() {
+    setSaveClickCount((n) => n + 1);
+
+    if (savingRef.current || savingCrm) {
+      logCustomerWrite({
+        requestId: `blocked-click-${Date.now()}`,
+        source: "homepage.handleHomepageSave",
+        action: "blocked",
+        customer_name: customerName || null,
+        phone: phone || null,
+        line_id: lineId || null,
+        company_id: companyId,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    void saveToCrm();
+  }
+
   async function saveToCrm() {
-    setSavingCrm(true);
+    if (savingRef.current || savingCrm) {
+      return;
+    }
 
-    const crmFields = sanitizeCustomerData(
-      {
-        customer_name: customerName,
-        company_name: companyName,
-        phone,
-        line_id: lineId,
-        email,
-        customer_need: note,
-      },
-      lang,
-    );
-
-    setCustomerName(resolveCustomerNameForForm(crmFields.customer_name, lang));
-    setCompanyName(crmFields.company_name);
-    setPhone(crmFields.phone);
-    setLineId(crmFields.line_id);
-    setEmail(crmFields.email);
-    const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
     if (!companyReady || companyId <= 0) {
+      return;
+    }
+
+    savingRef.current = true;
+    setSavingCrm(true);
+    saveRequestCountRef.current += 1;
+    const requestNum = saveRequestCountRef.current;
+
+    const requestId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `save-${requestNum}-${Date.now()}`;
+
+    beginHomepageSave(requestId);
+
+    try {
+      const chatExtracted = extractCustomerFromLineChat(lineText, lang);
+      const extractedName = chatExtracted.customer_name.trim();
+      const nameForSave = pickCustomerNameForForm(
+        extractedName || analyzeResult?.customer_name || customerName,
+        extractedName,
+        lineText,
+        lang,
+      );
+
+      const crmFields = sanitizeCustomerData(
+        {
+          customer_name: nameForSave,
+          company_name: companyName || chatExtracted.company_name,
+          phone: phone || chatExtracted.phone,
+          line_id: lineId || chatExtracted.line_id,
+          email: email || chatExtracted.email,
+          customer_need: note,
+        },
+        lang,
+      );
+
+      const resolvedDisplayName = nameForSave;
+      const savedName = isValidExtractedCustomerName(nameForSave)
+        ? nameForSave
+        : crmSaveCustomerName(crmFields.customer_name, lang);
+
+      setCustomerName(resolvedDisplayName);
+      setCompanyName(crmFields.company_name);
+      setPhone(crmFields.phone);
+      setLineId(crmFields.line_id);
+      setEmail(crmFields.email);
+
+      const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
+
+      const crmDates = buildSanitizedCrmDatePayload(lineText, lang);
+
+      const baseInsert: Record<string, string | number | boolean | null> = {
+        customer_name: savedName,
+        company_name: crmFields.company_name.trim() || null,
+        phone: crmFields.phone.trim() || null,
+        line_id: crmFields.line_id.trim() || null,
+        email: crmFields.email.trim() || null,
+        note: note.trim() || null,
+        customer_need:
+          chatExtracted.customer_need?.trim() ||
+          (analysis.customerNeed === "--" ? null : analysis.customerNeed),
+        important_date: crmDates.important_date,
+        customer_emotion: analysis.customerEmotion === "--" ? null : analysis.customerEmotion,
+        next_step: analysis.nextStep === "--" ? null : analysis.nextStep,
+        todo: analysis.todo === "--" ? null : analysis.todo,
+        reply_suggestion: analysis.replySuggestion === "--" ? null : analysis.replySuggestion,
+        follow_up: analysis.followUp === "--" ? null : analysis.followUp,
+        success_rate: dealProb,
+        customer_level: analysis.customerLevel === "--" ? null : analysis.customerLevel,
+        churn_risk: analysis.leakRisk === "--" ? null : analysis.leakRisk,
+        estimated_amount: analysis.estimatedAmount === "--" ? null : analysis.estimatedAmount,
+        follow_up_mode: "manual",
+        ...customerStatusWritePayload("new_lead"),
+      };
+
+      const urgencyFlags = computeCustomerUrgencyFromImportantDate(baseInsert.important_date);
+      baseInsert.urgent = urgencyFlags.urgent;
+      baseInsert.priority = urgencyFlags.priority;
+
+      baseInsert.follow_up_date = crmDates.follow_up_date;
+
+      console.log("[saveToCrm] upsert request", {
+        requestId,
+        requestNum,
+        companyId,
+        payload: baseInsert,
+      });
+      logActiveCompany("saveToCrm.upsert", { requestId, requestNum, companyId, customer_name: savedName });
+
+      const { customerId, action, error } = await upsertCustomerForCompany(
+        supabase,
+        companyId,
+        baseInsert,
+        { requestId, source: HOMEPAGE_SAVE_SOURCE, conversationText: lineText, lang },
+      );
+
+      console.log("[saveToCrm] upsert response", {
+        requestId,
+        requestNum,
+        action,
+        ok: !error,
+        id: customerId,
+        error: error?.message ?? null,
+      });
+
+      if (error) {
+        alert(JSON.stringify(error, null, 2));
+        return;
+      }
+
+      if (customerId && lineText.trim()) {
+        await saveManualPasteConversation(customerId, lineText, companyId);
+      }
+
+      if (customerId) {
+        void postCrmNotification(companyId, {
+          type: "new_customer",
+          customer_id: customerId,
+          customer_name: savedName,
+          lang,
+        });
+        if (urgencyFlags.urgent) {
+          void postCrmNotification(companyId, {
+            type: "urgent_customer",
+            customer_id: customerId,
+            customer_name: savedName,
+            lang,
+          });
+        }
+      }
+
+      void loadWorkspaceRows();
+
+      alert(ui.savedToCrm);
+      clearFormDraft();
+    } finally {
+      endHomepageSave();
+      savingRef.current = false;
       setSavingCrm(false);
-      return;
     }
-
-    const extractedFollowUpDate =
-      parseFollowUpDateYmdFromChat(lineText) ??
-      parseFollowUpDateYmdFromChat(analysis.importantDate) ??
-      parseFirstDateYmdFromText(analysis.followUp) ??
-      parseFirstDateYmdFromText(analysis.todo) ??
-      parseFirstDateYmdFromText(analysis.nextStep);
-
-    const baseInsert: Record<string, string | number | null> = {
-      customer_name: customerNameForCrm(crmFields.customer_name, lang),
-      company_name: crmFields.company_name.trim() || null,
-      phone: crmFields.phone.trim() || null,
-      line_id: crmFields.line_id.trim() || null,
-      email: crmFields.email.trim() || null,
-      note: note.trim() || null,
-      customer_need: analysis.customerNeed === "--" ? null : analysis.customerNeed,
-      important_date: analysis.importantDate === "--" ? null : analysis.importantDate,
-      customer_emotion: analysis.customerEmotion === "--" ? null : analysis.customerEmotion,
-      next_step: analysis.nextStep === "--" ? null : analysis.nextStep,
-      todo: analysis.todo === "--" ? null : analysis.todo,
-      reply_suggestion: analysis.replySuggestion === "--" ? null : analysis.replySuggestion,
-      follow_up: analysis.followUp === "--" ? null : analysis.followUp,
-      success_rate: dealProb,
-      customer_level: analysis.customerLevel === "--" ? null : analysis.customerLevel,
-      churn_risk: analysis.leakRisk === "--" ? null : analysis.leakRisk,
-      estimated_amount: analysis.estimatedAmount === "--" ? null : analysis.estimatedAmount,
-      follow_up_mode: "manual",
-    };
-
-    if (extractedFollowUpDate) {
-      baseInsert.follow_up_date = extractedFollowUpDate;
-    } else if (isHighDealProbability(dealProb)) {
-      baseInsert.follow_up_date = computeHighPotentialFollowUpDate();
-    }
-
-    const insertRow = customerInsertPayload(baseInsert, companyId);
-
-    const { error } = await supabase.from("customers").insert([insertRow]);
-
-    setSavingCrm(false);
-
-    if (error) {
-      alert(JSON.stringify(error, null, 2));
-      return;
-    }
-
-    void loadFollowUpReminders();
-    void loadWorkspaceRows();
-
-    alert(ui.savedToCrm);
-    clearFormDraft();
   }
 
   async function analyze() {
@@ -509,163 +560,78 @@ export default function Home() {
       return;
     }
 
-    persistDraftNow();
+    if (loading) {
+      console.log("[analyze] blocked — already running");
+      return;
+    }
 
     setLoading(true);
-
-    setCustomerName("");
-    setCompanyName("");
-    setPhone("");
-    setLineId("");
-    setEmail("");
+    if (ANALYZE_AUTO_SAVE_ENABLED) {
+      console.error("[analyze] ANALYZE_AUTO_SAVE_ENABLED must stay false");
+    }
+    console.log("[analyze] start — form only, no CRM write");
 
     let aiResult: AiAnalyzeCustomerPayload | null = null;
     try {
-      const aiRes = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: lineText }),
-      });
-      const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
-      if (aiRes.ok && aiBody && !aiBody.error) {
-        aiResult = aiBody;
+      try {
+        const aiRes = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: lineText, lang }),
+        });
+        const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
+        if (aiRes.ok && aiBody && !aiBody.error) {
+          aiResult = sanitizeImportantDateFields(
+            aiBody as unknown as Record<string, unknown>,
+            lineText,
+            lang,
+          ) as AiAnalyzeCustomerPayload;
+        }
+      } catch (err) {
+        console.error("AI analyze request failed", err);
       }
-    } catch (err) {
-      console.error("AI analyze request failed", err);
-    }
 
-    const extracted = extractCustomerFromLineChat(lineText, lang);
-    const sanitizedAi = sanitizeAiCustomerFields(aiResult, lang);
-    const mergedCustomer = mergeCustomerExtraction(extracted, sanitizedAi);
-    const finalCustomerProfile = sanitizeCustomerData(mergedCustomer, lang);
-    const mergedFields = toFinalMergedCustomerFields(finalCustomerProfile);
-    const { customer_need: refinedNeed, note: refinedNote } = refineCustomerNeedAndNote(
-      lineText,
-      finalCustomerProfile,
-      lang,
-      mergedFields.customerNeed,
-    );
-    const finalCustomerData = {
-      ...mergedFields,
-      customerNeed: refinedNeed,
-      note: refinedNote,
-    };
+      const probability = calculateDealProbability(lineText, lang);
+      const mapped = buildHomeAnalysisMapping(lineText, lang, aiResult, probability);
+      const { confirmed, analysis: mappedAnalysis, extractedPreview } = mapped;
 
-    console.log("AI_RESULT", aiResult);
-    console.log("EXTRACTED", extracted);
-    console.log("FINAL_CUSTOMER_DATA", finalCustomerData);
-
-    setCustomerName(finalCustomerData.customerName || "");
-    setCompanyName(finalCustomerData.companyName || "");
-    setPhone(finalCustomerData.phone || "");
-    setLineId(finalCustomerData.lineId || "");
-    setEmail(finalCustomerData.email || "");
-    setNote(finalCustomerData.note || "");
-
-    const probability = calculateDealProbability(lineText, lang);
-    const amount = extractAmount(lineText, lang);
-    const lowerText = lineText.toLowerCase();
-    const classifiedImportantDates = parseClassifiedImportantDatesFromChat(lineText, new Date(), lang);
-    const parsedImportantDate =
-      (classifiedImportantDates
-        ? formatClassifiedImportantDatesDisplay(classifiedImportantDates, lang)
-        : null) ?? parseImportantDateFromChat(lineText, new Date(), lang);
-    const aiImportantDate =
-      aiResult?.importantDate && String(aiResult.importantDate).trim() !== ""
-        ? String(aiResult.importantDate).trim()
-        : null;
-
-    const fallbackImportantDateZh =
-      lineText.includes("兩週") || lineText.includes("月底") || lineText.includes("下個月") ? "近期" : "未提供";
-    const fallbackImportantDateEn =
-      lowerText.includes("two weeks") || lowerText.includes("next month") || lowerText.includes("urgent")
-        ? "Soon"
-        : "Not provided";
-
-    const finalData =
-      lang === "zh"
-        ? {
-            dealProbability: probability,
-            customerLevel: probability === "高" ? "A級客戶" : probability === "中" ? "B級客戶" : "C級客戶",
-            leakRisk: probability === "低" ? "高" : "低",
-            estimatedAmount: amount,
-            customerNeed: "品牌影片、高級感、快速交付",
-            importantDate: parsedImportantDate ?? aiImportantDate ?? fallbackImportantDateZh,
-            customerEmotion: probability === "高" ? "積極、有興趣" : "還在評估",
-            nextStep: probability === "高" ? "立即提供提案與報價" : "持續追蹤",
-            todo: probability === "高" ? "安排會議" : "三天後追蹤",
-            replySuggestion: "您好，我們會先提供完整企劃與報價給您。",
-            followUp: probability === "高" ? "明天追蹤" : "下週聯絡",
-          }
-        : {
-            dealProbability: probability,
-            customerLevel: probability === "High" ? "A-Level Client" : probability === "Medium" ? "B-Level Client" : "C-Level Client",
-            leakRisk: probability === "Low" ? "High" : "Low",
-            estimatedAmount: amount,
-            customerNeed: "Premium brand video, cinematic style, fast delivery",
-            importantDate: parsedImportantDate ?? aiImportantDate ?? fallbackImportantDateEn,
-            customerEmotion: probability === "High" ? "Interested and responsive" : "Still evaluating",
-            nextStep: probability === "High" ? "Send proposal and quotation" : "Continue following up",
-            todo: probability === "High" ? "Schedule meeting" : "Follow up in 3 days",
-            replySuggestion: "We will prepare a proposal and quotation for you shortly.",
-            followUp: probability === "High" ? "Follow up tomorrow" : "Contact again next week",
-          };
-
-    const extractedPreviewData: ExtractedCustomerProfile = {
-      customer_name: finalCustomerData.customerName || "",
-      company_name: finalCustomerData.companyName,
-      phone: finalCustomerData.phone,
-      line_id: finalCustomerData.lineId,
-      email: finalCustomerData.email,
-      customer_need: finalCustomerData.customerNeed,
-    };
-
-    setExtractedPreview(extractedPreviewData);
-
-    const mergedFinal = {
-      ...finalData,
-      customerNeed: finalCustomerData.customerNeed.trim() || finalData.customerNeed,
-    };
-
-    setAnalysis(mergedFinal);
-
-    try {
-      await fetch("/api/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...companyIdHeader() },
-        body: JSON.stringify({
-          raw_text: lineText,
-          deal_probability: finalData.dealProbability,
-          customer_level: finalData.customerLevel,
-          leak_risk: finalData.leakRisk,
-          estimated_amount: finalData.estimatedAmount,
-          customer_need: mergedFinal.customerNeed,
-          important_date: finalData.importantDate,
-          customer_emotion: finalData.customerEmotion,
-          next_step: finalData.nextStep,
-          todo: finalData.todo,
-          reply_suggestion: finalData.replySuggestion,
-          follow_up: finalData.followUp,
-        }),
+      setAnalyzeResult({
+        customer_name: confirmed.customerName,
+        at: new Date().toISOString(),
       });
-    } catch (err) {
-      console.error(err);
+
+      console.log("AI_RESULT", aiResult);
+      console.log("CONFIRMED_CRM", confirmed);
+      console.log("INSIGHTS", mapped.insights);
+
+      setCustomerName(confirmed.customerName);
+      setCompanyName(confirmed.companyName || "");
+      setPhone(confirmed.phone || "");
+      setLineId(confirmed.lineId || "");
+      setEmail(confirmed.email || "");
+      setNote(confirmed.note || "");
+
+      setExtractedPreview(extractedPreview);
+      setAnalysis(mappedAnalysis);
+      setHasExplicitImportantDate(mapped.hasExplicitImportantDate);
+
+      console.log("[analyze] done — form only, no DB", { customerName: confirmed.customerName });
+
+      persistDraftNow({
+        lineText,
+        customerName: confirmed.customerName,
+        companyName: confirmed.companyName,
+        phone: confirmed.phone,
+        lineId: confirmed.lineId,
+        email: confirmed.email,
+        note: confirmed.note || "",
+        analysis: mappedAnalysis,
+        lang,
+        extractedPreview,
+      });
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-
-    persistDraftNow({
-      lineText,
-      customerName: finalCustomerData.customerName || "",
-      companyName: finalCustomerData.companyName,
-      phone: finalCustomerData.phone,
-      lineId: finalCustomerData.lineId,
-      email: finalCustomerData.email,
-      note: finalCustomerData.note || "",
-      analysis: mergedFinal,
-      lang,
-      extractedPreview: extractedPreviewData,
-    });
   }
 
   if (isMobile) {
@@ -681,9 +647,6 @@ export default function Home() {
       overflowWrap: "anywhere",
     };
     const block = (extra?: CSSProperties): CSSProperties => ({ ...full, ...textFlow, ...extra });
-    const mb = full;
-    const mt = textFlow;
-
     const menuItems = [
       ui.menuNew,
       ui.menuCustomers,
@@ -733,17 +696,20 @@ export default function Home() {
     };
 
     const analysisFields: { title: string; value: string }[] = [
-      { title: ui.customerNeeds, value: displayValue(analysis.customerNeed) },
-      { title: ui.importantDate, value: displayValue(analysis.importantDate) },
-      { title: ui.customerEmotion, value: displayValue(analysis.customerEmotion) },
-      { title: ui.nextStep, value: displayValue(analysis.nextStep) },
-      { title: ui.todo, value: displayValue(analysis.todo) },
-      { title: ui.replySuggestion, value: displayValue(analysis.replySuggestion) },
-      { title: ui.followUp, value: displayValue(analysis.followUp) },
+      { title: ui.customerNeeds, value: analysisResultValue(analysis.customerNeed) },
+      ...(hasExplicitImportantDate
+        ? [{ title: ui.importantDate, value: analysisResultValue(analysis.importantDate) }]
+        : []),
+      { title: ui.customerEmotion, value: analysisResultValue(analysis.customerEmotion) },
+      { title: ui.nextStep, value: analysisResultValue(analysis.nextStep) },
+      { title: ui.todo, value: analysisResultValue(analysis.todo) },
+      { title: ui.replySuggestion, value: analysisResultValue(analysis.replySuggestion) },
+      { title: ui.followUp, value: analysisResultValue(analysis.followUp) },
     ];
 
     return (
       <>
+        {loading ? <AiAnalyzingIndicator lang={lang} /> : null}
         {copyFallbackModal}
         <main
           style={{
@@ -797,25 +763,6 @@ export default function Home() {
               >
                 {ui.langToggle}
               </button>
-              <button
-                type="button"
-                style={{
-                  ...block(),
-                  flex: "1 1 140px",
-                  minWidth: 0,
-                  maxWidth: "100%",
-                  padding: "14px 12px",
-                  borderRadius: 12,
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 16,
-                  background: "rgba(255,255,255,0.14)",
-                  color: "white",
-                }}
-                onClick={handleTestNotification}
-              >
-                {ui.testNotification}
-              </button>
             </div>
           </header>
 
@@ -825,8 +772,6 @@ export default function Home() {
             isMobile
             loading={workspaceLoading}
             loadError={workspaceError}
-            onRefresh={() => void loadWorkspaceRows()}
-            copyWithFallback={copyWithFallback}
           />
 
           <section style={{ ...block(), background: "#132846", borderRadius: 16, padding: 18 }}>
@@ -839,18 +784,6 @@ export default function Home() {
               ))}
             </div>
           </section>
-
-          <FollowUpRemindersSection
-            reminders={followUpReminders}
-            lang={lang}
-            variant="mobile"
-            mb={mb}
-            mt={mt}
-            copyWithFallback={copyWithFallback}
-          />
-
-          <HomeCalendarSection customers={calendarRows} lang={lang} isMobile block={block()} />
-          <HomeAlertsSection rows={calendarRows} lang={lang} isMobile block={block()} />
 
           <section
             ref={centerRef}
@@ -883,11 +816,12 @@ export default function Home() {
               />
             </div>
 
-            {extractedPreview !== null ? (
-              <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="mobile" mb={mb} mt={mt} />
+            {mounted && extractedPreview !== null ? (
+              <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="mobile" />
             ) : null}
 
             <textarea
+              className="crm-line-conversation-textarea"
               value={lineText}
               onChange={(e) => setLineText(e.target.value)}
               placeholder={ui.linePlaceholder}
@@ -896,8 +830,6 @@ export default function Home() {
                 minHeight: 176,
                 borderRadius: 16,
                 padding: 16,
-                fontSize: 17,
-                color: "#111",
                 resize: "vertical",
               }}
             />
@@ -937,13 +869,13 @@ export default function Home() {
                 opacity: loading ? 0.85 : 1,
               }}
             >
-              {loading ? ui.analyzing : ui.startAnalysis}
+              {ui.startAnalysis}
             </button>
 
             <button
               type="button"
-              onClick={() => void saveToCrm()}
-              disabled={savingCrm}
+              onClick={handleHomepageSave}
+              disabled={savingCrm || loading}
               style={{
                 ...block(),
                 height: 56,
@@ -959,6 +891,16 @@ export default function Home() {
             >
               {savingCrm ? ui.saving : ui.saveToCrm}
             </button>
+
+            {mounted && HOME_DEBUG_ENABLED ? (
+              <HomeIsolateDebugBox
+                analyzeResult={analyzeResult}
+                formCustomerName={customerName}
+                lineText={lineText}
+                saveClickCount={saveClickCount}
+                writeEvents={customerWriteEvents}
+              />
+            ) : null}
           </section>
 
           <section style={{ ...block(), display: "flex", flexDirection: "column", gap: 16 }}>
@@ -967,19 +909,19 @@ export default function Home() {
             <div style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={statCard}>
                 <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.dealProbability}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{displayValue(analysis.dealProbability)}</div>
+                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.dealProbability)}</div>
               </div>
               <div style={statCard}>
                 <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.customerLevel}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{displayValue(analysis.customerLevel)}</div>
+                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.customerLevel)}</div>
               </div>
               <div style={statCard}>
                 <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.leakRisk}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{displayValue(analysis.leakRisk)}</div>
+                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.leakRisk)}</div>
               </div>
               <div style={statCard}>
                 <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.estimatedAmount}</div>
-                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{displayValue(analysis.estimatedAmount)}</div>
+                <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.estimatedAmount)}</div>
               </div>
             </div>
 
@@ -1011,6 +953,7 @@ export default function Home() {
 
   return (
     <>
+    {loading ? <AiAnalyzingIndicator lang={lang} /> : null}
     {copyFallbackModal}
     <main style={s.page}>
       <HomeLandingHero lang={lang} isMobile={false} onStart={scrollToApp} />
@@ -1025,17 +968,14 @@ export default function Home() {
           <button type="button" style={s.smallBtn} onClick={toggleLang}>
             {ui.langToggle}
           </button>
-          <button type="button" style={s.smallBtn} onClick={handleTestNotification}>
-            {ui.testNotification}
-          </button>
         </div>
       </div>
 
       <div style={s.cards}>
-        <Card styles={s} title={ui.dealProbability} value={displayValue(analysis.dealProbability)} />
-        <Card styles={s} title={ui.customerLevel} value={displayValue(analysis.customerLevel)} />
-        <Card styles={s} title={ui.leakRisk} value={displayValue(analysis.leakRisk)} />
-        <Card styles={s} title={ui.estimatedAmount} value={displayValue(analysis.estimatedAmount)} />
+        <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
+        <Card styles={s} title={ui.customerLevel} value={analysisStatValue(analysis.customerLevel)} />
+        <Card styles={s} title={ui.leakRisk} value={analysisStatValue(analysis.leakRisk)} />
+        <Card styles={s} title={ui.estimatedAmount} value={analysisStatValue(analysis.estimatedAmount)} />
       </div>
 
       <TodayFollowUpWorkspace
@@ -1044,32 +984,7 @@ export default function Home() {
         isMobile={false}
         loading={workspaceLoading}
         loadError={workspaceError}
-        onRefresh={() => void loadWorkspaceRows()}
-        copyWithFallback={copyWithFallback}
       />
-
-      <FollowUpRemindersSection
-        reminders={followUpReminders}
-        lang={lang}
-        variant="desktop"
-        styles={s}
-        copyWithFallback={copyWithFallback}
-      />
-
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 1200,
-          margin: "0 auto 24px",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-          gap: 20,
-          boxSizing: "border-box",
-        }}
-      >
-        <HomeCalendarSection customers={calendarRows} lang={lang} isMobile={false} />
-        <HomeAlertsSection rows={calendarRows} lang={lang} isMobile={false} />
-      </div>
 
       <div style={s.layout}>
         <aside style={s.sidebar}>
@@ -1105,13 +1020,14 @@ export default function Home() {
             <textarea style={s.input} placeholder={ui.fieldNote} value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
-          {extractedPreview !== null ? (
+          {mounted && extractedPreview !== null ? (
             <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="desktop" />
           ) : null}
 
           <textarea
-              value={lineText}
-              onChange={(e) => setLineText(e.target.value)}
+            className="crm-line-conversation-textarea"
+            value={lineText}
+            onChange={(e) => setLineText(e.target.value)}
             placeholder={ui.linePlaceholder}
             style={s.textarea}
           />
@@ -1121,30 +1037,124 @@ export default function Home() {
           </button>
 
           <button onClick={analyze} disabled={loading} style={s.analyzeBtn}>
-            {loading ? ui.analyzing : ui.startAnalysis}
+            {ui.startAnalysis}
           </button>
 
-          <button type="button" onClick={() => void saveToCrm()} disabled={savingCrm} style={s.saveCrmBtn}>
+          <button
+            type="button"
+            onClick={handleHomepageSave}
+            disabled={savingCrm || loading}
+            style={s.saveCrmBtn}
+          >
             {savingCrm ? ui.saving : ui.saveToCrm}
           </button>
+
+          {mounted && HOME_DEBUG_ENABLED ? (
+            <HomeIsolateDebugBox
+              analyzeResult={analyzeResult}
+              formCustomerName={customerName}
+              lineText={lineText}
+              saveClickCount={saveClickCount}
+              writeEvents={customerWriteEvents}
+            />
+          ) : null}
         </section>
 
         <aside style={s.right}>
-          <Result styles={s} title={ui.customerNeeds} value={displayValue(analysis.customerNeed)} />
-          <Result styles={s} title={ui.importantDate} value={displayValue(analysis.importantDate)} />
-          <Result styles={s} title={ui.customerEmotion} value={displayValue(analysis.customerEmotion)} />
-          <Result styles={s} title={ui.nextStep} value={displayValue(analysis.nextStep)} />
-          <Result styles={s} title={ui.todo} value={displayValue(analysis.todo)} />
-          <Result styles={s} title={ui.replySuggestion} value={displayValue(analysis.replySuggestion)} />
-          <Result styles={s} title={ui.followUp} value={displayValue(analysis.followUp)} />
+          <Result styles={s} title={ui.customerNeeds} value={analysisResultValue(analysis.customerNeed)} />
+          {hasExplicitImportantDate ? (
+            <Result styles={s} title={ui.importantDate} value={analysisResultValue(analysis.importantDate)} />
+          ) : null}
+          <Result styles={s} title={ui.customerEmotion} value={analysisResultValue(analysis.customerEmotion)} />
+          <Result styles={s} title={ui.nextStep} value={analysisResultValue(analysis.nextStep)} />
+          <Result styles={s} title={ui.todo} value={analysisResultValue(analysis.todo)} />
+          <Result styles={s} title={ui.replySuggestion} value={analysisResultValue(analysis.replySuggestion)} />
+          <Result styles={s} title={ui.followUp} value={analysisResultValue(analysis.followUp)} />
         </aside>
       </div>
     </main>
     </>
   );
 }
+function HomeIsolateDebugBox({
+  analyzeResult,
+  formCustomerName,
+  lineText,
+  saveClickCount,
+  writeEvents,
+}: {
+  analyzeResult: AnalyzeResultSnapshot | null;
+  formCustomerName: string;
+  lineText: string;
+  saveClickCount: number;
+  writeEvents: CustomerWriteEvent[];
+}) {
+  const pre: CSSProperties = {
+    margin: 0,
+    padding: 10,
+    borderRadius: 8,
+    background: "rgba(0,0,0,0.35)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    fontFamily: "ui-monospace, Menlo, monospace",
+    color: "#e2e8f0",
+  };
 
-function Card({ title, value, styles }: any) {
+  const writeCount = writeEvents.filter((e) => e.action === "insert" || e.action === "update").length;
+  const blocked = writeEvents.filter((e) => e.action === "blocked");
+
+  return (
+    <section
+      style={{
+        marginTop: 14,
+        padding: 12,
+        borderRadius: 10,
+        border: "2px solid #f59e0b",
+        background: "rgba(15,23,42,0.95)",
+      }}
+      aria-label="Isolate debug"
+    >
+      <h4 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: "#fbbf24" }}>DEBUG — isolate save</h4>
+      <pre style={pre}>{`analyzeResult.customer_name: ${analyzeResult?.customer_name ?? "(none)"}
+form.customerName: ${formCustomerName || "(empty)"}
+textarea (lineText) length: ${lineText.length}
+textarea preview: ${lineText.slice(0, 80)}${lineText.length > 80 ? "…" : ""}
+save click count: ${saveClickCount}
+customer write count (insert/update): ${writeCount}
+writes this save click (gate): ${getWritesThisSaveClick()}`}</pre>
+      {blocked.length > 0 ? (
+        <>
+          <p style={{ margin: "8px 0 4px", fontSize: 11, color: "#f87171", fontWeight: 700 }}>
+            BLOCKED writes ({blocked.length})
+          </p>
+          <pre style={pre}>
+            {blocked
+              .map((e) => `${e.source}\n  ${e.detail ?? e.requestId}\n  at: ${e.timestamp}`)
+              .join("\n\n")}
+          </pre>
+        </>
+      ) : null}
+      {writeEvents.length > 0 ? (
+        <>
+          <p style={{ margin: "8px 0 4px", fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>All CUSTOMER_WRITE events</p>
+          <pre style={{ ...pre, maxHeight: 200, overflow: "auto" }}>
+            {writeEvents
+              .map(
+                (e, i) =>
+                  `${i + 1}. ${e.action} | ${e.source}\n   name=${e.customer_name ?? ""} phone=${e.phone ?? ""} line=${e.line_id ?? ""}`,
+              )
+              .join("\n")}
+          </pre>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+
+function Card({ title, value, styles }: { title: string; value: string; styles: Record<string, CSSProperties> }) {
   return (
     <div style={styles.card}>
       <div style={styles.cardTitle}>{title}</div>
@@ -1173,16 +1183,13 @@ function ExtractedCustomerPreviewCard({
   extracted,
   lang,
   variant,
-  mb,
-  mt,
 }: {
   extracted: ExtractedCustomerProfile;
   lang: AppLang;
   variant: "mobile" | "desktop";
-  mb?: CSSProperties;
-  mt?: CSSProperties;
 }) {
   const ui = homePageCopy(lang);
+
   const rows = [
     { label: ui.extractedName, value: extracted.customer_name },
     { label: ui.extractedCompany, value: extracted.company_name },
@@ -1195,11 +1202,13 @@ function ExtractedCustomerPreviewCard({
   const shell: CSSProperties =
     variant === "mobile"
       ? {
-          ...(mb ?? {}),
-          ...(mt ?? {}),
+          width: "100%",
+          maxWidth: "100%",
+          minWidth: 0,
           boxSizing: "border-box",
           borderRadius: 18,
           padding: 18,
+          marginBottom: 14,
           border: "1px solid rgba(129, 140, 248, 0.42)",
           background:
             "linear-gradient(155deg, rgba(99,102,241,0.22) 0%, rgba(15,23,42,0.55) 48%, rgba(15,23,42,0.88) 100%)",
@@ -1295,218 +1304,6 @@ function ExtractedCustomerPreviewCard({
   );
 }
 
-function FollowUpRemindersSection({
-  reminders,
-  lang,
-  variant,
-  styles,
-  mb,
-  mt,
-  copyWithFallback,
-}: {
-  reminders: DashboardReminder[];
-  lang: AppLang;
-  variant: "mobile" | "desktop";
-  styles?: Record<string, CSSProperties>;
-  mb?: CSSProperties;
-  mt?: CSSProperties;
-  copyWithFallback: (text: string, options?: import("./hooks/useCopyWithFallback").CopyWithFallbackOptions) => Promise<boolean>;
-}) {
-  const ui = homePageCopy(lang);
-  const title = ui.remindersTitle;
-  const emptyHint = ui.remindersEmpty;
-  const suggestedLabel = ui.suggestedLabel;
-  const copyLabel = ui.copy;
-  const copiedHint = ui.copied;
-
-  async function copySuggestion(text: string) {
-    await copyWithFallback(text, {
-      title: ui.copyFollowUpTitle,
-      description: ui.copyFollowUpDesc,
-      tapLabel: "Tap to Copy",
-      closeLabel: ui.close,
-      copiedLabel: copiedHint,
-      onSuccess: () => alert(copiedHint),
-    });
-  }
-
-  if (variant === "mobile" && mb && mt) {
-    return (
-      <section
-        style={{
-          ...mb,
-          ...mt,
-          background: "#132846",
-          borderRadius: 16,
-          padding: 18,
-        }}
-      >
-        <h2 style={{ ...mb, ...mt, margin: "0 0 14px", fontSize: 22 }}>{title}</h2>
-        {reminders.length === 0 ? (
-          <p style={{ ...mb, ...mt, margin: 0, opacity: 0.85, fontSize: 15, lineHeight: 1.55 }}>{emptyHint}</p>
-        ) : (
-          <div style={{ ...mb, ...mt, display: "flex", flexDirection: "column", gap: 14 }}>
-            {reminders.map((r) => {
-              if (r.id === undefined || r.id === null || String(r.id) === "") return null;
-              const fd = normalizeFollowUpDateValue(r.follow_up_date);
-              if (!fd) return null;
-              const badge = getFollowUpBadge(fd);
-              if (badge === "none") return null;
-              const cols = followUpBadgeColors(badge);
-              const sug = buildSuggestedSalesFollowUp(r, lang);
-              const locale = lang;
-              return (
-                <div
-                  key={String(r.id)}
-                  style={{
-                    ...mb,
-                    ...mt,
-                    background: "#20334d",
-                    borderRadius: 14,
-                    padding: 16,
-                  }}
-                >
-                  <div
-                    style={{
-                      ...mb,
-                      ...mt,
-                      display: "flex",
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      gap: 10,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <Link
-                      href={`/customers/${r.id}`}
-                      style={{
-                        ...mb,
-                        ...mt,
-                        fontWeight: 700,
-                        fontSize: 17,
-                        color: "#fff",
-                        textDecoration: "none",
-                      }}
-                    >
-                      {r.customer_name?.trim() || ui.unnamed}
-                      {r.company_name?.trim() ? ` · ${r.company_name}` : ""}
-                    </Link>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        padding: "5px 11px",
-                        borderRadius: 999,
-                        background: cols.bg,
-                        color: cols.color,
-                        border: `1px solid ${cols.border}`,
-                      }}
-                    >
-                      {followUpBadgeLabel(badge, lang)}
-                    </span>
-                    <span style={{ ...mb, ...mt, fontSize: 15, opacity: 0.9 }}>
-                      {formatFollowUpDateDisplay(fd, locale)}
-                    </span>
-                  </div>
-                  <div style={{ ...mb, ...mt, fontSize: 13, fontWeight: 700, opacity: 0.9, marginBottom: 8 }}>{suggestedLabel}</div>
-                  <textarea
-                    readOnly
-                    value={sug}
-                    style={{
-                      ...mb,
-                      ...mt,
-                      width: "100%",
-                      minHeight: 88,
-                      padding: 12,
-                      borderRadius: 12,
-                      border: "1px solid rgba(255,255,255,0.15)",
-                      background: "rgba(0,0,0,0.2)",
-                      color: "white",
-                      fontSize: 15,
-                      lineHeight: 1.5,
-                      resize: "vertical",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void copySuggestion(sug)}
-                    style={{
-                      ...mb,
-                      ...mt,
-                      marginTop: 10,
-                      padding: "11px 16px",
-                      borderRadius: 12,
-                      border: "none",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                      fontSize: 15,
-                      background: "#22c55e",
-                      color: "#fff",
-                    }}
-                  >
-                    {copyLabel}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    );
-  }
-
-  if (!styles) return null;
-
-  return (
-    <section style={styles.followRemindersSection}>
-      <h2 style={styles.followRemindersTitle}>{title}</h2>
-      {reminders.length === 0 ? (
-        <p style={styles.followRemindersEmpty}>{emptyHint}</p>
-      ) : (
-        <div style={styles.followRemindersList}>
-          {reminders.map((r) => {
-            if (r.id === undefined || r.id === null || String(r.id) === "") return null;
-            const fd = normalizeFollowUpDateValue(r.follow_up_date);
-            if (!fd) return null;
-            const badge = getFollowUpBadge(fd);
-            if (badge === "none") return null;
-            const cols = followUpBadgeColors(badge);
-            const sug = buildSuggestedSalesFollowUp(r, lang);
-            const locale = lang;
-            return (
-              <div key={String(r.id)} style={styles.followReminderCard}>
-                <div style={styles.followReminderCardHead}>
-                  <Link href={`/customers/${r.id}`} style={styles.followReminderName}>
-                    {r.customer_name?.trim() || ui.unnamed}
-                    {r.company_name?.trim() ? ` · ${r.company_name}` : ""}
-                  </Link>
-                  <span
-                    style={{
-                      ...styles.followReminderBadge,
-                      background: cols.bg,
-                      color: cols.color,
-                      border: `1px solid ${cols.border}`,
-                    }}
-                  >
-                    {followUpBadgeLabel(badge, lang)}
-                  </span>
-                  <span style={styles.followReminderWhen}>{formatFollowUpDateDisplay(fd, locale)}</span>
-                </div>
-                <div style={styles.followReminderSugLabel}>{suggestedLabel}</div>
-                <textarea readOnly value={sug} style={styles.followReminderTextarea} />
-                <button type="button" onClick={() => void copySuggestion(sug)} style={styles.followReminderCopyBtn}>
-                  {copyLabel}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
 function getStyles(isMobile: boolean): any {
   const mobileBox = {
     width: "100%" as const,
@@ -1592,28 +1389,6 @@ function getStyles(isMobile: boolean): any {
       ...(isMobile ? mobileBodyText : { ...resultText }),
     },
 
-    smallBtn: {
-      padding: isMobile ? "13px 16px" : "11px 20px",
-      borderRadius: 12,
-      border: "none",
-      cursor: "pointer",
-      fontSize: isMobile ? 16 : 15,
-      boxSizing: "border-box",
-      ...(isMobile
-        ? {
-            ...mobileBox,
-            flex: "1 1 auto" as const,
-            whiteSpace: "normal",
-            wordBreak: "break-word",
-            ...mobileBodyText,
-          }
-        : {
-            flex: "unset",
-            whiteSpace: "nowrap",
-            wordBreak: "break-word",
-          }),
-    },
-
     cards: {
       marginTop: 32,
       ...mobileBox,
@@ -1663,122 +1438,34 @@ function getStyles(isMobile: boolean): any {
     },
 
     cardValue: {
+      margin: "14px 0 0",
       fontSize: isMobile ? 30 : 36,
-      marginTop: 14,
-      marginBottom: 0,
+      fontWeight: 800,
+      lineHeight: 1.15,
       ...mobileBox,
       ...(isMobile ? mobileBodyText : { ...resultText }),
     },
 
-    followRemindersSection: {
-      marginTop: 28,
-      ...mobileBox,
-      background: "#132846",
-      borderRadius: 22,
-      padding: isMobile ? 18 : 24,
-    },
-
-    followRemindersTitle: {
-      margin: "0 0 18px",
-      fontSize: isMobile ? 22 : 26,
-      fontWeight: 700,
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-    },
-
-    followRemindersEmpty: {
-      margin: 0,
-      opacity: 0.85,
-      fontSize: isMobile ? 15 : 16,
-      lineHeight: 1.55,
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-    },
-
-    followRemindersList: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 14,
-      ...mobileBox,
-    },
-
-    followReminderCard: {
-      background: "#20334d",
-      borderRadius: 18,
-      padding: isMobile ? 16 : 20,
-      ...mobileBox,
-    },
-
-    followReminderCardHead: {
-      display: "flex",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: 12,
-      marginBottom: 14,
-      ...mobileBox,
-    },
-
-    followReminderName: {
-      fontWeight: 700,
-      fontSize: isMobile ? 16 : 17,
-      color: "#fff",
-      textDecoration: "none",
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-    },
-
-    followReminderBadge: {
-      fontSize: 12,
-      fontWeight: 700,
-      padding: "5px 11px",
-      borderRadius: 999,
-      whiteSpace: "nowrap",
-    },
-
-    followReminderWhen: {
-      fontSize: 15,
-      opacity: 0.9,
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-    },
-
-    followReminderSugLabel: {
-      fontSize: 13,
-      fontWeight: 700,
-      opacity: 0.88,
-      marginBottom: 8,
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-    },
-
-    followReminderTextarea: {
-      width: "100%",
-      minHeight: 96,
-      padding: 14,
-      borderRadius: 14,
-      border: "1px solid rgba(255,255,255,0.12)",
-      background: "rgba(0,0,0,0.22)",
-      color: "#fff",
-      fontSize: 15,
-      lineHeight: 1.55,
-      resize: "vertical",
-      boxSizing: "border-box",
-      ...mobileBox,
-      ...(isMobile ? mobileBodyText : resultText),
-      fontFamily: "inherit",
-    },
-
-    followReminderCopyBtn: {
-      marginTop: 12,
-      padding: "11px 18px",
+    smallBtn: {
+      padding: isMobile ? "13px 16px" : "11px 20px",
       borderRadius: 12,
       border: "none",
       cursor: "pointer",
-      fontWeight: 700,
-      fontSize: 15,
-      background: "#22c55e",
-      color: "#fff",
-      ...mobileBox,
+      fontSize: isMobile ? 16 : 15,
+      boxSizing: "border-box",
+      ...(isMobile
+        ? {
+            ...mobileBox,
+            flex: "1 1 auto" as const,
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+            ...mobileBodyText,
+          }
+        : {
+            flex: "unset",
+            whiteSpace: "nowrap",
+            wordBreak: "break-word",
+          }),
     },
 
     layout: {
@@ -1997,9 +1684,7 @@ function getStyles(isMobile: boolean): any {
       height: isMobile ? 200 : 280,
       borderRadius: 20,
       padding: 18,
-      fontSize: 17,
       marginTop: 18,
-      color: "black",
       resize: "vertical" as const,
       ...(isMobile
         ? {

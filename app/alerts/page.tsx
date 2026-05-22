@@ -12,6 +12,7 @@ import {
   type ReminderCustomerRow,
 } from "../lib/calendarReminders";
 import { alertsPageCopy } from "../lib/calendarI18n";
+import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../supabase";
@@ -33,10 +34,9 @@ export default function AlertsPage() {
     setLoading(true);
     setLoadError(null);
     logActiveCompany("alerts.load", { companyId });
-    const { data, error } = await supabase
-      .from("customers")
-      .select(CALENDAR_CUSTOMER_SELECT)
-      .eq("company_id", companyId);
+    const { data, error } = await activeCustomersOnly(
+      supabase.from("customers").select(CALENDAR_CUSTOMER_SELECT).eq("company_id", companyId),
+    );
 
     if (error) {
       setRows([]);

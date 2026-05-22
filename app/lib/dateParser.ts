@@ -44,7 +44,15 @@ const WEEK_ONLY_EXPR_RE =
 const CLAUSE_SPLIT_RE = /[，,；;。！!？?\n]+/u;
 
 const SHOOTING_CONTEXT_RE =
-  /拍攝|拍片|拍影片|拍攝日|想拍|開拍|錄影|拍攝檔|租棚|棚拍|檔期|空檔|哪一天有空|有空檔|希望|档期|shoot|filming|studio\s*booking/i;
+  /拍攝|拍片|拍影片|拍攝日|想拍|開拍|錄影|拍攝檔|租棚|棚拍|檔期|空檔|哪一天有空|有空檔|档期|交片|成片|品牌影片|形象片|video|shoot|filming|studio\s*booking/i;
+
+const PHOTOGRAPHY_CONVERSATION_RE =
+  /拍攝|拍片|攝影|摄影|租棚|棚拍|模特|麻豆|妝髮|妆发|形象片|品牌影片|想拍|video shoot|studio shoot|filming/i;
+
+/** True when chat is clearly about photography / video production (not general CRM). */
+export function conversationMentionsPhotography(text: string): boolean {
+  return PHOTOGRAPHY_CONVERSATION_RE.test(text.trim());
+}
 
 const QUOTE_CONTEXT_RE =
   /報價|估價|出價|價格|給價|先給|今日報|今天先|明天先|盡快報|初步報價|報價單|報價期限|回覆期限|先報|quote|quotation|pricing/i;
@@ -132,6 +140,97 @@ function dedupeSortDates(dates: Date[]): Date[] {
   return [...map.values()].sort((a, b) => a.getTime() - b.getTime());
 }
 
+export type ExplicitDateAnchor = {
+  date: Date;
+  /** Verbatim phrase from the conversation that authorizes this date. */
+  matchedText: string;
+};
+
+function normalizeTextForSubstringMatch(text: string): string {
+  return text
+    .replace(/\s+/gu, "")
+    .replace(/　/gu, "")
+    .toLowerCase();
+}
+
+/** True when `needle` appears in `haystack` (ignores spaces / fullwidth space). */
+export function explicitDatePhraseFoundInSource(needle: string, sourceText: string): boolean {
+  const n = normalizeTextForSubstringMatch(needle.trim());
+  const h = normalizeTextForSubstringMatch(sourceText);
+  if (!n || !h) return false;
+  return h.includes(n);
+}
+
+/**
+ * Parse only calendar anchors literally written in chat (no inferred deadlines).
+ * Allowed: 5/18, 2026/05/18, 6月1日, 明天, 下週三, 週五 — not「下週」alone, not「兩週內」.
+ */
+export function parseExplicitDateAnchorsFromChat(
+  text: string,
+  referenceDate: Date = new Date(),
+): ExplicitDateAnchor[] {
+  const raw = text.trim();
+  if (!raw) return [];
+
+  const ref = startOfLocalDay(referenceDate);
+  const anchors: ExplicitDateAnchor[] = [];
+
+  for (const m of raw.matchAll(NUMERIC_DATE_RE)) {
+    const d = parseNumericDateMatch(m[1], m[2], m[3], ref);
+    if (d) anchors.push({ date: d, matchedText: m[0] });
+  }
+
+  for (const m of raw.matchAll(RELATIVE_DAY_RE)) {
+    const token = m[0];
+    const d = parseRelativeDayToken(token, ref);
+    if (d) anchors.push({ date: d, matchedText: token });
+  }
+
+  for (const m of raw.matchAll(WEEKDAY_EXPR_RE)) {
+    // Only anchored weekdays: 下週三、下星期五 — not bare 週五/星期五 inferred from context.
+    if (!m[1]) continue;
+    const ch = m[2];
+    if (!ch) continue;
+    const jsWd = weekdayFromChar(ch);
+    if (jsWd == null) continue;
+    const weekOffset = parseWeekOffset(m[1]);
+    anchors.push({
+      date: dateForWeekday(ref, weekOffset, jsWd),
+      matchedText: m[0],
+    });
+  }
+
+  const deduped = new Map<string, ExplicitDateAnchor>();
+  for (const a of anchors) {
+    deduped.set(`${ymdKey(a.date)}:${a.matchedText}`, a);
+  }
+  return [...deduped.values()].sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+/** Drop anchors whose matched phrase is not present in the full conversation. */
+export function filterAnchorsVerifiedInSource(
+  anchors: ExplicitDateAnchor[],
+  sourceText: string,
+): ExplicitDateAnchor[] {
+  return anchors.filter((a) => explicitDatePhraseFoundInSource(a.matchedText, sourceText));
+}
+
+/** important_dates: formatted labels only when explicitly written (otherwise []). */
+export function extractExplicitImportantDatesList(
+  text: string,
+  referenceDate: Date = new Date(),
+  lang: "zh" | "en" = "zh",
+): string[] {
+  const raw = text.trim();
+  if (!raw) return [];
+
+  const verified = filterAnchorsVerifiedInSource(
+    parseExplicitDateAnchorsFromChat(raw, referenceDate),
+    raw,
+  );
+  return verified.map((a) => formatImportantDateLabel(a.date, lang));
+}
+
 function mergeDatesIntoBucket(bucket: Date[], incoming: Date[]): void {
   const map = new Map<string, Date>();
   for (const d of [...bucket, ...incoming]) {
@@ -139,6 +238,27 @@ function mergeDatesIntoBucket(bucket: Date[], incoming: Date[]): void {
   }
   bucket.length = 0;
   bucket.push(...[...map.values()].sort((a, b) => a.getTime() - b.getTime()));
+}
+
+function addDays(ref: Date, days: number): Date {
+  const d = startOfLocalDay(ref);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function endOfMonthContaining(ref: Date): Date {
+  const d = startOfLocalDay(ref);
+  return startOfLocalDay(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+}
+
+function endOfNextCalendarMonth(ref: Date): Date {
+  const d = startOfLocalDay(ref);
+  return startOfLocalDay(new Date(d.getFullYear(), d.getMonth() + 2, 0));
+}
+
+function firstDayOfNextCalendarMonth(ref: Date): Date {
+  const d = startOfLocalDay(ref);
+  return startOfLocalDay(new Date(d.getFullYear(), d.getMonth() + 1, 1));
 }
 
 /** Extract all calendar dates mentioned in a text segment. */
@@ -177,6 +297,32 @@ export function parseDatesFromChat(text: string, referenceDate: Date = new Date(
     found.push(dateForWeekday(ref, weekOffset, 1));
   }
 
+  // Chinese / English fuzzy deadlines (no digits in phrase)
+  if (/(下(?:個)?月底|下个月月底)/u.test(raw)) {
+    found.push(endOfNextCalendarMonth(ref));
+  } else if (/(?:本|這個|这个)?月底|本月最後一天|本月最后一天/u.test(raw)) {
+    found.push(endOfMonthContaining(ref));
+  } else if (/(?:下個月|下个月|來月)(?!底)/u.test(raw)) {
+    found.push(firstDayOfNextCalendarMonth(ref));
+  }
+
+  if (/兩週內|二週內|两周内|十四天內|14\s*天內/u.test(raw)) {
+    found.push(addDays(ref, 14));
+  }
+  if (/一週內|一周內|7\s*天內|七天內/u.test(raw)) {
+    found.push(addDays(ref, 7));
+  }
+  if (/三天內|三日內/u.test(raw)) {
+    found.push(addDays(ref, 3));
+  }
+
+  if (/\b(end\s+of\s+(?:this\s+)?month)\b/i.test(raw)) {
+    found.push(endOfMonthContaining(ref));
+  }
+  if (/\bnext\s+month\b/i.test(raw)) {
+    found.push(firstDayOfNextCalendarMonth(ref));
+  }
+
   return dedupeSortDates(found);
 }
 
@@ -188,13 +334,24 @@ export function classifyClauseDateIntent(clause: string): DateIntentType | null 
   if (QUOTE_CONTEXT_RE.test(c)) return "quote_deadline";
   if (MEETING_CONTEXT_RE.test(c)) return "meeting_date";
   if (FOLLOW_UP_CONTEXT_RE.test(c)) return "follow_up_date";
-  if (SHOOTING_CONTEXT_RE.test(c)) return "shooting_date";
-
-  if (/希望/.test(c) && /週|星期|周|禮拜|礼拜|明天|今天|後天|后天/.test(c)) {
+  if (SHOOTING_CONTEXT_RE.test(c) && conversationMentionsPhotography(c)) {
     return "shooting_date";
   }
 
-  if (/週|星期|周|禮拜|礼拜|\bnext\s+week\b|\bthis\s+week\b/i.test(c)) return "shooting_date";
+  if (
+    /希望/.test(c) &&
+    /週|星期|周|禮拜|礼拜|明天|今天|後天|后天/.test(c) &&
+    conversationMentionsPhotography(c)
+  ) {
+    return "shooting_date";
+  }
+
+  if (
+    /週|星期|周|禮拜|礼拜|\bnext\s+week\b|\bthis\s+week\b/i.test(c) &&
+    conversationMentionsPhotography(c)
+  ) {
+    return "shooting_date";
+  }
 
   if (/明天|今天|後天|后天|今日|明日|\btoday\b|\btomorrow\b/i.test(c)) return "follow_up_date";
 
@@ -249,168 +406,127 @@ function formatYmd(d: Date): string {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
-/** First follow-up date in DB-safe YYYY-MM-DD format. */
+/** All explicit calendar anchors in source text as YYYY-MM-DD (verified substrings only). */
+export function explicitFollowUpYmdsFromSource(
+  text: string,
+  referenceDate: Date = new Date(),
+): string[] {
+  const raw = text.trim();
+  if (!raw) return [];
+  return filterAnchorsVerifiedInSource(parseExplicitDateAnchorsFromChat(raw, referenceDate), raw).map(
+    (a) => formatYmd(a.date),
+  );
+}
+
+/** First explicit follow-up date from original conversation (no inferred / vague phrases). */
+export function parseExplicitFollowUpDateYmdFromChat(
+  text: string,
+  referenceDate: Date = new Date(),
+): string | null {
+  const ymds = explicitFollowUpYmdsFromSource(text, referenceDate);
+  return ymds.length > 0 ? ymds[0] : null;
+}
+
+/** First follow-up date in DB-safe YYYY-MM-DD format (explicit conversation anchors only). */
 export function parseFollowUpDateYmdFromChat(
   text: string,
   referenceDate: Date = new Date(),
 ): string | null {
-  const raw = text.trim();
-  if (!raw) return null;
-
-  const followUpDates: Date[] = [];
-  const clauses = splitClauses(raw);
-  const segments = clauses.length > 0 ? clauses : [raw];
-
-  for (const clause of segments) {
-    const dates = parseDatesFromChat(clause, referenceDate);
-    if (dates.length === 0) continue;
-
-    const intent = classifyClauseDateIntent(clause);
-    if (intent === "follow_up_date") {
-      mergeDatesIntoBucket(followUpDates, dates);
-    }
-  }
-
-  if (followUpDates.length > 0) return formatYmd(followUpDates[0]);
-
-  // This path is used for dedicated follow-up fields such as "明天追蹤" / "Contact next week".
-  if (FOLLOW_UP_CONTEXT_RE.test(raw)) {
-    const dates = parseDatesFromChat(raw, referenceDate);
-    if (dates.length > 0) return formatYmd(dates[0]);
-  }
-
-  return null;
+  return parseExplicitFollowUpDateYmdFromChat(text, referenceDate);
 }
 
-/** First parsed date in DB-safe YYYY-MM-DD format; use only for dedicated date/follow-up fields. */
+/** First parsed date in DB-safe YYYY-MM-DD format (explicit anchors only). */
 export function parseFirstDateYmdFromText(
   text: string,
   referenceDate: Date = new Date(),
 ): string | null {
-  const dates = parseDatesFromChat(text, referenceDate);
-  return dates.length > 0 ? formatYmd(dates[0]) : null;
+  return parseExplicitFollowUpDateYmdFromChat(text, referenceDate);
 }
 
 /**
- * Parse chat and bucket dates by intent (shooting / quote / meeting / follow-up).
+ * Parse chat into important_dates — explicit literal anchors only (no inferred buckets).
  */
 export function parseClassifiedImportantDatesFromChat(
   text: string,
   referenceDate: Date = new Date(),
   lang: "zh" | "en" = "zh",
 ): ClassifiedImportantDates | null {
-  const raw = text.trim();
-  if (!raw) return null;
+  const list = extractExplicitImportantDatesList(text, referenceDate, lang);
+  if (list.length === 0) return null;
 
-  const buckets: Record<DateIntentType, Date[]> = {
-    shooting_date: [],
-    quote_deadline: [],
-    meeting_date: [],
-    follow_up_date: [],
-  };
-
-  const clauses = splitClauses(raw);
-  const segments = clauses.length > 0 ? clauses : [raw];
-
-  for (const clause of segments) {
-    let dates = parseDatesFromChat(clause, referenceDate);
-    if (dates.length === 0) continue;
-
-    let intent = classifyClauseDateIntent(clause);
-    if (!intent) {
-      intent = /下週|本週|週|星期|周|禮拜|礼拜/.test(clause) ? "shooting_date" : "follow_up_date";
-    }
-
-    if (intent === "quote_deadline") {
-      dates = adjustQuoteDeadlineDates(dates, clause, referenceDate);
-    }
-
-    mergeDatesIntoBucket(buckets[intent], dates);
-  }
-
-  const allDates = parseDatesFromChat(raw, referenceDate);
-  if (allDates.length === 0) return null;
-
-  const result: ClassifiedImportantDates = {
-    raw_important_date: formatImportantDates(allDates, lang),
-  };
-
-  if (buckets.shooting_date.length > 0) {
-    result.shooting_date = formatImportantDates(buckets.shooting_date, lang);
-  }
-  if (buckets.quote_deadline.length > 0) {
-    result.quote_deadline = formatImportantDates(buckets.quote_deadline, lang);
-  }
-  if (buckets.meeting_date.length > 0) {
-    result.meeting_date = formatImportantDates(buckets.meeting_date, lang);
-  }
-  if (buckets.follow_up_date.length > 0) {
-    result.follow_up_date = formatImportantDates(buckets.follow_up_date, lang);
-  }
-
-  const hasClassified =
-    result.shooting_date || result.quote_deadline || result.meeting_date || result.follow_up_date;
-  if (!hasClassified) return null;
-
-  return result;
+  const joined = list.join(lang === "zh" ? "、" : ", ");
+  return { raw_important_date: joined };
 }
 
-/** Multi-line card copy for Important Date UI. */
+/** True when clause contains a literal date anchor present in its own text. */
+export function isExplicitImportantDateClause(clause: string): boolean {
+  const c = clause.trim();
+  if (!c) return false;
+  return (
+    filterAnchorsVerifiedInSource(parseExplicitDateAnchorsFromChat(c, new Date()), c).length > 0
+  );
+}
+
+const VAGUE_FOLLOW_UP_RE =
+  /下週|下周|本週|本周|老闆|主管|董事長|demo|先看看|先看到|回覆|回复|聯絡|联系|追蹤|跟进|follow\s*up|contact|再看|評估|评估/i;
+
+/** Important dates for CRM — explicit anchors only; never invents deadlines or weekdays. */
+export function extractExplicitImportantDateDisplay(
+  text: string,
+  referenceDate: Date = new Date(),
+  lang: "zh" | "en" = "zh",
+): string | null {
+  const list = extractExplicitImportantDatesList(text, referenceDate, lang);
+  if (list.length === 0) return null;
+
+  const joined = list.join(lang === "zh" ? "、" : ", ");
+  return lang === "zh" ? `重要日期\n${joined}` : `Important dates\n${joined}`;
+}
+
+/** Vague timing / demo / boss review → follow-up suggestion (not important_date). */
+export function extractFollowUpSuggestionFromChat(
+  text: string,
+  lang: "zh" | "en" = "zh",
+): string {
+  const raw = text.trim();
+  if (!raw) return lang === "zh" ? "未提供" : "Not provided";
+
+  const hints: string[] = [];
+  for (const clause of splitClauses(raw)) {
+    if (!VAGUE_FOLLOW_UP_RE.test(clause)) continue;
+    if (isExplicitImportantDateClause(clause)) continue;
+    if (/^第[一二三四五六七八九十\d]/u.test(clause)) continue;
+    if (/病患|病歷|術後|預約|回診|分類需求|高單價|手機版|分店/i.test(clause)) {
+      continue;
+    }
+    const trimmed = clause.trim().slice(0, 48);
+    if (trimmed.length >= 4 && !hints.includes(trimmed)) {
+      hints.push(trimmed);
+    }
+  }
+
+  if (hints.length === 0) return lang === "zh" ? "未提供" : "Not provided";
+  return hints.slice(0, 2).join(lang === "zh" ? "；" : "; ");
+}
+
+/** Multi-line card copy for Important Date UI (explicit dates only). */
 export function formatClassifiedImportantDatesDisplay(
   classified: ClassifiedImportantDates,
   lang: "zh" | "en",
 ): string {
-  const blocks: string[] = [];
+  const raw = classified.raw_important_date?.trim();
+  if (!raw) return "";
 
-  if (classified.shooting_date) {
-    blocks.push(
-      lang === "zh"
-        ? `重要拍攝日期\n${classified.shooting_date}`
-        : `Shooting dates\n${classified.shooting_date}`,
-    );
-  }
-  if (classified.quote_deadline) {
-    blocks.push(
-      lang === "zh"
-        ? `緊急回覆期限\n${classified.quote_deadline} 前提供初步報價`
-        : `Quote deadline\nProvide preliminary quote by ${classified.quote_deadline}`,
-    );
-  }
-  if (classified.meeting_date) {
-    blocks.push(
-      lang === "zh"
-        ? `會議日期\n${classified.meeting_date}`
-        : `Meeting date\n${classified.meeting_date}`,
-    );
-  }
-  if (classified.follow_up_date) {
-    blocks.push(
-      lang === "zh"
-        ? `追蹤日期\n${classified.follow_up_date}`
-        : `Follow-up date\n${classified.follow_up_date}`,
-    );
-  }
-
-  if (blocks.length > 0) return blocks.join("\n\n");
-
-  return classified.raw_important_date ?? "";
+  return lang === "zh" ? `重要日期\n${raw}` : `Important dates\n${raw}`;
 }
 
 /**
- * Parse chat into display value for important_date (classified if possible).
+ * Parse chat into display value for important_date (explicit literal anchors only).
  */
 export function parseImportantDateFromChat(
   text: string,
   referenceDate: Date = new Date(),
   lang: "zh" | "en" = "zh",
 ): string | null {
-  const classified = parseClassifiedImportantDatesFromChat(text, referenceDate, lang);
-  if (classified) {
-    const display = formatClassifiedImportantDatesDisplay(classified, lang);
-    if (display.trim()) return display;
-  }
-
-  const dates = parseDatesFromChat(text, referenceDate);
-  if (dates.length === 0) return null;
-  return formatImportantDates(dates, lang);
+  return extractExplicitImportantDateDisplay(text, referenceDate, lang);
 }

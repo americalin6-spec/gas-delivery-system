@@ -7,7 +7,7 @@ export function lineReminderSettingsCopy(lang: AppLang) {
     subtitle: zh
       ? "每天早上 9:00（台北時間）檢查到期的 CRM 追蹤，透過 LINE Messaging API 推播到您自己的 LINE。不會自動發送給客戶。"
       : "Each day at 9:00 (Taipei), due CRM follow-ups are pushed to your own LINE via Messaging API. Customers are never messaged automatically.",
-    backAlerts: zh ? "← 返回提醒中心" : "← Back to alerts",
+    backAlerts: zh ? "← 返回通知中心" : "← Back to alerts",
     backHome: zh ? "← 回到首頁" : "← Back to home",
     enabled: zh ? "開啟每日提醒" : "Enable daily reminders",
     enabledHint: zh ? "關閉後 cron 不會發送 LINE 通知" : "When off, scheduled checks will not notify",
@@ -19,7 +19,7 @@ export function lineReminderSettingsCopy(lang: AppLang) {
     userIdLabel: zh ? "User ID" : "User ID",
     userIdPlaceholder: zh ? "貼上您的 LINE User ID（U 開頭）" : "Paste your LINE User ID (starts with U)",
     userIdHint: zh
-      ? "這是要接收提醒的您本人 LINE User ID，不是 LINE ID。"
+      ? "這是要接收提醒的您本人 LINE User ID，不是 LINE 帳號。"
       : "This is your LINE platform User ID, not your LINE ID.",
     tokenMasked: zh ? "已儲存 Token：" : "Saved token:",
     hourLabel: zh ? "每日檢查時間（台北時間）" : "Daily check hour (Taipei)",

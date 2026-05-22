@@ -1,31 +1,47 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import Link from "next/link";
 import {
-  formatFollowUpDateDisplay,
-  getFollowUpBadge,
-  getTaipeiTodayYmd,
-  diffCalendarDaysYmd,
-  normalizeFollowUpDateValue,
-  type FollowUpBadge,
-} from "../lib/followUpReminders";
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import Link from "next/link";
+import { getTaipeiTodayYmd, diffCalendarDaysYmd } from "../lib/followUpReminders";
+import { formatWorkspaceDateTime } from "../lib/followUpWorkspace";
 import { followUpModeBadgeMeta, normalizeFollowUpMode } from "../lib/followUpMode";
+import {
+  buildConversationSourceMap,
+  resolveDisplayImportantDate,
+  verifiedFollowUpYmdForFilter,
+} from "../lib/crmCustomerDisplay";
+import { CustomerInsightSections } from "../components/CustomerInsightSections";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { useAppLang } from "../hooks/useAppLang";
-import { customersListCopy, followUpBadgeLabelForLang } from "../lib/customersI18n";
+import { customersListCopy } from "../lib/customersI18n";
 import { translateDisplayValue } from "../lib/uiI18n";
 import type { AppLang } from "../lib/appLang";
 import {
+  getRawCustomerStatus,
   normalizePipelineStatus,
   PIPELINE_STATUSES,
   pipelineStatusLabel,
   type PipelineStatus,
 } from "../lib/pipelineStatus";
 import PipelineStatusBadge from "../components/PipelineStatusBadge";
+import {
+  activeCustomersOnly,
+  formatCustomerCreatedAtDisplay,
+  getCustomerLastContactAt,
+  restoreCustomerPayload,
+  softDeleteCustomerPayload,
+  trashCustomersOnly,
+} from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
-import { customerInsertPayload } from "../lib/customersTenant";
 import { supabase } from "../../supabase";
 
 type StatusFilter = "all" | PipelineStatus;
@@ -77,38 +93,6 @@ function FilterColumn({
   );
 }
 
-function crmFollowUpBadgeLook(
-  badge: FollowUpBadge,
-  lang: AppLang,
-): { bg: string; color: string; border: string; label: string } {
-  const label = followUpBadgeLabelForLang(badge, lang);
-  switch (badge) {
-    case "overdue":
-      return {
-        bg: "rgba(239,68,68,0.22)",
-        color: "#fecaca",
-        border: "rgba(248,113,113,0.45)",
-        label,
-      };
-    case "soon":
-      return {
-        bg: "rgba(245,158,11,0.22)",
-        color: "#fde68a",
-        border: "rgba(251,191,36,0.45)",
-        label,
-      };
-    case "upcoming":
-      return {
-        bg: "rgba(59,130,246,0.2)",
-        color: "#bfdbfe",
-        border: "rgba(96,165,250,0.45)",
-        label,
-      };
-    default:
-      return { bg: "transparent", color: "#fff", border: "transparent", label: "" };
-  }
-}
-
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
@@ -121,6 +105,14 @@ export default function CustomersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [followFilter, setFollowFilter] = useState<FollowFilter>("all");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+  const [conversationSourceByCustomerId, setConversationSourceByCustomerId] = useState<
+    Map<string, string>
+  >(new Map());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [trashView, setTrashView] = useState(false);
 
   const { companyId, ready: companyReady } = useActiveCompany();
 
@@ -136,60 +128,90 @@ export default function CustomersPage() {
     if (!companyReady || companyId <= 0) return;
     void loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, companyReady]);
+  }, [companyId, companyReady, trashView]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   async function loadCustomers() {
     if (!companyReady || companyId <= 0) return;
-    logActiveCompany("customersList.load", { companyId });
-    const { data, error } = await supabase
-      .from("customers")
-      .select("*")
-      .eq("company_id", companyId)
-      .order("id", { ascending: false });
+    logActiveCompany("customersList.load", { companyId, trashView });
+    const customerQuery = trashView
+      ? trashCustomersOnly(
+          supabase.from("customers").select("*").eq("company_id", companyId),
+        ).order("deleted_at", { ascending: false, nullsFirst: false })
+      : activeCustomersOnly(
+          supabase.from("customers").select("*").eq("company_id", companyId),
+        ).order("created_at", { ascending: false, nullsFirst: false });
 
-    if (!error && data) {
-      setCustomers(data);
+    const [customersRes, convosRes] = await Promise.all([
+      customerQuery,
+      supabase
+        .from("conversations")
+        .select("customer_id, message_text")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (!customersRes.error && customersRes.data) {
+      setCustomers(customersRes.data);
+    }
+    if (!convosRes.error && convosRes.data) {
+      setConversationSourceByCustomerId(buildConversationSourceMap(convosRes.data));
+    } else {
+      setConversationSourceByCustomerId(new Map());
     }
   }
 
   async function handleAddCustomer() {
-    if (!customerName.trim()) {
-      alert(t.enterName);
-      return;
-    }
-
-    if (!companyReady || companyId <= 0) return;
-
-    const row = customerInsertPayload(
-      {
-        customer_name: customerName,
-        company_name: companyName,
-        phone: phone,
-        status: newStatus,
-      },
-      companyId,
+    alert(
+      lang === "zh"
+        ? "客戶新增已暫停（除首頁「存到 CRM」外）。請使用首頁分析後儲存。"
+        : "Customer add is paused except homepage Save to CRM.",
     );
+  }
 
-    const { error } = await supabase.from("customers").insert([row]);
+  async function moveCustomerToTrash(id: number | string) {
+    const ok = confirm(t.confirmDelete);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("customers")
+      .update(softDeleteCustomerPayload())
+      .eq("company_id", companyId)
+      .eq("id", id);
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    alert(t.addSuccess);
-
-    setCustomerName("");
-    setCompanyName("");
-    setPhone("");
-    setNewStatus("new_lead");
-
-    loadCustomers();
+    await loadCustomers();
   }
 
-  async function deleteCustomer(id: number) {
-    const ok = confirm(t.confirmDelete);
+  async function restoreCustomer(id: number | string) {
+    const ok = confirm(t.confirmRestore);
+    if (!ok) return;
 
+    const { error } = await supabase
+      .from("customers")
+      .update(restoreCustomerPayload())
+      .eq("company_id", companyId)
+      .eq("id", id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await loadCustomers();
+  }
+
+  async function permanentlyDeleteCustomer(id: number | string) {
+    const ok = confirm(t.confirmPermanentDelete);
     if (!ok) return;
 
     const { error } = await supabase
@@ -203,7 +225,7 @@ export default function CustomersPage() {
       return;
     }
 
-    loadCustomers();
+    await loadCustomers();
   }
 
   const filteredCustomers = useMemo(() => {
@@ -218,18 +240,22 @@ export default function CustomersPage() {
           c.phone,
           c.line_id,
           c.email,
+          c.note,
         ]
           .map((v) => (v || "").toString().toLowerCase())
           .join(" ");
         if (!haystack.includes(keyword)) return false;
       }
 
+      if (trashView) return true;
+
       if (statusFilter !== "all") {
-        const s = normalizePipelineStatus(c.status);
+        const s = normalizePipelineStatus(getRawCustomerStatus(c));
         if (s !== statusFilter) return false;
       }
 
-      const followYmd = normalizeFollowUpDateValue(c.follow_up_date);
+      const sourceText = conversationSourceByCustomerId.get(String(c.id)) ?? "";
+      const followYmd = verifiedFollowUpYmdForFilter(c.follow_up_date, sourceText);
       const dayDiff = followYmd ? diffCalendarDaysYmd(todayYmd, followYmd) : null;
 
       if (followFilter !== "all") {
@@ -243,8 +269,8 @@ export default function CustomersPage() {
       if (urgencyFilter !== "all") {
         if (urgencyFilter === "none" && followYmd) return false;
         if (urgencyFilter === "completed") {
-          const s = normalizePipelineStatus(c.status);
-          if (s !== "won" && s !== "lost") return false;
+          const s = normalizePipelineStatus(getRawCustomerStatus(c));
+          if (s !== "completed" && s !== "cancelled" && s !== "invalid") return false;
         }
         if (urgencyFilter === "overdue_today" && (dayDiff == null || dayDiff > 0)) return false;
         if (urgencyFilter === "within3" && (dayDiff == null || dayDiff > 3)) return false;
@@ -254,7 +280,90 @@ export default function CustomersPage() {
 
       return true;
     });
-  }, [customers, search, statusFilter, followFilter, urgencyFilter]);
+  }, [
+    customers,
+    search,
+    trashView,
+    statusFilter,
+    followFilter,
+    urgencyFilter,
+    conversationSourceByCustomerId,
+  ]);
+
+  const filteredIds = useMemo(
+    () => filteredCustomers.map((c) => String(c.id)),
+    [filteredCustomers],
+  );
+
+  const selectedCount = selectedIds.size;
+
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id));
+
+  const toggleSelect = useCallback((id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allSelected =
+        filteredIds.length > 0 && filteredIds.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        for (const id of filteredIds) next.delete(id);
+      } else {
+        for (const id of filteredIds) next.add(id);
+      }
+      return next;
+    });
+  }, [filteredIds]);
+
+  async function confirmBatchDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+
+    setBatchDeleting(true);
+    const { error } = await supabase
+      .from("customers")
+      .update(softDeleteCustomerPayload())
+      .eq("company_id", companyId)
+      .in("id", ids);
+
+    setBatchDeleting(false);
+    setBatchDeleteOpen(false);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const n = ids.length;
+    setSelectedIds(new Set());
+    setToast(t.batchDeleteSuccess(n));
+    await loadCustomers();
+  }
+
+  function exitTrashView() {
+    setTrashView(false);
+    setSelectedIds(new Set());
+    setSearch("");
+  }
+
+  function enterTrashView() {
+    setTrashView(true);
+    setSelectedIds(new Set());
+    setSearch("");
+    setStatusFilter("all");
+    setFollowFilter("all");
+    setUrgencyFilter("all");
+  }
 
   const font =
     'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -295,7 +404,7 @@ export default function CustomersPage() {
               lineHeight: 1.15,
             }}
           >
-            {t.title}
+            {trashView ? t.trashTitle : t.title}
           </h1>
 
           <p
@@ -306,7 +415,9 @@ export default function CustomersPage() {
               lineHeight: 1.55,
             }}
           >
-            {t.count(customers.length, filteredCustomers.length)}
+            {trashView
+              ? t.trashCount(filteredCustomers.length)
+              : t.count(customers.length, filteredCustomers.length)}
           </p>
         </div>
 
@@ -319,11 +430,10 @@ export default function CustomersPage() {
             width: isMobile ? "100%" : "auto",
           }}
         >
-          <Link
-            href="/pipeline"
-            style={{ width: isMobile ? "100%" : "auto" }}
-          >
+          {trashView ? (
             <button
+              type="button"
+              onClick={exitTrashView}
               style={{
                 background: "#6366f1",
                 color: "white",
@@ -336,9 +446,49 @@ export default function CustomersPage() {
                 width: isMobile ? "100%" : "auto",
               }}
             >
-              {t.openPipeline}
+              {t.exitTrash}
             </button>
-          </Link>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={enterTrashView}
+                style={{
+                  background: "#1a3557",
+                  color: "#e2e8f0",
+                  border: "1px solid rgba(148,163,184,0.35)",
+                  padding: isMobile ? "15px 20px" : "15px 26px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  width: isMobile ? "100%" : "auto",
+                }}
+              >
+                {t.trash}
+              </button>
+              <Link
+                href="/pipeline"
+                style={{ width: isMobile ? "100%" : "auto" }}
+              >
+                <button
+                  style={{
+                    background: "#6366f1",
+                    color: "white",
+                    border: "none",
+                    padding: isMobile ? "15px 20px" : "15px 26px",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 16,
+                    width: isMobile ? "100%" : "auto",
+                  }}
+                >
+                  {t.openPipeline}
+                </button>
+              </Link>
+            </>
+          )}
           <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>
             <button
               style={{
@@ -385,6 +535,7 @@ export default function CustomersPage() {
             }}
           />
 
+          {!trashView ? (
           <div
             style={{
               background: "#081b33",
@@ -441,6 +592,83 @@ export default function CustomersPage() {
               </select>
             </FilterColumn>
           </div>
+          ) : null}
+
+          {!trashView && selectedCount > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 14,
+                marginBottom: 20,
+                padding: isMobile ? "14px 16px" : "16px 20px",
+                borderRadius: 14,
+                background: "rgba(99,102,241,0.18)",
+                border: "1px solid rgba(129,140,248,0.45)",
+              }}
+            >
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{t.selectedCount(selectedCount)}</span>
+              <button
+                type="button"
+                onClick={() => setBatchDeleteOpen(true)}
+                disabled={batchDeleting}
+                style={{
+                  background: "#ef4444",
+                  color: "white",
+                  border: "none",
+                  padding: "12px 22px",
+                  borderRadius: 12,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  opacity: batchDeleting ? 0.75 : 1,
+                }}
+              >
+                {t.batchDelete}
+              </button>
+            </div>
+          ) : null}
+
+          {!trashView ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginBottom: 18,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(8,27,51,0.65)",
+              border: "1px solid rgba(148,163,184,0.2)",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                cursor: filteredIds.length === 0 ? "not-allowed" : "pointer",
+                fontSize: 15,
+                fontWeight: 600,
+                opacity: filteredIds.length === 0 ? 0.5 : 1,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                }}
+                disabled={filteredIds.length === 0}
+                onChange={toggleSelectAll}
+                style={{ width: 18, height: 18, accentColor: "#6366f1", cursor: "inherit" }}
+              />
+              {t.selectAllShown(filteredIds.length)}
+            </label>
+          </div>
+          ) : null}
 
           <div
             style={{
@@ -449,7 +677,10 @@ export default function CustomersPage() {
               gap: 28,
             }}
           >
-            {filteredCustomers.map((c) => (
+            {filteredCustomers.map((c) => {
+              const rowId = String(c.id);
+              const isSelected = selectedIds.has(rowId);
+              return (
               <div
                 key={c.id}
             style={{
@@ -460,6 +691,10 @@ export default function CustomersPage() {
               maxWidth: "100%",
               boxSizing: "border-box",
               minWidth: 0,
+              border: isSelected
+                ? "2px solid rgba(129,140,248,0.75)"
+                : "2px solid transparent",
+              boxShadow: isSelected ? "0 0 0 1px rgba(99,102,241,0.25)" : undefined,
             }}
               >
                 <div
@@ -472,7 +707,29 @@ export default function CustomersPage() {
                     marginBottom: 26,
                   }}
                 >
-                  <div>
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
+                    {!trashView ? (
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        paddingTop: 6,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          toggleSelect(rowId, e.target.checked)
+                        }
+                        style={{ width: 20, height: 20, accentColor: "#6366f1" }}
+                      />
+                    </label>
+                    ) : null}
+                    <div style={{ minWidth: 0 }}>
                     <h2
                       style={{
                         margin: 0,
@@ -495,11 +752,36 @@ export default function CustomersPage() {
                     >
                       <div>{t.company}：{c.company_name || "-"}</div>
                       <div>{t.phone}：{c.phone || "-"}</div>
-                      <div>LINE：{c.line_id || "-"}</div>
-                      <div>Email：{c.email || "-"}</div>
+                      <div>{t.lineId}：{c.line_id || "-"}</div>
+                      <div>{t.email}：{c.email || "-"}</div>
+                      {(() => {
+                        const createdLabel = formatCustomerCreatedAtDisplay(c.created_at, lang);
+                        const lastAt = getCustomerLastContactAt(c);
+                        return (
+                          <>
+                            {createdLabel ? (
+                              <div>
+                                {t.createdAtLabel}：{createdLabel}
+                              </div>
+                            ) : null}
+                            <div>
+                              {t.lastContactLabel}：
+                              {lastAt ? formatWorkspaceDateTime(lastAt, lang) : "—"}
+                            </div>
+                          </>
+                        );
+                      })()}
+                      {trashView && c.deleted_at ? (
+                        <div style={{ opacity: 0.85 }}>
+                          {t.deletedAtLabel}：
+                          {formatCustomerCreatedAtDisplay(c.deleted_at, lang) || "-"}
+                        </div>
+                      ) : null}
+                    </div>
                     </div>
                   </div>
 
+                  {!trashView ? (
                   <div
                     style={{
                       display: "flex",
@@ -538,29 +820,6 @@ export default function CustomersPage() {
                           </span>
                         );
                       })()}
-                      {(() => {
-                        const fd = normalizeFollowUpDateValue(c.follow_up_date);
-                        if (!fd) return null;
-                        const b = getFollowUpBadge(fd);
-                        if (b === "none") return null;
-                        const look = crmFollowUpBadgeLook(b, lang);
-                        return (
-                          <span
-                            title={t.followUpTitle(formatFollowUpDateDisplay(fd, lang))}
-                            style={{
-                              padding: "8px 14px",
-                              borderRadius: 999,
-                              fontSize: 14,
-                              fontWeight: 700,
-                              background: look.bg,
-                              color: look.color,
-                              border: `1px solid ${look.border}`,
-                            }}
-                          >
-                            {look.label} · {formatFollowUpDateDisplay(fd, lang)}
-                          </span>
-                        );
-                      })()}
                       <div
                         style={{
                           background: "#1a3557",
@@ -574,77 +833,104 @@ export default function CustomersPage() {
                       </div>
                     </div>
                   </div>
+                  ) : null}
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isMobile
-                      ? "1fr"
-                      : "1fr 1fr",
-                    gap: 26,
-                  }}
-                >
-                  <div
-                    style={{
-                      lineHeight: 2.05,
-                      fontSize: isMobile ? 16 : 17,
-                    }}
-                  >
-                    <div>
-                      {t.customerNeed}：{displayValue(c.customer_need)}
-                    </div>
-                    <div>
-                      {t.customerEmotion}：{displayValue(c.customer_emotion)}
-                    </div>
-                    <div>
-                      {t.importantDate}：{displayValue(c.important_date)}
-                    </div>
-                    <div>
-                      {t.nextStep}：{displayValue(c.next_step)}
-                    </div>
-                  </div>
+                {!trashView && (() => {
+                  const sourceText = conversationSourceByCustomerId.get(String(c.id)) ?? "";
+                  const importantDisplay = resolveDisplayImportantDate(
+                    sourceText,
+                    lang,
+                    new Date(),
+                    c.important_date,
+                  );
+                  return (
+                    <>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isMobile
+                            ? "1fr"
+                            : "1fr 1fr",
+                          gap: isMobile ? 16 : 22,
+                          marginBottom: 4,
+                          fontSize: isMobile ? 15 : 16,
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.customerNeed}：
+                            </span>{" "}
+                            {displayValue(c.customer_need)}
+                          </div>
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.customerEmotion}：
+                            </span>{" "}
+                            {displayValue(c.customer_emotion)}
+                          </div>
+                          {importantDisplay ? (
+                            <div>
+                              <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                                {t.importantDate}：
+                              </span>{" "}
+                              {importantDisplay}
+                            </div>
+                          ) : null}
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.nextStep}：
+                            </span>{" "}
+                            {displayValue(c.next_step)}
+                          </div>
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.estimatedAmount}：
+                            </span>{" "}
+                            {displayValue(c.estimated_amount)}
+                          </div>
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.dealProbability}：
+                            </span>{" "}
+                            {displayValue(c.success_rate)}
+                          </div>
+                          <div>
+                            <span style={{ color: "rgba(226,232,240,0.75)", fontWeight: 600 }}>
+                              {t.churnRisk}：
+                            </span>{" "}
+                            {displayValue(c.churn_risk)}
+                          </div>
+                        </div>
+                      </div>
 
-                  <div
-                    style={{
-                      lineHeight: 2.05,
-                      fontSize: isMobile ? 16 : 17,
-                    }}
-                  >
-                    <div>
-                      {t.estimatedAmount}：{displayValue(c.estimated_amount)}
-                    </div>
-                    <div>
-                      {t.dealProbability}：{displayValue(c.success_rate)}
-                    </div>
-                    <div>
-                      {t.churnRisk}：{displayValue(c.churn_risk)}
-                    </div>
-                    <div>
-                      {t.todo}：{displayValue(c.todo)}
-                    </div>
-                    <div>
-                      {t.replySuggestion}：{displayValue(c.reply_suggestion)}
-                    </div>
-                    <div>
-                      {t.followUp}：{displayValue(c.follow_up)}
-                    </div>
-                    <div>
-                      {t.aiSend}：
-                      {followUpModeBadgeMeta(normalizeFollowUpMode(c.follow_up_mode), lang).label}
-                    </div>
-                    <div>
-                      {t.followUpReminder}：
-                      {(() => {
-                        const norm = normalizeFollowUpDateValue(c.follow_up_date);
-                        return norm
-                          ? `${formatFollowUpDateDisplay(norm, lang)} (${norm})`
-                          : "-";
-                      })()}
-                    </div>
-                    <div>{t.note}：{c.note || "-"}</div>
-                  </div>
-                </div>
+                      <CustomerInsightSections
+                        lang={lang}
+                        sourceText={sourceText}
+                        labels={{
+                          todo: t.todo,
+                          replySuggestion: t.replySuggestion,
+                          followUp: t.followUp,
+                          aiSend: t.aiSend,
+                          note: t.note,
+                          noExplicitDate: t.noExplicitDate,
+                          importantDate: t.importantDate,
+                        }}
+                        todo={c.todo}
+                        reply_suggestion={c.reply_suggestion}
+                        follow_up={c.follow_up}
+                        follow_up_mode={c.follow_up_mode}
+                        note={c.note}
+                        showFollowUpReminder={false}
+                        clampLongText
+                      />
+                    </>
+                  );
+                })()}
 
                 <div
                   style={{
@@ -654,49 +940,93 @@ export default function CustomersPage() {
                     flexDirection: isMobile ? "column" : "row",
                   }}
                 >
-                  <Link
-                    href={`/customers/${c.id}`}
-                    style={{ width: isMobile ? "100%" : "auto" }}
-                  >
-                    <button
-                      style={{
-                        background: "#22c55e",
-                        color: "white",
-                        border: "none",
-                        padding: "15px 22px",
-                        borderRadius: 12,
-                        cursor: "pointer",
-                        fontWeight: 700,
-                        fontSize: 16,
-                        width: isMobile ? "100%" : "auto",
-                      }}
-                    >
-                      {t.viewDetail}
-                    </button>
-                  </Link>
+                  {trashView ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => restoreCustomer(c.id)}
+                        style={{
+                          background: "#22c55e",
+                          color: "white",
+                          border: "none",
+                          padding: "15px 22px",
+                          borderRadius: 12,
+                          cursor: "pointer",
+                          fontWeight: 700,
+                          fontSize: 16,
+                          width: isMobile ? "100%" : "auto",
+                        }}
+                      >
+                        {t.restoreCustomer}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => permanentlyDeleteCustomer(c.id)}
+                        style={{
+                          background: "#ef4444",
+                          color: "white",
+                          border: "none",
+                          padding: "15px 22px",
+                          borderRadius: 12,
+                          cursor: "pointer",
+                          fontWeight: 700,
+                          fontSize: 16,
+                          width: isMobile ? "100%" : "auto",
+                        }}
+                      >
+                        {t.permanentDelete}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <Link
+                        href={`/customers/${c.id}`}
+                        style={{ width: isMobile ? "100%" : "auto" }}
+                      >
+                        <button
+                          style={{
+                            background: "#22c55e",
+                            color: "white",
+                            border: "none",
+                            padding: "15px 22px",
+                            borderRadius: 12,
+                            cursor: "pointer",
+                            fontWeight: 700,
+                            fontSize: 16,
+                            width: isMobile ? "100%" : "auto",
+                          }}
+                        >
+                          {t.viewDetail}
+                        </button>
+                      </Link>
 
-                  <button
-                    onClick={() => deleteCustomer(c.id)}
-                    style={{
-                      background: "#ef4444",
-                      color: "white",
-                      border: "none",
-                      padding: "15px 22px",
-                      borderRadius: 12,
-                      cursor: "pointer",
-                      fontWeight: 700,
-                      fontSize: 16,
-                      width: isMobile ? "100%" : "auto",
-                    }}
-                  >
-                    {t.deleteCustomer}
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => moveCustomerToTrash(c.id)}
+                        style={{
+                          background: "#ef4444",
+                          color: "white",
+                          border: "none",
+                          padding: "15px 22px",
+                          borderRadius: 12,
+                          cursor: "pointer",
+                          fontWeight: 700,
+                          fontSize: 16,
+                          width: isMobile ? "100%" : "auto",
+                        }}
+                      >
+                        {t.deleteCustomer}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
 
+        {!trashView ? (
         <div
           style={{
             width: isMobile ? "100%" : 340,
@@ -827,7 +1157,123 @@ export default function CustomersPage() {
             {t.addCustomerBtn}
           </button>
         </div>
+        ) : null}
       </div>
+
+      {batchDeleteOpen ? (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            background: "rgba(2,8,23,0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            boxSizing: "border-box",
+          }}
+          onClick={() => !batchDeleting && setBatchDeleteOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-delete-title"
+            style={{
+              width: "min(440px, 100%)",
+              background: "#102742",
+              borderRadius: 16,
+              border: "1px solid rgba(148,163,184,0.35)",
+              padding: isMobile ? 22 : 28,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="batch-delete-title"
+              style={{ margin: "0 0 12px", fontSize: 22, fontWeight: 700, lineHeight: 1.35 }}
+            >
+              {t.batchDeleteConfirmTitle}
+            </h2>
+            <p style={{ margin: "0 0 24px", fontSize: 15, lineHeight: 1.55, opacity: 0.88 }}>
+              {t.batchDeleteConfirmBody}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                flexDirection: isMobile ? "column-reverse" : "row",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                disabled={batchDeleting}
+                onClick={() => setBatchDeleteOpen(false)}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(148,163,184,0.4)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                }}
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={batchDeleting}
+                onClick={() => void confirmBatchDelete()}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "#ef4444",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                  opacity: batchDeleting ? 0.8 : 1,
+                }}
+              >
+                {batchDeleting ? t.batchDeleting : t.confirmBatchDelete}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            zIndex: 10001,
+            bottom: isMobile ? 20 : 28,
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: isMobile ? "calc(100% - 32px)" : "min(440px, calc(100% - 48px))",
+            maxWidth: 440,
+            padding: "16px 20px",
+            borderRadius: 14,
+            border: "1px solid rgba(34,197,94,0.45)",
+            background: "linear-gradient(145deg, rgba(6,199,85,0.95), rgba(15,23,42,0.96))",
+            color: "#ecfdf5",
+            fontSize: 15,
+            fontWeight: 600,
+            lineHeight: 1.45,
+            boxShadow: "0 22px 50px rgba(0,0,0,0.45)",
+            boxSizing: "border-box",
+          }}
+        >
+          {toast}
+        </div>
+      ) : null}
     </main>
   );
 }

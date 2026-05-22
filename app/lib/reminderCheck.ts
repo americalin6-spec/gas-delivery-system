@@ -1,4 +1,5 @@
 import { isReminderCompleted, type ReminderCustomerRow } from "./calendarReminders";
+import { getRawCustomerStatus, isCustomerStatusExcludedFromTracking } from "./customerStatus";
 import {
   diffCalendarDaysYmd,
   formatFollowUpDateDisplay,
@@ -9,7 +10,7 @@ import {
 import { resolveCustomerHonorific } from "./customerHonorific";
 
 export const REMINDER_CHECK_SELECT =
-  "id, customer_name, company_name, customer_need, estimated_amount, next_step, follow_up, follow_up_note, follow_up_date, next_follow_up_at, reminder_status, success_rate";
+  "id, customer_name, company_name, customer_need, estimated_amount, next_step, follow_up, follow_up_note, follow_up_date, next_follow_up_at, reminder_status, success_rate, customer_status, status";
 
 /** Effective follow-up calendar day: explicit DATE column first, else next_follow_up_at in Taipei. */
 function effectiveReminderFollowUpYmd(row: ReminderCustomerRow): string | null {
@@ -40,6 +41,7 @@ export function filterDueFollowUpCustomers(
   const due: DueReminderCustomer[] = [];
 
   for (const row of rows) {
+    if (isCustomerStatusExcludedFromTracking(getRawCustomerStatus(row))) continue;
     if (isReminderCompleted(row.reminder_status)) continue;
     const ymd = effectiveReminderFollowUpYmd(row);
     if (!ymd || !isFollowUpDue(ymd, todayYmd)) continue;

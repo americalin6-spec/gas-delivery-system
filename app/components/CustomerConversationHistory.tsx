@@ -46,12 +46,17 @@ export function CustomerConversationHistory({
   isMobile,
   lang,
   refreshSignal,
+  lineUserId,
+  titleOverride,
 }: {
   customerId: string;
   isMobile: boolean;
   lang: AppLang;
   /** Bump to force a refetch (e.g. after the page logs a new outbound message). */
   refreshSignal?: number;
+  /** When set, only messages for this official LINE userId are shown. */
+  lineUserId?: string | null;
+  titleOverride?: string;
 }) {
   const copy = customerDetailCopy(lang);
   const [messages, setMessages] = useState<ConversationRow[]>([]);
@@ -104,7 +109,7 @@ export function CustomerConversationHistory({
     } finally {
       setLoading(false);
     }
-  }, [customerId]);
+  }, [customerId, lineUserId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,25 +163,62 @@ export function CustomerConversationHistory({
     setClearingAll(true);
 
     try {
-      const res = await fetch(
-        `/api/conversations?customer_id=${encodeURIComponent(id)}&all=1`,
-        { method: "DELETE", headers: companyIdHeader() },
-      );
+      const messageIds = messages.map((m) => String(m.id).trim()).filter(Boolean);
+      const deleteUrl =
+        messageIds.length > 0
+          ? `/api/conversations?ids=${messageIds.map(encodeURIComponent).join(",")}`
+          : `/api/conversations?customer_id=${encodeURIComponent(id)}&all=1`;
+
+      console.log("[CustomerConversationHistory] DELETE /api/conversations", {
+        customerId: id,
+        messageIds,
+        url: deleteUrl,
+      });
+
+      const res = await fetch(deleteUrl, {
+        method: "DELETE",
+        headers: companyIdHeader(),
+      });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         deletedCount?: number;
         error?: string;
       };
+
+      const deletedCount = body.deletedCount ?? 0;
+
       if (!res.ok || !body.ok) {
         const message = body.error || `HTTP ${res.status}`;
-        console.error("[CustomerConversationHistory] clear all error:", { customerId: id, message });
+        console.error("[CustomerConversationHistory] clear all error:", {
+          customerId: id,
+          status: res.status,
+          deletedCount,
+          message,
+          body,
+        });
         window.alert(message);
         return;
       }
+
+      if (deletedCount === 0 && messages.length > 0) {
+        const message =
+          body.error ||
+          "Delete matched 0 rows (check customer_id / company_id or conversations DELETE RLS policy)";
+        console.error("[CustomerConversationHistory] clear all zero rows:", {
+          customerId: id,
+          deletedCount,
+          messageHadCount: messages.length,
+        });
+        window.alert(message);
+        return;
+      }
+
       console.log("[CustomerConversationHistory] cleared all:", {
         customerId: id,
-        deletedCount: body.deletedCount,
+        deletedCount,
       });
+      setMessages([]);
+      setError(null);
       await load();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -219,7 +261,7 @@ export function CustomerConversationHistory({
             letterSpacing: 0.2,
           }}
         >
-          {copy.conversationsTitle}
+          {titleOverride ?? copy.conversationsTitle}
         </h2>
         {hasMessages ? (
           <button

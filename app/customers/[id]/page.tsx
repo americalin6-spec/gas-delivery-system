@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useIsViewportBelow } from "../../hooks/useViewportWidth";
 import { useAppLang } from "../../hooks/useAppLang";
-import { customerDetailCopy, followUpBadgeLabelForLang } from "../../lib/customersI18n";
+import { customerDetailCopy } from "../../lib/customersI18n";
 import type { AppLang } from "../../lib/appLang";
 import { translateDisplayValue } from "../../lib/uiI18n";
 import {
@@ -20,25 +20,36 @@ import {
   type CopyWithFallbackOptions,
 } from "../../hooks/useCopyWithFallback";
 import {
-  buildSuggestedSalesFollowUp,
-  computeHighPotentialFollowUpDate,
-  formatFollowUpDateDisplay,
-  getFollowUpBadge,
   isHighDealProbability,
   normalizeFollowUpDateValue,
-  type FollowUpBadge,
 } from "../../lib/followUpReminders";
+import { buildAiLineFollowUpReply } from "../../lib/lineFollowUpReply";
 import {
   followUpModeBadgeMeta,
   normalizeFollowUpMode,
   type FollowUpMode,
 } from "../../lib/followUpMode";
+import { BoundLineAccountsSection } from "../../components/BoundLineAccountsSection";
 import { CustomerConversationHistory } from "../../components/CustomerConversationHistory";
+import { CustomerInsightSections } from "../../components/CustomerInsightSections";
+import {
+  buildSanitizedCrmDatePayload,
+  sanitizeImportantDateFields,
+} from "../../lib/sanitizeImportantDateFields";
 import { LineOpenFallbackModal } from "../../components/LineOpenFallbackModal";
 import PipelineStatusBadge from "../../components/PipelineStatusBadge";
 import PipelineStatusSelect from "../../components/PipelineStatusSelect";
-import { normalizePipelineStatus } from "../../lib/pipelineStatus";
+import {
+  customerStatusWritePayload,
+  getRawCustomerStatus,
+  normalizeCustomerStatus,
+} from "../../lib/customerStatus";
+import { computeCustomerUrgencyFromImportantDate } from "../../lib/customerUrgency";
 import { tryOpenLineApp } from "../../lib/openLineApp";
+import {
+  formatCustomerCreatedAtDisplay,
+  softDeleteCustomerPayload,
+} from "../../lib/customerSoftDelete";
 import { companyIdHeader, logActiveCompany } from "../../lib/clientCompany";
 import { useActiveCompany } from "../../components/ActiveCompanyProvider";
 import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
@@ -67,40 +78,6 @@ const ui = {
   font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
 };
 
-function followUpBadgePresentation(badge: FollowUpBadge, lang: AppLang): {
-  bg: string;
-  color: string;
-  border: string;
-  label: string;
-} {
-  const label = followUpBadgeLabelForLang(badge, lang);
-  switch (badge) {
-    case "overdue":
-      return {
-        bg: "rgba(239,68,68,0.22)",
-        color: "#fecaca",
-        border: "rgba(248,113,113,0.45)",
-        label,
-      };
-    case "soon":
-      return {
-        bg: "rgba(245,158,11,0.22)",
-        color: "#fde68a",
-        border: "rgba(251,191,36,0.45)",
-        label,
-      };
-    case "upcoming":
-      return {
-        bg: "rgba(59,130,246,0.2)",
-        color: "#bfdbfe",
-        border: "rgba(96,165,250,0.45)",
-        label,
-      };
-    default:
-      return { bg: "transparent", color: ui.muted, border: ui.border, label: "" };
-  }
-}
-
 interface Customer {
   id: string | number;
   customer_name?: string | null;
@@ -121,10 +98,14 @@ interface Customer {
   follow_up?: string | null;
   follow_up_date?: string | null;
   follow_up_mode?: string | null;
+  customer_status?: string | null;
   status?: string | null;
+  urgent?: boolean | null;
+  priority?: string | null;
   note?: string | null;
   last_contacted_at?: string | null;
   line_send_history?: unknown;
+  line_user_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -137,7 +118,7 @@ const EDIT_FIELD_KEYS: (keyof Customer)[] = [
   "phone",
   "line_id",
   "email",
-  "status",
+  "customer_status",
   "note",
   "customer_need",
   "customer_emotion",
@@ -162,8 +143,8 @@ function customerToDraft(c: Customer): Draft {
       d[k as string] = normalizeFollowUpMode(v);
       continue;
     }
-    if (k === "status") {
-      d[k as string] = normalizePipelineStatus(v);
+    if (k === "customer_status") {
+      d[k as string] = normalizeCustomerStatus(getRawCustomerStatus(c));
       continue;
     }
     d[k as string] = v == null ? "" : String(v);
@@ -171,14 +152,18 @@ function customerToDraft(c: Customer): Draft {
   return d;
 }
 
-function draftToUpdatePayload(draft: Draft): Record<string, string | null> {
-  const out: Record<string, string | null> = {};
+function draftToUpdatePayload(draft: Draft): Record<string, string | boolean | null> {
+  const out: Record<string, string | boolean | null> = {};
   for (const [k, v] of Object.entries(draft)) {
     const t = v.trim();
     out[k] = t === "" ? null : t;
   }
   out.follow_up_mode = normalizeFollowUpMode(out.follow_up_mode);
-  out.status = normalizePipelineStatus(out.status);
+  const st = normalizeCustomerStatus(out.customer_status);
+  Object.assign(out, customerStatusWritePayload(st));
+  const urgency = computeCustomerUrgencyFromImportantDate(out.important_date);
+  out.urgent = urgency.urgent;
+  out.priority = urgency.priority;
   return out;
 }
 
@@ -226,6 +211,11 @@ export default function CustomerDetailPage() {
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [conversationRefresh, setConversationRefresh] = useState(0);
+  const [conversationSourceText, setConversationSourceText] = useState("");
+  const [selectedLineUserId, setSelectedLineUserId] = useState<string | null>(null);
+  const [selectedLineLabel, setSelectedLineLabel] = useState<string | null>(null);
+  const conversationSectionRef = useRef<HTMLElement | null>(null);
+  const [manualFollowUpYmd, setManualFollowUpYmd] = useState<string | null>(null);
   const { companyId, ready: companyReady } = useActiveCompany();
 
   const logOutboundMessage = useCallback(
@@ -240,6 +230,7 @@ export default function CustomerDetailPage() {
             customer_id: String(id),
             message_text: text,
             direction: "outbound",
+            ...(selectedLineUserId ? { line_user_id: selectedLineUserId } : {}),
           }),
         });
         const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
@@ -257,7 +248,7 @@ export default function CustomerDetailPage() {
         return false;
       }
     },
-    [id],
+    [id, selectedLineUserId],
   );
 
   const isMobile = useIsViewportBelow(MOBILE_MAX);
@@ -267,13 +258,45 @@ export default function CustomerDetailPage() {
     if (!value?.trim() || value.trim() === "-") return "-";
     return translateDisplayValue(value, lang);
   };
-  const { copyWithFallback, fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile);
+  const { copyWithFallback, fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile, lang);
 
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 4500);
     return () => window.clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (!id?.trim() || !companyReady) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
+        const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
+        const body = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          rows?: { message_text?: string | null }[];
+        };
+        if (cancelled) return;
+        if (!res.ok || !body.ok) {
+          setConversationSourceText("");
+          return;
+        }
+        const text = (body.rows ?? [])
+          .map((r) => String(r.message_text ?? "").trim())
+          .filter(Boolean)
+          .join("\n");
+        setConversationSourceText(text);
+      } catch {
+        if (!cancelled) setConversationSourceText("");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, companyReady, conversationRefresh]);
 
   const fetchCustomer = useCallback(async () => {
     if (!id || !companyReady || companyId <= 0) return;
@@ -296,23 +319,22 @@ export default function CustomerDetailPage() {
       setCustomer(null);
       setNotFound(true);
     } else {
-      let row = data;
-      if (isHighDealProbability(row.success_rate) && !normalizeFollowUpDateValue(row.follow_up_date)) {
-        const nd = computeHighPotentialFollowUpDate();
-        const { data: patched, error: patchErr } = await supabase
-          .from("customers")
-          .update({ follow_up_date: nd })
-          .eq("company_id", companyId)
-          .eq("id", id)
-          .select("*")
-          .maybeSingle();
-        if (!patchErr && patched) row = patched as Customer;
-      }
-      setCustomer(row);
+      setCustomer(data);
+      setManualFollowUpYmd(null);
+      const primary = (data as Customer).line_user_id?.trim() || null;
+      setSelectedLineUserId((prev) => prev ?? primary);
     }
 
     setLoading(false);
   }, [id, companyId, companyReady]);
+
+  const openConversationForLineUser = useCallback((lineUserId: string, displayLabel: string) => {
+    setSelectedLineUserId(lineUserId);
+    setSelectedLineLabel(displayLabel);
+    window.setTimeout(() => {
+      conversationSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, []);
 
   useEffect(() => {
     void fetchCustomer();
@@ -334,10 +356,17 @@ export default function CustomerDetailPage() {
 
     setSaving(true);
     const payload = draftToUpdatePayload(draft);
-
-    if (isHighDealProbability(payload.success_rate) && !payload.follow_up_date) {
-      payload.follow_up_date = computeHighPotentialFollowUpDate();
+    const crmDates = buildSanitizedCrmDatePayload(conversationSourceText, lang);
+    payload.important_date = crmDates.important_date;
+    const draftFollow = normalizeFollowUpDateValue(payload.follow_up_date);
+    if (manualFollowUpYmd && draftFollow === manualFollowUpYmd) {
+      payload.follow_up_date = draftFollow;
+    } else {
+      payload.follow_up_date = crmDates.follow_up_date;
     }
+    const urgency = computeCustomerUrgencyFromImportantDate(payload.important_date);
+    payload.urgent = urgency.urgent;
+    payload.priority = urgency.priority;
 
     const { data, error } = await supabase
       .from("customers")
@@ -356,6 +385,8 @@ export default function CustomerDetailPage() {
 
     if (data) {
       setCustomer(data as Customer);
+      const savedFollow = normalizeFollowUpDateValue(payload.follow_up_date);
+      setManualFollowUpYmd(savedFollow);
     }
     setIsEditing(false);
     setDraft({});
@@ -370,7 +401,7 @@ export default function CustomerDetailPage() {
     setDeleting(true);
     const { error } = await supabase
       .from("customers")
-      .delete()
+      .update(softDeleteCustomerPayload())
       .eq("company_id", companyId)
       .eq("id", id);
     setDeleting(false);
@@ -406,6 +437,21 @@ export default function CustomerDetailPage() {
   }
 
   const isHighValue = isHighDealProbability(customer?.success_rate);
+  const sanitizedDates = customer
+    ? sanitizeImportantDateFields(
+        {
+          important_date: customer.important_date,
+          follow_up_date: customer.follow_up_date,
+        },
+        conversationSourceText,
+        lang,
+      )
+    : null;
+  const hasRealImportantDate = Boolean(
+    sanitizedDates?.important_date ||
+      (sanitizedDates?.important_dates?.length ?? 0) > 0,
+  );
+  const displayImportantDate = hasRealImportantDate ? sanitizedDates?.important_date ?? null : null;
 
   const fl = t.fieldLabels;
   const fieldConfigs: {
@@ -420,7 +466,7 @@ export default function CustomerDetailPage() {
     { key: "phone", label: fl.phone, section: "basic" },
     { key: "line_id", label: fl.line_id, section: "basic" },
     { key: "email", label: fl.email, section: "basic" },
-    { key: "status", label: fl.status, inputKind: "pipeline_status", section: "basic" },
+    { key: "customer_status", label: fl.customer_status, inputKind: "pipeline_status", section: "basic" },
     { key: "note", label: fl.note, multiline: true, section: "basic" },
     { key: "customer_need", label: fl.customer_need, multiline: true, section: "ai" },
     { key: "customer_emotion", label: fl.customer_emotion, section: "ai" },
@@ -578,7 +624,7 @@ export default function CustomerDetailPage() {
                       alignItems: "center",
                     }}
                   >
-                    <PipelineStatusBadge status={customer.status} lang={lang} />
+                    <PipelineStatusBadge status={getRawCustomerStatus(customer)} lang={lang} />
                     <span
                       style={{
                         fontSize: 15,
@@ -594,28 +640,6 @@ export default function CustomerDetailPage() {
                     >
                       {t.dealProbability}：{customer.success_rate?.trim() ? displayValue(customer.success_rate) : "—"}
                     </span>
-                    {(() => {
-                      const fd = normalizeFollowUpDateValue(customer.follow_up_date);
-                      if (!fd) return null;
-                      const b = getFollowUpBadge(fd);
-                      if (b === "none") return null;
-                      const pres = followUpBadgePresentation(b, lang);
-                      return (
-                        <span
-                          style={{
-                            fontSize: 15,
-                            padding: "6px 13px",
-                            borderRadius: 999,
-                            fontWeight: 600,
-                            background: pres.bg,
-                            color: pres.color,
-                            border: `1px solid ${pres.border}`,
-                          }}
-                        >
-                          {t.followUpPrefix} {formatFollowUpDateDisplay(fd, lang)} · {pres.label}
-                        </span>
-                      );
-                    })()}
                     {(() => {
                       const mMeta = followUpModeBadgeMeta(normalizeFollowUpMode(customer.follow_up_mode), lang);
                       return (
@@ -707,6 +731,18 @@ export default function CustomerDetailPage() {
                 copyWithFallback={copyWithFallback}
                 onAfterSimulatedSend={() => void fetchCustomer()}
                 logOutboundMessage={logOutboundMessage}
+              />
+            )}
+
+            {!isEditing && (
+              <BoundLineAccountsSection
+                customerId={String(customer.id)}
+                primaryLineUserId={customer.line_user_id}
+                isMobile={isMobile}
+                lang={lang}
+                selectedLineUserId={selectedLineUserId}
+                onSelectLineUser={setSelectedLineUserId}
+                onOpenConversation={openConversationForLineUser}
               />
             )}
 
@@ -818,6 +854,12 @@ export default function CustomerDetailPage() {
                     <DetailRow label={fl.phone} value={customer.phone} />
                     <DetailRow label={fl.line_id} value={customer.line_id} />
                     <DetailRow label={fl.email} value={customer.email} span2 />
+                    <DetailRow
+                      label={t.createdAt}
+                      value={
+                        formatCustomerCreatedAtDisplay(customer.created_at, lang) ?? "—"
+                      }
+                    />
                     <DetailRow label={t.lastContact} value={formatLastContact(customer.last_contacted_at)} />
                     <div style={{ gridColumn: "1 / -1", minWidth: 0 }}>
                       <div
@@ -830,9 +872,9 @@ export default function CustomerDetailPage() {
                           marginBottom: 8,
                         }}
                       >
-                        {fl.status}
+                        {fl.customer_status}
                       </div>
-                      <PipelineStatusBadge status={customer.status} lang={lang} />
+                      <PipelineStatusBadge status={getRawCustomerStatus(customer)} lang={lang} />
                     </div>
                     <DetailRow label={fl.note} value={customer.note} multiline span2 />
                   </div>
@@ -866,34 +908,34 @@ export default function CustomerDetailPage() {
                   >
                     <DetailRow label={fl.customer_need} value={displayValue(customer.customer_need)} multiline span2 />
                     <DetailRow label={fl.customer_emotion} value={displayValue(customer.customer_emotion)} />
-                    <DetailRow label={fl.important_date} value={displayValue(customer.important_date)} />
+                    {displayImportantDate ? (
+                      <DetailRow label={fl.important_date} value={displayImportantDate} />
+                    ) : null}
                   </div>
                 </section>
 
                 <section style={cardStyle(isMobile)}>
                   <h2 style={sectionHeading}>{t.sectionFollowPanel}</h2>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "1fr"
-                        : "repeat(2, minmax(0, 1fr))",
-                      gap: 22,
+                  <Panel label={fl.next_step} value={displayValue(customer.next_step)} />
+                  <CustomerInsightSections
+                    lang={lang}
+                    sourceText={conversationSourceText}
+                    labels={{
+                      todo: fl.todo,
+                      replySuggestion: fl.reply_suggestion,
+                      followUp: fl.follow_up,
+                      aiSend: fl.follow_up_mode,
+                      note: fl.note,
+                      noExplicitDate: fl.noExplicitFollowUpDate,
                     }}
-                  >
-                    <Panel label={fl.next_step} value={displayValue(customer.next_step)} />
-                    <Panel
-                      label={fl.follow_up_date}
-                      value={
-                        normalizeFollowUpDateValue(customer.follow_up_date)
-                          ? formatFollowUpDateDisplay(customer.follow_up_date, lang)
-                          : undefined
-                      }
-                    />
-                    <Panel label={fl.todo} value={displayValue(customer.todo)} />
-                    <Panel label={fl.follow_up} value={displayValue(customer.follow_up)} highlight />
-                    <Panel label={fl.reply_suggestion} value={displayValue(customer.reply_suggestion)} />
-                  </div>
+                    todo={customer.todo}
+                    reply_suggestion={customer.reply_suggestion}
+                    follow_up={customer.follow_up}
+                    follow_up_mode={customer.follow_up_mode}
+                    showFollowUpReminder={false}
+                    showNote={false}
+                    clampLongText={false}
+                  />
                   <FollowUpMessagingBlock
                     customer={customer}
                     mode={normalizeFollowUpMode(customer.follow_up_mode)}
@@ -904,12 +946,18 @@ export default function CustomerDetailPage() {
                   />
                 </section>
 
-                <CustomerConversationHistory
-                  customerId={String(customer.id)}
-                  isMobile={isMobile}
-                  lang={lang}
-                  refreshSignal={conversationRefresh}
-                />
+                <section ref={conversationSectionRef} id="customer-conversation-history">
+                  <CustomerConversationHistory
+                    customerId={String(customer.id)}
+                    isMobile={isMobile}
+                    lang={lang}
+                    refreshSignal={conversationRefresh}
+                    lineUserId={selectedLineUserId}
+                    titleOverride={
+                      selectedLineLabel ? t.conversationsFiltered(selectedLineLabel) : undefined
+                    }
+                  />
+                </section>
 
                 {(customer.created_at || customer.updated_at) && (
                   <section style={{ ...cardStyle(isMobile), opacity: 0.92 }}>
@@ -925,7 +973,9 @@ export default function CustomerDetailPage() {
                     >
                       {customer.created_at && (
                         <div>
-                          {t.createdAt}：{formatTs(customer.created_at)}
+                          {t.createdAt}：
+                          {formatCustomerCreatedAtDisplay(customer.created_at, lang) ??
+                            formatTs(customer.created_at)}
                         </div>
                       )}
                       {customer.updated_at && (
@@ -1003,37 +1053,20 @@ function LineQuickActionsBar({
   const openLineCleanupRef = useRef<(() => void) | null>(null);
 
   const lid = customer.line_id?.trim() ?? "";
-  const followUpDraft = buildSuggestedSalesFollowUp(customer, lang);
+  const aiReply = buildAiLineFollowUpReply(customer, lang);
+  const [copyAiBusy, setCopyAiBusy] = useState(false);
   const historyEntries = parseSendHistory(customer.line_send_history)
     .slice()
     .reverse()
     .slice(0, 20);
 
   const copyModalOpts = {
-    title: "Copy follow-up message",
-    description:
-      "Automatic copy is unavailable on this device. Tap below to copy, then paste into LINE.",
-    tapLabel: "Tap to Copy",
-    closeLabel: "Close",
-    copiedLabel: "Copied!",
+    title: t.copyAiLineReplyTitle,
+    description: t.copyAiLineReplyDesc,
+    tapLabel: t.tapToCopy,
+    closeLabel: t.close,
+    copiedLabel: t.copiedExclaim,
   };
-
-  async function copyClip(kind: string, text: string, logAsOutbound = false) {
-    const body = text.trim();
-    if (!body) {
-      alert(t.nothingToCopy);
-      return;
-    }
-    await copyWithFallback(body, {
-      ...copyModalOpts,
-      title: `Copy ${kind}`,
-      description: "Tap the button to copy, then paste where you need it.",
-      onSuccess: () => {
-        alert(t.copiedKind(kind));
-        if (logAsOutbound) void logOutboundMessage(body);
-      },
-    });
-  }
 
   useEffect(() => {
     return () => {
@@ -1054,9 +1087,9 @@ function LineQuickActionsBar({
     await copyWithFallback(lid, {
       title: t.copyLineId,
       description: t.openLineSearch,
-      tapLabel: "Tap to Copy",
-      closeLabel: "Close",
-      copiedLabel: "Copied!",
+      tapLabel: t.tapToCopy,
+      closeLabel: t.close,
+      copiedLabel: t.copiedExclaim,
       onSuccess: () => showToast(t.lineIdCopied),
     });
   }
@@ -1089,15 +1122,48 @@ function LineQuickActionsBar({
       return;
     }
 
-    void logOutboundMessage(followUpDraft);
+    void logOutboundMessage(aiReply);
     await onAfterSimulatedSend();
     showToast(t.followUpCopiedToast);
     window.setTimeout(() => openLineAppWithFallback(), 520);
   }
 
+  async function updateLastContactedAt() {
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase
+      .from("customers")
+      .update({ last_contacted_at: nowIso })
+      .eq("company_id", companyId)
+      .eq("id", customerId);
+    if (error) {
+      showToast(error.message);
+      return false;
+    }
+    void logOutboundMessage(aiReply);
+    await onAfterSimulatedSend();
+    return true;
+  }
+
+  async function copyAiLineReply() {
+    const msg = aiReply.trim();
+    if (!msg || copyAiBusy) {
+      if (!msg) showToast(t.noFollowUpToCopy);
+      return;
+    }
+    setCopyAiBusy(true);
+    await copyWithFallback(msg, {
+      ...copyModalOpts,
+      onSuccess: async () => {
+        const ok = await updateLastContactedAt();
+        if (ok) showToast(t.aiLineReplyCopiedToast);
+      },
+    });
+    setCopyAiBusy(false);
+  }
+
   async function handleSimulatedSendToLine() {
     if (!lid || sendBusy) return;
-    const msg = followUpDraft.trim();
+    const msg = aiReply.trim();
     if (!msg) {
       showToast(t.noFollowUpToCopy);
       return;
@@ -1217,6 +1283,67 @@ function LineQuickActionsBar({
         </div>
       </div>
 
+      <div
+        style={{
+          marginBottom: 18,
+          padding: isMobile ? 16 : 20,
+          borderRadius: ui.radiusMd,
+          border: "1px solid rgba(129,140,248,0.45)",
+          background:
+            "linear-gradient(155deg, rgba(99,102,241,0.12) 0%, rgba(15,23,42,0.55) 100%)",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 8px",
+            fontSize: isMobile ? 17 : 18,
+            fontWeight: 800,
+            color: "#c7d2fe",
+            letterSpacing: "0.02em",
+          }}
+        >
+          {t.aiLineReplyTitle}
+        </h3>
+        <p style={{ margin: "0 0 14px", fontSize: 14, color: ui.muted, lineHeight: 1.5 }}>
+          {t.aiLineReplyLead}
+        </p>
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(0,0,0,0.32)",
+            fontSize: 15,
+            lineHeight: 1.65,
+            color: ui.text,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            marginBottom: 14,
+            maxHeight: 220,
+            overflowY: "auto",
+          }}
+        >
+          {aiReply}
+        </div>
+        <button
+          type="button"
+          style={{
+            ...btnPrimaryLine,
+            width: "100%",
+            flex: "unset",
+            border: "1px solid rgba(129,140,248,0.55)",
+            background: "linear-gradient(135deg, rgba(99,102,241,0.95), rgba(139,92,246,0.92))",
+            boxShadow: "0 10px 26px rgba(99,102,241,0.35)",
+            opacity: copyAiBusy ? 0.65 : 1,
+            cursor: copyAiBusy ? "wait" : "pointer",
+          }}
+          disabled={copyAiBusy || !aiReply.trim()}
+          onClick={() => void copyAiLineReply()}
+        >
+          {copyAiBusy ? t.processingLine : t.copyAiLineReply}
+        </button>
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <button
           type="button"
@@ -1269,16 +1396,6 @@ function LineQuickActionsBar({
 {t.openLineApp}
             </button>
           </div>
-        </div>
-
-        <div style={{ ...row, marginTop: 14 }}>
-          <button
-            type="button"
-            style={btnGhostLine}
-            onClick={() => void copyClip(t.copyFollowUp, followUpDraft, true)}
-          >
-{t.copyFollowUp}
-          </button>
         </div>
       </div>
 
@@ -1428,7 +1545,7 @@ function FollowUpMessagingBlock({
   logOutboundMessage: (messageText: string) => Promise<boolean>;
 }) {
   const t = customerDetailCopy(lang);
-  const suggested = buildSuggestedSalesFollowUp(customer, lang);
+  const suggested = buildAiLineFollowUpReply(customer, lang);
   const [assistedDraft, setAssistedDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [lastSimulatedAt, setLastSimulatedAt] = useState<string | null>(null);
@@ -1464,7 +1581,7 @@ function FollowUpMessagingBlock({
     await copyWithFallback(body, {
       title: t.copyFollowUpTitle,
       description: t.copyFollowUpDesc,
-      tapLabel: "Tap to Copy",
+      tapLabel: t.tapToCopy,
       closeLabel: t.close,
       copiedLabel: t.copiedExclaim,
       onSuccess: () => {

@@ -2,6 +2,7 @@ import type { AppLang } from "./appLang";
 import type { ExtractedCustomerProfile } from "./extractCustomerFromLineChat";
 
 export type HomeAnalysisDraft = {
+  customerName: string;
   dealProbability: string;
   customerLevel: string;
   leakRisk: string;
@@ -33,6 +34,7 @@ export const LINE_WORK_AI_DRAFT_KEY = "lineWorkAiDraft";
 const LEGACY_DRAFT_KEYS = ["lineWorkAiHomeFormDraftV1"] as const;
 
 const ANALYSIS_FIELD_KEYS: (keyof HomeAnalysisDraft)[] = [
+  "customerName",
   "dealProbability",
   "customerLevel",
   "leakRisk",
@@ -47,6 +49,7 @@ const ANALYSIS_FIELD_KEYS: (keyof HomeAnalysisDraft)[] = [
 ];
 
 export const emptyAnalysisDraft = (): HomeAnalysisDraft => ({
+  customerName: "--",
   dealProbability: "--",
   customerLevel: "--",
   leakRisk: "--",

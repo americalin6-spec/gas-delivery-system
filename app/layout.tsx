@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ActiveCompanyProvider } from "./components/ActiveCompanyProvider";
+import { CrmAppChrome } from "./components/CrmAppChrome";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CRM System",
-  description: "AI CRM Dashboard",
+  title: "LINE Work AI · 客戶關係管理",
+  description: "以 LINE 對話為核心的 AI 客戶追蹤與成交助手",
 };
 
 export const viewport: Viewport = {
@@ -30,11 +31,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-Hant">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ActiveCompanyProvider>{children}</ActiveCompanyProvider>
+        <ActiveCompanyProvider>
+          <CrmAppChrome>{children}</CrmAppChrome>
+        </ActiveCompanyProvider>
       </body>
     </html>
   );

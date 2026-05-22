@@ -2,8 +2,14 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   findCompanyIdForLineUser,
+  findCustomerIdForLineUser,
   logLineConversation,
 } from "../../lib/conversationsServer";
+import {
+  buildBindingSuccessNotification,
+  buildLineMessageNotification,
+  createCrmNotification,
+} from "../../lib/crmNotifications";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
@@ -256,6 +262,24 @@ async function bindLineUserToCustomer(
   return confirmCustomerLineUserIdSaved(supabase, customerId, companyId, lineUserId);
 }
 
+async function notifyBindingSuccess(
+  supabase: SupabaseClient,
+  companyId: number,
+  customer: CustomerLookupRow,
+  fallbackName: string,
+): Promise<void> {
+  const name = customer.customer_name?.trim() || fallbackName;
+  const copy = buildBindingSuccessNotification(name, "zh");
+  await createCrmNotification(supabase, {
+    companyId,
+    type: "binding_success",
+    title: copy.title,
+    body: copy.body,
+    customerId: String(customer.id),
+    dedupePerDay: true,
+  });
+}
+
 async function replyBindSuccess(
   replyToken: string,
   channelAccessToken: string,
@@ -325,11 +349,32 @@ async function logInboundEvents(
 
       try {
         const companyId = await resolveCompanyForLineUser(supabase, userId);
+        const customerId = await findCustomerIdForLineUser(supabase, userId, companyId);
+        let customerName: string | null = null;
+        if (customerId) {
+          const { data: nameRow } = await activeCustomersOnly(
+            supabase
+              .from("customers")
+              .select("customer_name")
+              .eq("company_id", companyId)
+              .eq("id", customerId),
+          ).maybeSingle();
+          customerName = (nameRow as { customer_name?: string | null } | null)?.customer_name ?? null;
+        }
         await logLineConversation(supabase, {
           lineUserId: userId,
           messageText,
           direction: "inbound",
           companyId,
+          customerId,
+        });
+        const preview = buildLineMessageNotification(customerName, messageText, "zh");
+        await createCrmNotification(supabase, {
+          companyId,
+          type: "line_message",
+          title: preview.title,
+          body: preview.body,
+          customerId,
         });
       } catch (err) {
         console.error("[line-webhook] logLineConversation threw:", err);
@@ -374,6 +419,7 @@ async function handleTextMessage(
       await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
       return;
     }
+    await notifyBindingSuccess(supabase, companyId, customer, command.customerName);
     await replyBindSuccess(replyToken, channelAccessToken, customer, command.customerName);
     return;
   }
@@ -400,6 +446,12 @@ async function handleTextMessage(
     await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
     return;
   }
+  await notifyBindingSuccess(
+    supabase,
+    companyId,
+    customer,
+    displayName || DEFAULT_LINE_CUSTOMER_NAME,
+  );
   await replyBindSuccess(
     replyToken,
     channelAccessToken,

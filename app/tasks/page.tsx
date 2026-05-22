@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAppLang } from "../hooks/useAppLang";
 import { tasksPageCopy, translateDisplayValue } from "../lib/uiI18n";
+import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../supabase";
@@ -39,13 +40,14 @@ export default function TasksPage() {
     setLoading(true);
     logActiveCompany("tasks.load", { companyId });
 
-    const { data, error } = await supabase
-      .from("customers")
-      .select(
-        "id, customer_name, company_name, phone, line_id, todo, next_step, follow_up"
-      )
-      .eq("company_id", companyId)
-      .order("id", { ascending: false });
+    const { data, error } = await activeCustomersOnly(
+      supabase
+        .from("customers")
+        .select(
+          "id, customer_name, company_name, phone, line_id, todo, next_step, follow_up",
+        )
+        .eq("company_id", companyId),
+    ).order("id", { ascending: false });
 
     if (error) {
       console.error(error);

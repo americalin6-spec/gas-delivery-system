@@ -14,6 +14,7 @@ import {
   filterCalendarCustomers,
   type ReminderCustomerRow,
 } from "../lib/calendarReminders";
+import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../supabase";
@@ -45,11 +46,9 @@ export default function CalendarPage() {
     setLoadError(null);
     logActiveCompany("calendar.load", { companyId });
 
-    const { data, error } = await supabase
-      .from("customers")
-      .select(CALENDAR_CUSTOMER_SELECT)
-      .eq("company_id", companyId)
-      .order("follow_up_date", { ascending: true, nullsFirst: false });
+    const { data, error } = await activeCustomersOnly(
+      supabase.from("customers").select(CALENDAR_CUSTOMER_SELECT).eq("company_id", companyId),
+    ).order("follow_up_date", { ascending: true, nullsFirst: false });
 
     if (error) {
       console.error(error);

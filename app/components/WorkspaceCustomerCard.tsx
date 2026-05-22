@@ -4,13 +4,14 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { AppLang } from "../lib/appLang";
 import { followUpWorkspaceCopy } from "../lib/followUpWorkspaceI18n";
+import { formatCustomerCreatedAtDisplay } from "../lib/customerSoftDelete";
 import {
-  followUpStatusLabel,
   formatWorkspaceDateTime,
-  getEffectiveNextFollowUpAt,
   getLastContactAt,
+  getWorkspaceCustomerStatus,
   type WorkspaceCustomerRow,
 } from "../lib/followUpWorkspace";
+import { customerStatusLabel, customerStatusVisual } from "../lib/customerStatus";
 import { translateDisplayValue } from "../lib/uiI18n";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 
@@ -32,9 +33,9 @@ export function WorkspaceCustomerCard({
   const labels = followUpWorkspaceCopy(lang);
   const name = row.customer_name?.trim() || labels.unnamed;
   const deal = row.success_rate ?? row.deal_probability;
-  const status = followUpStatusLabel(row, lang);
+  const salesStatus = getWorkspaceCustomerStatus(row);
   const lastAt = getLastContactAt(row);
-  const nextAt = getEffectiveNextFollowUpAt(row);
+  const createdLabel = formatCustomerCreatedAtDisplay(row.created_at, lang);
 
   const fields: { label: string; value: string }[] = [
     { label: labels.customerName, value: name },
@@ -45,9 +46,12 @@ export function WorkspaceCustomerCard({
       label: labels.dealProbability,
       value: deal?.trim() ? translateDisplayValue(deal, lang) : "—",
     },
-    { label: labels.followStatus, value: status },
+    {
+      label: labels.customerStatus,
+      value: customerStatusLabel(salesStatus, lang),
+    },
+    { label: labels.createdAt, value: createdLabel ?? "—" },
     { label: labels.lastContact, value: lastAt ? formatWorkspaceDateTime(lastAt, lang) : "—" },
-    { label: labels.nextFollowUp, value: nextAt ? formatWorkspaceDateTime(nextAt, lang) : "—" },
     { label: labels.remark, value: row.follow_up_note?.trim() || row.note?.trim() || "—" },
   ];
 

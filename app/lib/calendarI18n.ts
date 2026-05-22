@@ -96,8 +96,8 @@ export function homeCalendarCopy(lang: AppLang) {
     alertsTitle: zh ? "通知中心" : "Notifications",
     alertsLead: zh ? "今日追蹤、逾期、高成交率、久未聯絡。" : "Due today, overdue, high deals, stale contact.",
     viewAlerts: zh ? "查看全部通知" : "View all alerts",
-    menuCalendar: zh ? "行事曆 Calendar" : "Calendar",
-    menuAlerts: zh ? "通知中心 Alerts" : "Alerts",
+    menuCalendar: zh ? "行事曆" : "Calendar",
+    menuAlerts: zh ? "通知中心" : "Alerts",
   };
 }
 

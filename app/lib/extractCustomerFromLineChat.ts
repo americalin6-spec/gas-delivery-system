@@ -4,6 +4,8 @@
  * Order: STEP 1 phone / LINE / email → STEP 2 company → STEP 3 customer name
  */
 
+import type { AppLang } from "./appLang";
+
 export type ExtractedCustomerProfile = {
   customer_name: string;
   company_name: string;
@@ -40,13 +42,40 @@ export const NAME_NOT_PROVIDED_EN = "Name not provided";
 
 /** Lines that may only yield company_name — never customer_name. */
 const COMPANY_ONLY_LINE_RE =
-  /我們公司|我们公司|我公司|我司|本公司|公司名稱|公司名称|公司叫做|公司叫|我們是|我们是|本公司是|本公司叫/i;
+  /我們公司|我们公司|我公司|我司|本公司|公司名稱|公司名称|公司叫做|公司叫|我們是|我们是|本公司是|本公司叫|就寫|可以寫|店名|品牌叫|品牌是|健身房叫|診所是|诊所是|診所叫|诊所叫|我們診所|我们诊所|我們店|我们店/i;
+
+/** Business/store words often appearing inside natural brand names. */
+const BUSINESS_IN_NAME_RE =
+  /健身|俱樂部|俱乐部|咖啡|診所|诊所|牙醫|牙医|美學|美学|工作室|餐廳|餐厅|酒楼|酒家|品牌|門市|门市|醫美|瑜珈|瑜伽|沙龍|沙龙|復健|复健|中心|俱樂|餐飲|集团|集團|公司|飯店|饭店|Gym|Studio|gym|studio/i;
+
+const COMPANY_CANDIDATE_REJECT_RE =
+  /預算|報價|报价|電話|手機|phone|LINE|email|萬元|万元|合作|簽約|签约|報價單|明天|後天|后天|週一|周一|需要|想要|可以嗎|可以吗|沒問題|没问题|謝謝|谢谢|好的|了解|知道了/i;
+
+const COMPANY_CANDIDATE_REJECT_EXACT = new Set([
+  "好了",
+  "可以",
+  "沒問題",
+  "没问题",
+  "謝謝",
+  "谢谢",
+  "好的",
+  "嗯",
+  "對",
+  "了解",
+  "知道了",
+  "是我",
+  "是我們",
+]);
 
 const COMPANY_SUFFIX_RE =
   /([\u4e00-\u9fffA-Za-z0-9&·・（）()\-\s]{0,40}?(?:股份有限公司|有限公司|工作室)|[\u4e00-\u9fffA-Za-z0-9&·\s.\-]{0,40}?(?:Studio|Media|studio|media))/giu;
 
+/** Longer intro phrases first (e.g. 我們公司是 before 我們公司). */
 const COMPANY_PREFIX_STRIP_RE =
-  /^(?:我們公司叫|我们公司叫|我公司叫|公司叫|我們公司|我们公司|我公司|我們是|我们是|我是|本公司叫|本公司是|本公司|我司叫|我司是|我司|這裡是|这边是|這邊是|叫)+/u;
+  /^(?:就寫|可以寫|寫成|改為|改成|我們診所叫|我们诊所叫|我們診所是|我们诊所是|我們診所|我们诊所|我們店名是|我们店名是|我們店是|我们店是|我們店叫|我们店叫|我們店|我们店|診所叫|诊所叫|診所是|诊所是|我們公司叫做|我们公司叫做|我們公司是|我们公司是|我公司是|我司是|公司名稱為|公司名称为|公司叫做|公司名為|公司名为|店名是|店名为|店名叫|品牌是|品牌叫|品牌名为|我們品牌叫|我们品牌叫|我們健身房叫|我们健身房叫|我們公司叫|我们公司叫|我公司叫|公司叫|我們公司|我们公司|我公司|我們是|我们是|我是|本公司叫|本公司是|本公司|我司叫|我司是|我司|這裡是|这边是|這邊是|叫)+/u;
+
+/** Leftover connectors after intro strip (我們公司 + 是 → company name). */
+const COMPANY_LEADING_FILLER_RE = /^(?:是|為|为|叫做|名为|名為)+/u;
 
 const NAME_FORBIDDEN_RE =
   /公司|有限公司|工作室|攝影|摄影|美學|美学|Studio|Media|股份|學院|学院|媒體|媒体|攝棚|租棚|報價|报价/i;
@@ -107,7 +136,15 @@ function splitChatLines(raw: string): string[] {
 const COMPANY_SUFFIX_HINT_RE = /(?:股份有限公司|有限公司|工作室|Studio|Media)/i;
 
 const SELF_INTRO_NAME_RE =
-  /我姓[\u4e00-\u9fff]{1,2}|我叫[\u4e00-\u9fff]{2,4}|我是[\u4e00-\u9fff]{1,3}(?:先生|小姐)|可以叫我[\u4e00-\u9fff]{1,3}(?:先生|小姐)?|(?:I'm|I am|my name is|call me)\s+[A-Za-z]/iu;
+  /我姓[\u4e00-\u9fff]{1,2}|我叫[\u4e00-\u9fff]{2,4}|我是[\u4e00-\u9fff]{1,3}(?:先生|小姐)|可以叫我[\u4e00-\u9fff]{1,3}(?:先生|小姐)?|[\u4e00-\u9fff]{1,3}(?:先生|小姐|經理|经理)|(?:I'm|I am|my name is|call me)\s+[A-Za-z]/iu;
+
+/** Greeting honorifics: 王先生、陳小姐、張經理 — line start or after punctuation / 您好. */
+const HONORIFIC_NAME_LINE_RE =
+  /^([\u4e00-\u9fff]{1,3})(先生|小姐|經理|经理)(?:您好|你好|好)?(?:[，,！!？?.。\s]|$|的)/u;
+
+/** 您好，王先生 / …聯絡王先生 — honorific not at string start. */
+const HONORIFIC_NAME_INLINE_RE =
+  /(?:^|[，,。．\s])([\u4e00-\u9fff]{1,3})(先生|小姐|經理|经理)(?:您好|你好|好)?(?:[，,！!？?.。\s]|$|的)/u;
 
 export function isCompanyOnlyLine(line: string): boolean {
   const t = line.trim();
@@ -121,6 +158,7 @@ export function isCompanyOnlyLine(line: string): boolean {
 export function normalizeCompanyName(value: string): string {
   let s = value.trim();
   s = s.replace(COMPANY_PREFIX_STRIP_RE, "");
+  s = s.replace(COMPANY_LEADING_FILLER_RE, "");
   s = s.replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
   s = s.replace(/[，。,.;；:：！!？?]+$/u, "");
   return s.trim();
@@ -136,8 +174,10 @@ export function isNotProvidedLabel(value: string): boolean {
   const lower = n.toLowerCase();
   return (
     n === "未提供" ||
+    n === "未偵測" ||
     n === NAME_NOT_PROVIDED_ZH ||
     lower === "not provided" ||
+    lower === "not detected" ||
     lower === NAME_NOT_PROVIDED_EN.toLowerCase() ||
     lower === "n/a" ||
     lower === "na"
@@ -200,9 +240,58 @@ export function isValidExtractedCustomerName(value: string): boolean {
 export function isValidCompanyName(value: string): boolean {
   const n = normalizeCompanyName(value);
   if (!n || n.length < 2 || n.length > 48) return false;
-  if (/^(?:我們|我们|公司叫|叫)/u.test(n)) return false;
+  if (/^(?:是|為|为|叫做|名为|名為|我們|我们|公司叫|叫)/u.test(n)) return false;
   if (/[？?]/.test(n)) return false;
   return /(有限公司|股份有限公司|工作室|Studio|Media)/i.test(n);
+}
+
+function cleanCompanyCandidate(raw: string): string {
+  let s = normalizeCompanyName(raw);
+  s = s.replace(/\s*(?:好了|就可以了|就行|即可|謝謝|谢谢|謝了|谢了|喔|哦|噢|嗎|吗)\s*$/u, "");
+  s = s.replace(/^(?:就寫|可以寫|寫成|改為|改成)\s*/u, "");
+  return s.trim();
+}
+
+/** Shop/brand/clinic names from labels or conversational context (no 有限公司 required). */
+export function isValidNaturalCompanyName(
+  value: string,
+  opts?: { fromContextualPattern?: boolean },
+): boolean {
+  const n = cleanCompanyCandidate(value);
+  if (!n || n.length < 2 || n.length > 28) return false;
+  if (/^(?:是|為|为|叫做|名为|名為|我們|我们|公司叫|叫)/u.test(n)) return false;
+  if (/[？?]/.test(n)) return false;
+  if (isNotProvidedLabel(n)) return false;
+  if (n === "未偵測") return false;
+  if (COMPANY_CANDIDATE_REJECT_EXACT.has(n)) return false;
+  if (COMPANY_CANDIDATE_REJECT_RE.test(n)) return false;
+  if (/^第[一二三四五六七八九十\d]/u.test(n)) return false;
+  if (/^第.+[是為为]/u.test(n)) return false;
+  if (!/[\u4e00-\u9fffA-Za-z]/.test(n)) return false;
+  if (!/^[\u4e00-\u9fffA-Za-z0-9&·・（）()\-]+$/u.test(n)) return false;
+  if (/^(公司|品牌|店名|診所|诊所|健身房|工作室)$/.test(n)) return false;
+
+  if (isValidCompanyName(n)) return true;
+
+  const hasBusinessHint = BUSINESS_IN_NAME_RE.test(n);
+  if (
+    !opts?.fromContextualPattern &&
+    !hasBusinessHint &&
+    isValidExtractedCustomerName(n) &&
+    n.length <= 4
+  ) {
+    return false;
+  }
+  if (!opts?.fromContextualPattern && !hasBusinessHint && n.length < 3) {
+    return false;
+  }
+
+  return true;
+}
+
+/** Explicit labeled lines (公司：xxx) — allow shop/brand names without 有限公司 suffix. */
+export function isValidLabeledCompanyName(value: string): boolean {
+  return isValidNaturalCompanyName(value, { fromContextualPattern: true });
 }
 
 export function resolveCustomerNameForForm(raw: string, lang: string): string {
@@ -239,6 +328,120 @@ function computeConfidence(fields: ExtractedCustomerProfile): number {
   if (fields.company_name) score += 0.25;
   if (fields.customer_name && isValidExtractedCustomerName(fields.customer_name)) score += 0.15;
   return Math.min(1, Math.round(score * 100) / 100);
+}
+
+// ——— STEP 0: labeled CRM lines (客戶 / 公司 / 電話 / LINE ID / 預算 / 需求) ———
+
+export type LabeledCrmFields = {
+  customer_name: string;
+  company_name: string;
+  phone: string;
+  line_id: string;
+  email: string;
+  budget: string;
+  customer_need: string;
+};
+
+const LABELED_FIELD_PATTERNS: { key: keyof LabeledCrmFields; re: RegExp }[] = [
+  { key: "customer_name", re: /^(?:客戶姓名|客戶名稱|客戶|聯絡人|姓名)[：:\s]\s*(.+)$/iu },
+  { key: "company_name", re: /^(?:公司名稱|公司)[：:\s]\s*(.+)$/iu },
+  { key: "phone", re: /^(?:電話|手機|聯絡電話|phone|tel)[：:\s]\s*(.+)$/iu },
+  { key: "line_id", re: /^(?:LINE\s*ID|LINE\s*帳號|LINE|line\s*id)[：:\s]\s*(.+)$/iu },
+  { key: "email", re: /^(?:email|e-mail|信箱|郵箱)[：:\s]\s*(.+)$/iu },
+  { key: "budget", re: /^(?:預算|budget)[：:\s]\s*(.+)$/iu },
+  { key: "customer_need", re: /^(?:需求|客戶需求|customer\s*need)[：:\s]\s*(.+)$/iu },
+];
+
+export function extractLabeledCrmFields(lines: string[]): LabeledCrmFields {
+  const out: LabeledCrmFields = {
+    customer_name: "",
+    company_name: "",
+    phone: "",
+    line_id: "",
+    email: "",
+    budget: "",
+    customer_need: "",
+  };
+
+  for (const line of lines) {
+    for (const { key, re } of LABELED_FIELD_PATTERNS) {
+      if (out[key]) continue;
+      const m = line.match(re);
+      if (!m?.[1]) continue;
+      const value = m[1].trim().replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
+      if (value) out[key] = value;
+    }
+  }
+
+  return out;
+}
+
+/** Parse budget / estimated amount phrases from chat (預算、萬、NT$). */
+export function extractBudgetFromChat(text: string, lang: string): string {
+  const t = text.trim();
+  if (!t) return lang === "zh" ? "" : "";
+
+  const labeled = extractLabeledCrmFields(splitChatLines(t));
+  if (labeled.budget) {
+    const normalized = normalizeBudgetPhrase(labeled.budget);
+    if (normalized) return normalized;
+  }
+
+  const range = t.match(/預算\s*(?:大概|約)?\s*(\d+)\s*萬\s*(?:到|至|~|～|-|—)\s*(\d+)\s*萬/u);
+  if (range) return `預算${range[1]}萬-${range[2]}萬`;
+
+  const budget = t.match(/預算\s*(?:約|大概)?\s*(\d+[\d,.]*\s*萬?)/u);
+  if (budget) return `預算${budget[1].replace(/\s/g, "")}`;
+
+  const budgetAlt = t.match(/(\d+[\d,.]*\s*萬)\s*(?:左右|以內)?\s*預算/u);
+  if (budgetAlt) return `預算${budgetAlt[1].replace(/\s/g, "")}`;
+
+  const patterns = [
+    /NT\$?\s?[\d,]+/i,
+    /TWD\s?[\d,]+/i,
+    /台幣\s?[\d,]+/i,
+    /新台幣\s?[\d,]+/i,
+    /[\d,]+\s?萬/,
+    /USD\s?\$?[\d,]+/i,
+    /US\$[\d,]+/i,
+    /\$[\d,]+/i,
+    /budget\s*(?:around|about)?\s*([$\d,.\s]+(?:k|K)?)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = t.match(pattern);
+    if (match) return match[0].trim();
+  }
+
+  return "";
+}
+
+/** Numeric estimated amount for CRM (e.g. 預算25萬 → 250000). */
+export function extractEstimatedAmountFromChat(text: string): string {
+  const t = text.trim();
+  if (!t) return "";
+
+  const wanBudget = t.match(/預算\s*(?:約|大概)?\s*(\d+)\s*萬/u);
+  if (wanBudget) return String(Number(wanBudget[1]) * 10000);
+
+  const wanAlt = t.match(/(\d+)\s*萬\s*(?:左右|以內)?\s*預算/u);
+  if (wanAlt) return String(Number(wanAlt[1]) * 10000);
+
+  const nt = t.match(/(?:NT\$?|TWD|台幣|新台幣)\s*([\d,]+)/i);
+  if (nt) return nt[1].replace(/,/g, "");
+
+  const plain = t.match(/\$\s*([\d,]+)/);
+  if (plain) return plain[1].replace(/,/g, "");
+
+  return "";
+}
+
+function normalizeBudgetPhrase(raw: string): string {
+  const t = raw.trim().replace(/^[：:\s]+/, "");
+  if (!t) return "";
+  if (/^預算/u.test(t)) return t.replace(/\s+/g, "");
+  if (/\d+\s*萬/.test(t)) return `預算${t.replace(/\s+/g, "")}`;
+  return t;
 }
 
 // ——— STEP 1: phone, LINE ID, email ———
@@ -313,11 +516,14 @@ function isLikelyLineId(id: string, email: string): boolean {
 }
 
 function extractLineIdStep1(text: string, email: string): string {
+  const colon = "[\\uFF1A\\uFF1B:\\u003A]"; // fullwidth : ; and ASCII :
   const patterns = [
+    new RegExp(`(?:LINE\\s*ID|LINE|line\\s*id|line)\\s*(?:${colon}|是)\\s*(@?[A-Za-z0-9._-]{2,40})`, "gi"),
+    /(?:LINE|line)[\s\u3000]+(@?[A-Za-z0-9._-]{3,40})(?=\s|$|[，,。])/gi,
     /(?:LINE\s*ID|LINE|line\s*id|line)\s*(?:[：:]|是)\s*(@?[A-Za-z0-9._-]{3,40})/gi,
     /我的\s*line\s*是\s*(@?[A-Za-z0-9._-]{3,40})/gi,
     /ID\s*是\s*(@?[A-Za-z0-9._-]{3,40})/gi,
-    /(?:加\s*)?我\s*的\s*LINE\s*[：:]\s*(@?[A-Za-z0-9._-]{3,40})/gi,
+    /(?:加\s*)?我\s*的\s*LINE\s*[：:\uFF1A]\s*(@?[A-Za-z0-9._-]{3,40})/gi,
   ];
 
   for (const pattern of patterns) {
@@ -337,38 +543,166 @@ function extractEmailStep1(text: string): string {
 
 // ——— STEP 2: company ———
 
+type ConversationalCompanyPattern = { re: RegExp; contextual: boolean };
+
+/** Company name token (no spaces — avoids swallowing trailing 好了 / filler). */
+const COMPANY_NAME_CORE = "[\\u4e00-\\u9fffA-Za-z0-9&·・（）()\\-]";
+const COMPANY_NAME_END =
+  "(?=\\s*(?:好了|就可以了|就行|即可|喔|哦|噢|嗎|吗)|[」』\"'）)\\s，,。.!？?]|$)";
+
+/** Business-type words in conversational intros (我們診所叫、健身房叫). */
+const BIZ_ENTITY =
+  "(?:品牌|健身房|健身中心|診所|诊所|工作室|咖啡廳|咖啡厅|餐廳|餐厅|牙醫|牙医|醫美|医美|俱樂部|俱乐部|Gym|Studio|gym|studio)";
+
+function conversationalCompanyRe(prefix: string, contextual: boolean): ConversationalCompanyPattern {
+  return {
+    re: new RegExp(
+      `${prefix}\\s*[「『"'（(]?(${COMPANY_NAME_CORE}{2,28})${COMPANY_NAME_END}`,
+      "u",
+    ),
+    contextual,
+  };
+}
+
+/** Longer / more specific intro phrases first. */
+const CONVERSATIONAL_COMPANY_PATTERNS: ConversationalCompanyPattern[] = [
+  conversationalCompanyRe("就寫", true),
+  conversationalCompanyRe("可以寫", true),
+  conversationalCompanyRe("(?:寫成|改為|改成)", true),
+  conversationalCompanyRe("店名(?:是|叫|為|为)", true),
+  conversationalCompanyRe("(?:我們|我们)診所叫", true),
+  conversationalCompanyRe("(?:我們|我们)診所(?:是|為|为)", true),
+  conversationalCompanyRe("診所(?:叫|是|為|为)", true),
+  conversationalCompanyRe("(?:我們|我们)公司(?:是|叫|為|为)", true),
+  conversationalCompanyRe("(?:我們|我们)?公司叫", true),
+  conversationalCompanyRe("公司叫", true),
+  conversationalCompanyRe("(?:我們|我们)店(?:名)?(?:是|叫|為|为)", true),
+  conversationalCompanyRe(
+    `(?:我們|我们)?${BIZ_ENTITY}\\s*(?:叫做|叫|是|為|为)`,
+    true,
+  ),
+  conversationalCompanyRe("(?:我們|我们)是", false),
+];
+
+function acceptCompanyCandidate(raw: string, contextual: boolean): string {
+  const normalized = cleanCompanyCandidate(raw);
+  if (isValidNaturalCompanyName(normalized, { fromContextualPattern: contextual })) {
+    return normalized;
+  }
+  if (isValidCompanyName(normalized)) {
+    return normalized;
+  }
+  return "";
+}
+
+function extractConversationalCompany(text: string): string {
+  const t = text.trim();
+  if (!t) return "";
+
+  let best = "";
+  for (const { re, contextual } of CONVERSATIONAL_COMPANY_PATTERNS) {
+    const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+    const reAll = new RegExp(re.source, flags);
+    for (const m of t.matchAll(reAll)) {
+      if (!m[1]) continue;
+      const accepted = acceptCompanyCandidate(m[1], contextual);
+      if (accepted && accepted.length > best.length) {
+        best = accepted;
+      }
+    }
+  }
+
+  return best;
+}
+
 function extractCompanyFromLine(line: string): string {
   const trimmed = line.trim();
   if (!trimmed) return "";
 
+  const conversational = extractConversationalCompany(trimmed);
+  if (conversational) return conversational;
+
   for (const m of trimmed.matchAll(COMPANY_SUFFIX_RE)) {
     const raw = (m[1] ?? m[0] ?? "").trim();
-    const normalized = normalizeCompanyName(raw);
-    if (isValidCompanyName(normalized)) return normalized;
+    const accepted = acceptCompanyCandidate(raw, true);
+    if (accepted) return accepted;
   }
 
-  const labeled = trimmed.match(/公司(?:名稱)?[：:]\s*(.+)/u);
+  const labeled = trimmed.match(
+    new RegExp(
+      `(?:公司|店名|品牌|診所|诊所)(?:名稱|名称)?(?:[：:]|是|為|为|叫做|名为|名為|叫)\\s*[「『"'（(]?(${COMPANY_NAME_CORE}{2,28})${COMPANY_NAME_END}`,
+      "u",
+    ),
+  );
   if (labeled?.[1]) {
-    const normalized = normalizeCompanyName(labeled[1]);
-    if (isValidCompanyName(normalized)) return normalized;
+    const accepted = acceptCompanyCandidate(labeled[1], true);
+    if (accepted) return accepted;
   }
 
   return "";
 }
 
+const COMPANY_NAME_ASK_RE = /公司名稱|公司名称|公司名字/u;
+const COMPANY_NAME_ASK_QUESTION_RE =
+  /(?:怎麼寫|如何寫|先怎麼寫|要怎麼寫|填什麼|怎麼填|如何填|要填|怎麼填寫|先.*寫)/u;
+const CHAT_SPEAKER_PREFIX_RE = /^(.{1,12})[：:]\s*(.+)$/u;
+const BUSINESS_SIDE_SPEAKER_RE =
+  /^(?:我|我方|Me|Agent|Sales|客服|業務|顾问|顧問|我们|我們|本公司|我司)$/iu;
+
+function parseChatSpeakerLine(line: string): { speaker: string; content: string } {
+  const t = line.trim();
+  const m = t.match(CHAT_SPEAKER_PREFIX_RE);
+  if (!m?.[2]) return { speaker: "", content: t };
+  return { speaker: m[1].trim(), content: m[2].trim() };
+}
+
+function isCompanyNameAskContent(content: string): boolean {
+  const t = content.trim();
+  if (!t || !COMPANY_NAME_ASK_RE.test(t)) return false;
+  return COMPANY_NAME_ASK_QUESTION_RE.test(t);
+}
+
+/** Q&A: seller asks how to write company name → next customer reply is company_name. */
+function extractCompanyFromCompanyNameQA(lines: string[]): string {
+  for (let i = 0; i < lines.length; i++) {
+    const { content: question } = parseChatSpeakerLine(lines[i]);
+    if (!isCompanyNameAskContent(question)) continue;
+
+    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+      const { speaker, content: reply } = parseChatSpeakerLine(lines[j]);
+      if (!reply || isCompanyNameAskContent(reply)) continue;
+      if (speaker && BUSINESS_SIDE_SPEAKER_RE.test(speaker)) continue;
+      if (/^第[一二三四五六七八九十\d]/u.test(reply)) continue;
+      const accepted = acceptCompanyCandidate(reply, true);
+      if (accepted) return accepted;
+    }
+  }
+  return "";
+}
+
 function extractCompanyStep2(fullText: string, lines: string[]): string {
+  const fromQA = extractCompanyFromCompanyNameQA(lines);
+  if (fromQA) return fromQA;
+
   const companyLines = lines.filter((l) => isCompanyOnlyLine(l));
   const searchLines = companyLines.length > 0 ? companyLines : lines;
 
+  let best = "";
   for (const line of searchLines) {
     const found = extractCompanyFromLine(line);
-    if (found) return found;
+    if (found && found.length > best.length) {
+      best = found;
+    }
   }
+  if (best) return best;
+
+  const fromFullText = extractConversationalCompany(fullText);
+  if (fromFullText) return fromFullText;
 
   for (const m of fullText.matchAll(COMPANY_SUFFIX_RE)) {
     const raw = (m[1] ?? m[0] ?? "").trim();
-    const normalized = normalizeCompanyName(raw);
-    if (isValidCompanyName(normalized)) return normalized;
+    const accepted = acceptCompanyCandidate(raw, true);
+    if (accepted) return accepted;
   }
 
   return "";
@@ -448,7 +782,52 @@ function tryNamePatternsOnLine(line: string, lang: string): string {
   return "";
 }
 
+/** Deterministic honorific name (王先生 / 陳小姐 / 張經理) — runs before AI and self-intro patterns. */
+export function extractHonorificCustomerName(text: string): string {
+  const fullText = text.trim();
+  if (!fullText) return "";
+
+  const candidates = [...splitChatLines(text), fullText];
+  for (const rawLine of candidates) {
+    const line = stripSpeakerPrefix(rawLine.trim());
+    if (!line) continue;
+
+    for (const segment of [line, ...splitNameClauses(line)]) {
+      const m1 = segment.match(HONORIFIC_NAME_LINE_RE);
+      if (m1?.[1] && m1[2]) {
+        const candidate = formatChineseNameMatch(m1[1], m1[2]);
+        if (isValidExtractedCustomerName(candidate)) {
+          console.log("NAME_EXTRACTION_DEBUG", {
+            line: segment,
+            matchedName: candidate,
+            source: "honorific-line-start",
+          });
+          return candidate;
+        }
+      }
+
+      const m2 = segment.match(HONORIFIC_NAME_INLINE_RE);
+      if (m2?.[1] && m2[2]) {
+        const candidate = formatChineseNameMatch(m2[1], m2[2]);
+        if (isValidExtractedCustomerName(candidate)) {
+          console.log("NAME_EXTRACTION_DEBUG", {
+            line: segment,
+            matchedName: candidate,
+            source: "honorific-inline",
+          });
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
 function extractCustomerNameStep3(fullText: string, lines: string[], lang: string): string {
+  const honorific = extractHonorificCustomerName(fullText);
+  if (honorific) return honorific;
+
   for (const line of lines) {
     const name = tryNamePatternsOnLine(line, lang);
     if (name) return name;
@@ -470,10 +849,10 @@ const BUSINESS_CONTENT_RE =
   /我們有|我們提供|本公司|我司|我這邊|我這邊有|這邊有|white studio|green screen|綠幕|白棚|燈光攝影師|can also provide|we have|we offer|our studio/i;
 
 const CUSTOMER_NEED_CONTENT_RE =
-  /想拍|想租|想了解|需要|希望|打算|預算|報價|价格|價格|拍攝|影片|视频|形象|產品|产品|品牌|studio|shoot|video|budget|quotation|quote/i;
+  /想拍|想租|想了解|需要|希望|打算|預算|報價|价格|價格|拍攝|影片|视频|形象|產品|产品|品牌|studio|shoot|video|budget|quotation|quote|病患|病歷|病人|術後|追蹤提醒|預約|回診|分類需求|高單價|手機版|分店|CRM|診所|醫美|整合|提醒系統/i;
 
 const CUSTOMER_NOTE_CONTENT_RE =
-  /備註|提醒|特殊|另外|對了|对了|下週|下周|改時間|改期|再聯絡|再联系|方便|盡快|尽快|urgent|follow up|schedule|deadline/i;
+  /備註|特殊|另外|對了|对了|改時間|改期|urgent|deadline/i;
 
 function isBusinessSideLine(line: string): boolean {
   const t = line.trim();
@@ -549,9 +928,81 @@ function isPrimaryNeedFragment(content: string): boolean {
 }
 
 function isSubstantiveNeedContent(content: string): boolean {
-  return /想拍|想租|需要拍|希望拍|打算拍|風格|风格|高級感|高级感|質感|科技感|形象影片|產品形象|品牌影片|宣傳片|短片|秒|分鐘|分钟|IG|官網|官网|Facebook|\bFB\b|小紅書|抖音|YouTube|LED|棚拍|攝影棚|模特|麻豆|妝髮|妆发|化妝|化妆|預算|報價|报价|拍攝|租用|交付|檔期|档期|月底前|完成|萬|want to shoot|shooting style|duration|budget|makeup|model/i.test(
+  return /想拍|想租|需要拍|希望拍|打算拍|風格|风格|高級感|高级感|質感|科技感|形象影片|產品形象|品牌影片|宣傳片|短片|秒|分鐘|分钟|IG|官網|官网|Facebook|\bFB\b|小紅書|抖音|YouTube|LED|棚拍|攝影棚|模特|麻豆|妝髮|妆发|化妝|化妆|預算|報價|报价|拍攝|租用|交付|檔期|档期|月底前|完成|萬|want to shoot|shooting style|duration|budget|makeup|model|病患|病歷|術後|追蹤|預約|回診|分類|高單價|手機版|分店|CRM|醫美|整合/i.test(
     content,
   );
+}
+
+const GENERIC_AI_NEED_RE =
+  /依對話內容整理|Summarize needs and timeline from the conversation/i;
+
+export function isGenericCustomerNeedPhrase(value: string): boolean {
+  const t = value.trim();
+  if (!t) return false;
+  return GENERIC_AI_NEED_RE.test(t);
+}
+
+const CRM_SAAS_NEED_RULES: { re: RegExp; chip: string }[] = [
+  { re: /病患資料整合?|病歷整合?|病人資料整合?/, chip: "病患資料整合" },
+  { re: /術後追蹤提醒?|術後追蹤/, chip: "術後追蹤提醒" },
+  { re: /預約與回診通知?|預約.*回診|回診通知/, chip: "預約與回診通知" },
+  { re: /AI\s*分類.*需求|AI.*客戶需求|智能分類.*需求/, chip: "AI 分類客戶需求" },
+  { re: /高單價客戶標記?|高單價.*標記/, chip: "高單價客戶標記" },
+  { re: /手機版|行動版|mobile\s*app/i, chip: "手機版" },
+  { re: /分店管理/, chip: "分店管理" },
+];
+
+/** Requirement chips for insight cards (next step / todo / reply), not raw chat lines. */
+export function listCustomerNeedChipsForInsights(
+  customerNeed: string,
+  lineText: string,
+  lang: AppLang,
+): string[] {
+  const sep = lang === "zh" ? "、" : ", ";
+  const chips: string[] = [];
+
+  for (const part of customerNeed.split(sep)) {
+    const p = part.trim();
+    if (!p || isGenericCustomerNeedPhrase(p)) continue;
+    pushUniqueNeedChip(chips, p);
+  }
+
+  for (const chip of extractCrmSaasRequirementChips(lineText)) {
+    pushUniqueNeedChip(chips, chip);
+  }
+
+  return chips.filter((c) => !looksLikeVerboseChatNeed(c) && c.length >= 2);
+}
+
+function extractCrmSaasRequirementChips(text: string): string[] {
+  const chips: string[] = [];
+  const t = stripIntroNoiseForNeedMining(text);
+  if (!t) return chips;
+
+  for (const { re, chip } of CRM_SAAS_NEED_RULES) {
+    if (re.test(t)) pushUniqueNeedChip(chips, chip);
+  }
+
+  for (const m of t.matchAll(
+    /(?:第[一二三四五六七八九十\d]+个?|[\d]+)[、.．)\s]+(?:是|為|为)?\s*([^，。；\n]{2,28})/gu,
+  )) {
+    const clause = (m[1] ?? "").trim();
+    if (!clause || clause.length < 2) continue;
+    for (const { re, chip } of CRM_SAAS_NEED_RULES) {
+      if (re.test(clause)) {
+        pushUniqueNeedChip(chips, chip);
+        break;
+      }
+    }
+    if (
+      /病患|病歷|術後|追蹤|預約|回診|分類|高單價|手機|分店|CRM|整合|醫美|診所/i.test(clause) &&
+      !/公司名稱|怎麼寫/u.test(clause)
+    ) {
+      pushUniqueNeedChip(chips, clause.replace(/^(?:是|為|为)\s*/u, ""));
+    }
+  }
+
+  return filterValidNeedChips(chips);
 }
 
 function isCompactNeedSummary(value: string, lang: string): boolean {
@@ -628,6 +1079,7 @@ function filterValidNeedChips(chips: string[]): string[] {
   return chips.filter((chip) => {
     const c = chip.trim();
     if (!c || c.length > 36) return false;
+    if (/^預算\d|^\d+\s*萬\s*預算/u.test(c)) return false;
     if (NEED_INTRO_CHIP_RE.test(c) && !/(想拍|風格|秒|分鐘|IG|LED|模特|妝髮|預算|月底前|完成)/u.test(c)) {
       return false;
     }
@@ -662,9 +1114,20 @@ function extractZhRequirementChips(text: string): string[] {
   const t = stripIntroNoiseForNeedMining(text);
   if (!t) return chips;
 
-  if (/保健食品/.test(t) && /(?:產品)?形象影片|產品影片/.test(t)) {
+  for (const chip of extractCrmSaasRequirementChips(t)) {
+    pushUniqueNeedChip(chips, chip);
+  }
+
+  const mentionsPhotography =
+    /拍攝|拍片|攝影|摄影|租棚|棚拍|模特|麻豆|妝髮|妆发|想拍|形象片|品牌影片/i.test(t);
+
+  if (
+    mentionsPhotography &&
+    /保健食品/.test(t) &&
+    /(?:產品)?形象影片|產品影片/.test(t)
+  ) {
     pushUniqueNeedChip(chips, "保健食品產品形象影片");
-  } else {
+  } else if (mentionsPhotography) {
     const shoot = t.match(
       /想拍(?:一支|一個|一段)?\s*([\u4e00-\u9fffA-Za-z0-9]{0,16}?(?:的)?(?:產品)?(?:形象|品牌)?影片|宣傳片|短片|廣告片)/u,
     );
@@ -677,14 +1140,16 @@ function extractZhRequirementChips(text: string): string[] {
     }
   }
 
-  const genericProduct = t.match(
-    /(?:拍攝|製作)\s*([\u4e00-\u9fff]{2,10}?)(?:的)?(?:產品)?(?:形象|品牌)?影片/u,
-  );
-  if (genericProduct?.[1] && !chips.some((c) => c.includes("影片"))) {
-    pushUniqueNeedChip(chips, `${genericProduct[1]}產品形象影片`);
+  if (mentionsPhotography) {
+    const genericProduct = t.match(
+      /(?:拍攝|製作)\s*([\u4e00-\u9fff]{2,10}?)(?:的)?(?:產品)?(?:形象|品牌)?影片/u,
+    );
+    if (genericProduct?.[1] && !chips.some((c) => c.includes("影片"))) {
+      pushUniqueNeedChip(chips, `${genericProduct[1]}產品形象影片`);
+    }
   }
 
-  if (/高級感|高级感|premium|高質感|高质感|偏高一|偏高一點|偏高级|高级一点/u.test(t)) {
+  if (mentionsPhotography && /高級感|高级感|premium|高質感|高质感|偏高一|偏高一點|偏高级|高级一点/u.test(t)) {
     pushUniqueNeedChip(chips, "高級感風格");
   }
   if (/簡約|极简|minimal/i.test(t)) pushUniqueNeedChip(chips, "簡約風格");
@@ -718,15 +1183,17 @@ function extractZhRequirementChips(text: string): string[] {
   if (/抖音|TikTok/i.test(t)) platforms.push("抖音");
   if (platforms.length > 0) pushUniqueNeedChip(chips, `${platforms.join("與")}使用`);
 
-  if (/LED/.test(t) && /(?:棚|背景|拍)/.test(t)) {
-    pushUniqueNeedChip(chips, /科技感/.test(t) ? "LED科技感背景" : "LED棚拍");
-  } else if (/科技感背景/.test(t)) {
-    pushUniqueNeedChip(chips, "科技感背景");
-  } else if (/攝影棚|棚拍|studio shoot/i.test(t)) {
-    pushUniqueNeedChip(chips, "攝影棚拍攝");
+  if (mentionsPhotography) {
+    if (/LED/.test(t) && /(?:棚|背景|拍)/.test(t)) {
+      pushUniqueNeedChip(chips, /科技感/.test(t) ? "LED科技感背景" : "LED棚拍");
+    } else if (/科技感背景/.test(t)) {
+      pushUniqueNeedChip(chips, "科技感背景");
+    } else if (/攝影棚|棚拍|studio shoot/i.test(t)) {
+      pushUniqueNeedChip(chips, "攝影棚拍攝");
+    }
   }
 
-  const hasModel = /模特|麻豆|\bmodel\b/i.test(t);
+  const hasModel = mentionsPhotography && /模特|麻豆|\bmodel\b/i.test(t);
   const hasMakeup = /妝髮|妆发|化妝|化妆|造型师|makeup/i.test(t);
   const femaleModel = /女生|女性|女模|女模特/i.test(t);
   const maleModel = /男生|男性|男模|男模特/i.test(t);
@@ -863,6 +1330,9 @@ function buildCustomerNote(lines: string[], lang: string, profile: ExtractedCust
     const content = redactProfileFromSnippet(stripConversationSpeakerLabel(raw), profile);
     if (!content || content.length < 3) continue;
     if (isIdentityOrContactLine(content, profile)) continue;
+    if (isSubstantiveNeedContent(content) || extractCrmSaasRequirementChips(content).length > 0) {
+      continue;
+    }
     if (isPrimaryNeedFragment(content) && !isNoteFragment(content)) continue;
 
     if (isNoteFragment(content)) {
@@ -881,6 +1351,7 @@ export function cleanCustomerNeedText(
 ): string {
   const raw = value.trim();
   if (!raw) return "";
+  if (isGenericCustomerNeedPhrase(raw)) return "";
   if (looksLikeVerboseChatNeed(raw) && !isSubstantiveNeedContent(raw)) return "";
 
   if (isCompactNeedSummary(raw, lang)) {
@@ -969,8 +1440,13 @@ export function sanitizeCustomerData(
   }
 
   if (data.company_name) {
-    data.company_name = normalizeCompanyName(data.company_name);
-    if (!isValidCompanyName(data.company_name)) data.company_name = "";
+    data.company_name = cleanCompanyCandidate(data.company_name);
+    if (
+      !isValidCompanyName(data.company_name) &&
+      !isValidNaturalCompanyName(data.company_name, { fromContextualPattern: true })
+    ) {
+      data.company_name = "";
+    }
   }
 
   if (data.phone) {
@@ -997,7 +1473,7 @@ export function validateCustomerData(
   const email = input.email.trim();
   let customer_need = input.customer_need.trim();
 
-  if (company_name && !isValidCompanyName(company_name)) {
+  if (company_name && !isValidCompanyName(company_name) && !isValidLabeledCompanyName(company_name)) {
     const rescued = extractCompanyStep2(company_name, splitChatLines(company_name));
     if (rescued) {
       company_name = rescued;
@@ -1079,7 +1555,28 @@ function pickMergedField(regexValue: string, aiValue: string): string {
   const fromRegex = regexValue.trim();
   if (fromRegex) return fromRegex;
   const fromAi = aiValue.trim();
-  if (fromAi) return fromAi;
+  if (fromAi && !isNotProvidedLabel(fromAi)) return fromAi;
+  return "";
+}
+
+function pickMergedCustomerNeed(regexValue: string, aiValue: string): string {
+  const fromRegex = regexValue.trim();
+  if (fromRegex) return fromRegex;
+  const fromAi = aiValue.trim();
+  if (fromAi && !isNotProvidedLabel(fromAi) && !isGenericCustomerNeedPhrase(fromAi)) {
+    return fromAi;
+  }
+  return "";
+}
+
+function companyNameFromExtraction(labeled: string, inferred: string): string {
+  const fromLabel = cleanCompanyCandidate(labeled);
+  if (fromLabel && isValidLabeledCompanyName(fromLabel)) return fromLabel;
+  const fromInferred = cleanCompanyCandidate(inferred);
+  if (fromInferred && isValidNaturalCompanyName(fromInferred, { fromContextualPattern: true })) {
+    return fromInferred;
+  }
+  if (fromInferred && isValidCompanyName(fromInferred)) return fromInferred;
   return "";
 }
 
@@ -1136,26 +1633,120 @@ export function sanitizeAiCustomerFields(
   };
 }
 
-/** regexExtracted > sanitizedAI > empty */
+function pickConfirmedField(
+  labeledValue: string,
+  regexValue: string,
+  aiValue: string,
+): string {
+  const labeled = labeledValue.trim();
+  if (labeled) return labeled;
+  const fromRegex = regexValue.trim();
+  if (fromRegex) return fromRegex;
+  const fromAi = aiValue.trim();
+  if (fromAi && !isNotProvidedLabel(fromAi)) return fromAi;
+  return "";
+}
+
+/**
+ * Confirmed CRM fields: labeled > conversational/regex > AI fallback.
+ * customer_need never taken from generic AI phrases.
+ */
+export function mergeConfirmedCrmExtraction(
+  lineText: string,
+  lang: string,
+  regexExtracted: ExtractedCustomerProfile,
+  sanitizedAi: ExtractedCustomerProfile,
+  aiExtras?: { estimatedAmount?: string },
+): {
+  profile: ExtractedCustomerProfile;
+  note: string;
+  estimatedAmount: string;
+} {
+  const lines = splitChatLines(lineText);
+  const labeled = extractLabeledCrmFields(lines);
+
+  let customer_name = "";
+  if (labeled.customer_name && isValidExtractedCustomerName(labeled.customer_name)) {
+    customer_name = labeled.customer_name;
+  } else {
+    customer_name = sanitizeCustomerNameValue(
+      pickConfirmedField("", regexExtracted.customer_name, sanitizedAi.customer_name),
+    );
+  }
+
+  const company_name =
+    companyNameFromExtraction(labeled.company_name, regexExtracted.company_name) ||
+    pickConfirmedField("", "", sanitizedAi.company_name);
+
+  const phone =
+    (labeled.phone ? normalizePhone(labeled.phone) : "") ||
+    pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone);
+  const line_id = pickConfirmedField(labeled.line_id, regexExtracted.line_id, sanitizedAi.line_id);
+  const email = pickConfirmedField(labeled.email, regexExtracted.email, sanitizedAi.email);
+
+  const aiAmount = (aiExtras?.estimatedAmount ?? "").trim();
+  const estimatedAmount =
+    extractEstimatedAmountFromChat(lineText) ||
+    (labeled.budget ? normalizeBudgetPhrase(labeled.budget) : "") ||
+    (aiAmount && !isNotProvidedLabel(aiAmount) ? aiAmount : "");
+
+  const draftProfile: ExtractedCustomerProfile = {
+    customer_name,
+    company_name,
+    phone,
+    line_id,
+    email,
+    customer_need: "",
+  };
+
+  const labeledNeedFallback =
+    labeled.customer_need.trim() && !isGenericCustomerNeedPhrase(labeled.customer_need)
+      ? labeled.customer_need.trim()
+      : "";
+
+  const { customer_need: refinedNeed, note } = refineCustomerNeedAndNote(
+    lineText,
+    draftProfile,
+    lang,
+    labeledNeedFallback,
+  );
+
+  const profile = sanitizeCustomerData(
+    { ...draftProfile, customer_need: refinedNeed },
+    lang,
+  );
+
+  return {
+    profile,
+    note: cleanCustomerNoteText(note, profile, lang),
+    estimatedAmount,
+  };
+}
+
+/** Confirmed fields: labeled > regex > AI. Requires lineText for need/note refinement. */
 export function mergeCustomerExtraction(
   regexExtracted: ExtractedCustomerProfile,
   sanitizedAi: ExtractedCustomerProfile,
+  lineText = "",
+  lang: string = "zh",
+  aiExtras?: { estimatedAmount?: string },
 ): ExtractedCustomerProfile {
-  const merged: ExtractedCustomerProfile = {
-    customer_name: pickMergedField(regexExtracted.customer_name, sanitizedAi.customer_name),
-    company_name: pickMergedField(regexExtracted.company_name, sanitizedAi.company_name),
-    phone: pickMergedField(regexExtracted.phone, sanitizedAi.phone),
-    line_id: pickMergedField(regexExtracted.line_id, sanitizedAi.line_id),
-    email: pickMergedField(regexExtracted.email, sanitizedAi.email),
-    customer_need: pickMergedField(regexExtracted.customer_need, sanitizedAi.customer_need),
-  };
-
-  merged.customer_name = sanitizeCustomerNameValue(merged.customer_name);
-  merged.company_name = normalizeCompanyName(merged.company_name);
-  if (merged.company_name && !isValidCompanyName(merged.company_name)) {
-    merged.company_name = "";
+  if (lineText.trim()) {
+    return mergeConfirmedCrmExtraction(lineText, lang, regexExtracted, sanitizedAi, aiExtras)
+      .profile;
   }
 
+  const merged: ExtractedCustomerProfile = {
+    customer_name: pickConfirmedField("", regexExtracted.customer_name, sanitizedAi.customer_name),
+    company_name:
+      companyNameFromExtraction("", regexExtracted.company_name) ||
+      pickConfirmedField("", "", sanitizedAi.company_name),
+    phone: pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone),
+    line_id: pickConfirmedField("", regexExtracted.line_id, sanitizedAi.line_id),
+    email: pickConfirmedField("", regexExtracted.email, sanitizedAi.email),
+    customer_need: pickMergedCustomerNeed(regexExtracted.customer_need, sanitizedAi.customer_need),
+  };
+  merged.customer_name = sanitizeCustomerNameValue(merged.customer_name);
   return merged;
 }
 
@@ -1175,19 +1766,30 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
 
   const fullText = raw.trim();
   const lines = splitChatLines(raw);
+  const labeled = extractLabeledCrmFields(lines);
 
   // STEP 1
-  const email = extractEmailStep1(fullText);
-  const phone = extractPhoneStep1(fullText);
-  const line_id = extractLineIdStep1(fullText, email);
+  const email = extractEmailStep1(fullText) || labeled.email;
+  const phone = extractPhoneStep1(fullText) || normalizePhone(labeled.phone);
+  let line_id = extractLineIdStep1(fullText, email) || labeled.line_id.trim();
+  if (line_id && !isLikelyLineId(line_id, email)) line_id = "";
 
-  // STEP 2
-  const company_name = extractCompanyStep2(fullText, lines);
+  // STEP 2 — labeled 公司： wins over inferred company
+  const company_name = companyNameFromExtraction(
+    labeled.company_name,
+    extractCompanyStep2(fullText, lines),
+  );
 
-  // STEP 3
-  let customer_name = extractCustomerNameStep3(fullText, lines, lang);
-  if (!isValidExtractedCustomerName(customer_name)) {
-    customer_name = "";
+  // STEP 3 — labeled 客戶： wins over inferred name
+  let customer_name = "";
+  const labeledNameRaw = labeled.customer_name.trim();
+  if (labeledNameRaw && isValidExtractedCustomerName(labeledNameRaw)) {
+    customer_name = labeledNameRaw;
+  } else {
+    customer_name = extractCustomerNameStep3(fullText, lines, lang);
+    if (!isValidExtractedCustomerName(customer_name)) {
+      customer_name = "";
+    }
   }
 
   const draftProfile: ExtractedCustomerProfile = {
@@ -1199,7 +1801,12 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
     customer_need: "",
   };
 
-  const { customer_need } = refineCustomerNeedAndNote(raw, draftProfile, lang);
+  const { customer_need } = refineCustomerNeedAndNote(
+    raw,
+    draftProfile,
+    lang,
+    labeled.customer_need.trim(),
+  );
 
   const draft: ExtractedCustomerProfile = {
     ...draftProfile,

@@ -2,7 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { CopyFallbackModal } from "../components/CopyFallbackModal";
+import type { AppLang } from "../lib/appLang";
 import { copyToClipboard } from "../lib/copyToClipboard";
+import { sharedUiCopy } from "../lib/uiI18n";
 
 export type CopyWithFallbackOptions = {
   title?: string;
@@ -18,8 +20,9 @@ type FallbackState = {
   options: CopyWithFallbackOptions;
 };
 
-export function useCopyWithFallback(isMobile = false) {
+export function useCopyWithFallback(isMobile = false, lang: AppLang = "zh") {
   const [fallback, setFallback] = useState<FallbackState | null>(null);
+  const shared = sharedUiCopy(lang);
 
   const closeFallback = useCallback(() => setFallback(null), []);
 
@@ -34,10 +37,20 @@ export function useCopyWithFallback(isMobile = false) {
         return true;
       }
 
-      setFallback({ text: value, options: options ?? {} });
+      setFallback({
+        text: value,
+        options: {
+          title: options?.title ?? shared.copyFallbackTitle,
+          description: options?.description ?? shared.copyFallbackDesc,
+          tapLabel: options?.tapLabel ?? shared.tapToCopy,
+          closeLabel: options?.closeLabel ?? shared.close,
+          copiedLabel: options?.copiedLabel ?? shared.copiedExclaim,
+          onSuccess: options?.onSuccess,
+        },
+      });
       return false;
     },
-    [],
+    [shared.close, shared.copyFallbackDesc, shared.copyFallbackTitle, shared.copiedExclaim, shared.tapToCopy],
   );
 
   const fallbackModal = fallback ? (

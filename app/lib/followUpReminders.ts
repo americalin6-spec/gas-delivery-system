@@ -1,4 +1,5 @@
 import { resolveCustomerHonorific } from "./customerHonorific";
+import { explicitFollowUpYmdsFromSource } from "./dateParser";
 
 /** Deal probability considered "high" for auto follow-up scheduling */
 export function isHighDealProbability(rate?: unknown): boolean {
@@ -60,12 +61,41 @@ export function diffCalendarDaysYmd(fromYmd: string, toYmd: string): number | nu
   return Math.round((tb - ta) / 86400000);
 }
 
-/** Random 1–3 days from today */
+/** @deprecated Auto follow-up scheduling disabled; retained for legacy imports only. */
 export function computeHighPotentialFollowUpDate(): string {
   const offsetDays = 1 + Math.floor(Math.random() * 3);
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return formatLocalYmd(d);
+}
+
+/** Show stored follow-up only when it matches an explicit date anchor in source conversation. */
+export function getVerifiedFollowUpYmd(
+  stored: unknown,
+  sourceText: string,
+  referenceDate: Date = new Date(),
+): string | null {
+  const normalized = normalizeFollowUpDateValue(stored);
+  if (!normalized) return null;
+  const allowed = explicitFollowUpYmdsFromSource(sourceText, referenceDate);
+  if (allowed.length === 0) return null;
+  return allowed.includes(normalized) ? normalized : null;
+}
+
+/**
+ * UI display: verified conversation date, or a user-confirmed CRM date (manualOverrideYmd).
+ */
+export function resolveDisplayFollowUpYmd(
+  stored: unknown,
+  sourceText: string,
+  options?: { manualOverrideYmd?: string | null; referenceDate?: Date },
+): string | null {
+  const ref = options?.referenceDate ?? new Date();
+  const manual = normalizeFollowUpDateValue(options?.manualOverrideYmd);
+  const normalized = normalizeFollowUpDateValue(stored);
+  if (!normalized) return null;
+  if (manual && manual === normalized) return normalized;
+  return getVerifiedFollowUpYmd(stored, sourceText, ref);
 }
 
 /** Coerce DB/API values (string, Date, ISO timestamp) to calendar YYYY-MM-DD or null */

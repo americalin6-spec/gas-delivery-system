@@ -8,6 +8,7 @@
   "/api/conversations/route": "/api/conversations",
   "/api/line-push-test/route": "/api/line-push-test",
   "/api/line-webhook/route": "/api/line-webhook",
+  "/api/notifications/route": "/api/notifications",
   "/api/reminder-check/route": "/api/reminder-check",
   "/api/reminder-settings/route": "/api/reminder-settings",
   "/api/save/route": "/api/save",

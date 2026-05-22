@@ -2,47 +2,117 @@
 
 import Link from "next/link";
 import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import {
   useCallback,
   useEffect,
   useMemo,
   useState,
   type CSSProperties,
-  type DragEvent,
 } from "react";
 import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { pipelineBoardCopy } from "../lib/customersI18n";
 import {
-  formatFollowUpDateDisplay,
-  getFollowUpBadge,
-  getTaipeiTodayYmd,
-  diffCalendarDaysYmd,
-  normalizeFollowUpDateValue,
-} from "../lib/followUpReminders";
+  buildConversationSourceMap,
+  resolveDisplayImportantDate,
+} from "../lib/crmCustomerDisplay";
 import {
-  computePipelineStats,
-  normalizePipelineStatus,
-  PIPELINE_STATUSES,
-  pipelineStatusLabel,
-  pipelineStatusVisual,
-  type PipelineStatus,
-} from "../lib/pipelineStatus";
-import PipelineStatusBadge from "../components/PipelineStatusBadge";
+  boardColumnToCustomerStatus,
+  customerStatusToBoardColumn,
+  PIPELINE_BOARD_COLUMNS,
+  pipelineBoardColumnLabel,
+  pipelineBoardColumnVisual,
+  type PipelineBoardColumn,
+} from "../lib/pipelineBoardColumns";
+import {
+  buildPipelineCardTags,
+  formatColumnAmountTotal,
+  parseEstimatedAmountValue,
+} from "../lib/pipelineKanban";
+import {
+  formatCustomerCreatedAtDisplay,
+  getCustomerLastContactAt,
+} from "../lib/customerSoftDelete";
+import { formatWorkspaceDateTime } from "../lib/followUpWorkspace";
+import {
+  computeCustomerStatusStats,
+  customerStatusLabel,
+  customerStatusWritePayload,
+  getRawCustomerStatus,
+  normalizeCustomerStatus,
+  type CustomerStatus,
+} from "../lib/customerStatus";
+import {
+  loadCollapsedPipelineColumns,
+  saveCollapsedPipelineColumns,
+} from "../lib/pipelineColumnCollapse";
+import {
+  activeCustomersOnly,
+  softDeleteCustomerPayload,
+} from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../../supabase";
 
 const MOBILE_MAX = 768;
 
+const CRM_THEME = {
+  pageBg: "linear-gradient(135deg,#001133 0%,#001a44 40%,#003b46 100%)",
+  panelBg: "#081b33",
+  cardBg: "#102742",
+  cardBorder: "rgba(148,163,184,0.18)",
+  cardBorderStrong: "#1e3a5f",
+  inputBg: "#102742",
+  text: "#f8fafc",
+  textMuted: "rgba(226,232,240,0.75)",
+  textSubtle: "#94a3b8",
+  accent: "#6366f1",
+  shadow: "0 8px 24px rgba(0,0,0,0.25)",
+  shadowSoft: "0 4px 16px rgba(0,0,0,0.2)",
+} as const;
+
 type PipelineCustomer = {
   id: string | number;
   customer_name?: string | null;
   company_name?: string | null;
+  customer_status?: string | null;
   status?: string | null;
-  follow_up_date?: string | null;
+  note?: string | null;
+  important_date?: string | null;
   estimated_amount?: string | null;
   success_rate?: string | null;
+  priority?: string | null;
+  urgent?: boolean | null;
+  customer_level?: string | null;
+  created_at?: string | null;
+  last_contacted_at?: string | null;
+  last_contact_at?: string | null;
 };
+
+function cardDragId(id: string | number) {
+  return `card:${id}`;
+}
+
+function parseCardDragId(id: string): string | null {
+  if (!id.startsWith("card:")) return null;
+  return id.slice(5);
+}
+
+function isBoardColumnId(id: string): id is PipelineBoardColumn {
+  return (PIPELINE_BOARD_COLUMNS as string[]).includes(id);
+}
 
 export default function PipelineBoardPage() {
   const { lang } = useAppLang();
@@ -50,29 +120,85 @@ export default function PipelineBoardPage() {
   const t = pipelineBoardCopy(lang);
 
   const [customers, setCustomers] = useState<PipelineCustomer[]>([]);
+  const [conversationSourceByCustomerId, setConversationSourceByCustomerId] = useState(
+    () => new Map<string, string>(),
+  );
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<PipelineStatus | null>(null);
+  const [search, setSearch] = useState("");
+  const [columnFilter, setColumnFilter] = useState<"all" | PipelineBoardColumn>("all");
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<PipelineBoardColumn>>(
+    () => new Set(),
+  );
   const { companyId, ready: companyReady } = useActiveCompany();
+
+  useEffect(() => {
+    setCollapsedColumns(loadCollapsedPipelineColumns());
+  }, []);
+
+  const toggleColumnCollapsed = useCallback((column: PipelineBoardColumn) => {
+    setCollapsedColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(column)) next.delete(column);
+      else next.add(column);
+      saveCollapsedPipelineColumns(next);
+      return next;
+    });
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+  );
 
   const loadCustomers = useCallback(async () => {
     if (!companyReady || companyId <= 0) return;
     logActiveCompany("pipeline.load", { companyId });
-    const { data, error } = await supabase
+    setLoading(true);
+
+    const { data, error: loadError } = await supabase
       .from("customers")
       .select(
-        "id, customer_name, company_name, status, follow_up_date, estimated_amount, success_rate",
+          "id, customer_name, company_name, customer_status, status, note, important_date, estimated_amount, success_rate, priority, urgent, customer_level, created_at, last_contacted_at, last_contact_at",
       )
       .eq("company_id", companyId)
       .order("id", { ascending: false });
 
-    if (error) {
-      console.error("[pipeline] load customers failed:", error);
-      setError(error.message);
+    if (loadError) {
+      console.error("[pipeline] load customers failed:", loadError);
+      setError(loadError.message);
+      setLoading(false);
       return;
     }
-    setCustomers((data || []) as PipelineCustomer[]);
+
+    const rows = (data || []) as PipelineCustomer[];
+    setCustomers(rows);
+
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) {
+      setConversationSourceByCustomerId(new Map());
+      setLoading(false);
+      return;
+    }
+
+    const { data: convRows, error: convError } = await supabase
+      .from("conversations")
+      .select("customer_id, message_text")
+      .eq("company_id", companyId)
+      .in("customer_id", ids)
+      .order("id", { ascending: true });
+
+    if (convError) {
+      console.warn("[pipeline] load conversations failed:", convError);
+      setConversationSourceByCustomerId(new Map());
+    } else {
+      setConversationSourceByCustomerId(
+        buildConversationSourceMap(convRows || []),
+      );
+    }
+
     setLoading(false);
   }, [companyId, companyReady]);
 
@@ -81,23 +207,64 @@ export default function PipelineBoardPage() {
     void loadCustomers();
   }, [loadCustomers, companyReady, companyId]);
 
-  const stats = useMemo(() => computePipelineStats(customers), [customers]);
+  const filteredCustomers = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    return customers.filter((c) => {
+      if (columnFilter !== "all") {
+        const col = customerStatusToBoardColumn(getRawCustomerStatus(c));
+        if (col !== columnFilter) return false;
+      }
+      if (!keyword) return true;
+      const haystack = [
+        c.customer_name,
+        c.company_name,
+        c.note,
+        c.success_rate,
+        c.estimated_amount,
+      ]
+        .map((v) => (v || "").toString().toLowerCase())
+        .join(" ");
+      return haystack.includes(keyword);
+    });
+  }, [customers, search, columnFilter]);
+
+  const stats = useMemo(() => computeCustomerStatusStats(filteredCustomers), [filteredCustomers]);
 
   const grouped = useMemo(() => {
-    const out = new Map<PipelineStatus, PipelineCustomer[]>();
-    for (const s of PIPELINE_STATUSES) out.set(s, []);
-    for (const c of customers) {
-      const s = normalizePipelineStatus(c.status);
-      out.get(s)!.push(c);
+    const out = new Map<PipelineBoardColumn, PipelineCustomer[]>();
+    for (const col of PIPELINE_BOARD_COLUMNS) out.set(col, []);
+    for (const c of filteredCustomers) {
+      const col = customerStatusToBoardColumn(getRawCustomerStatus(c));
+      out.get(col)!.push(c);
     }
     return out;
-  }, [customers]);
+  }, [filteredCustomers]);
+
+  const columnMeta = useMemo(() => {
+    const meta = new Map<
+      PipelineBoardColumn,
+      { count: number; amountTotal: number; amountLabel: string }
+    >();
+    for (const col of PIPELINE_BOARD_COLUMNS) {
+      const rows = grouped.get(col) || [];
+      const amountTotal = rows.reduce(
+        (sum, r) => sum + parseEstimatedAmountValue(r.estimated_amount),
+        0,
+      );
+      meta.set(col, {
+        count: rows.length,
+        amountTotal,
+        amountLabel: formatColumnAmountTotal(amountTotal, lang),
+      });
+    }
+    return meta;
+  }, [grouped, lang]);
 
   const updateStatus = useCallback(
-    async (customerId: string | number, next: PipelineStatus) => {
+    async (customerId: string | number, next: CustomerStatus) => {
       const current = customers.find((c) => String(c.id) === String(customerId));
       if (!current) return;
-      if (normalizePipelineStatus(current.status) === next) return;
+      if (normalizeCustomerStatus(getRawCustomerStatus(current)) === next) return;
 
       const prevSnapshot = customers;
       setUpdatingId(String(customerId));
@@ -105,51 +272,87 @@ export default function PipelineBoardPage() {
 
       setCustomers((rows) =>
         rows.map((r) =>
-          String(r.id) === String(customerId) ? { ...r, status: next } : r,
+          String(r.id) === String(customerId)
+            ? { ...r, ...customerStatusWritePayload(next) }
+            : r,
         ),
       );
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from("customers")
-        .update({ status: next })
+        .update(customerStatusWritePayload(next))
         .eq("company_id", companyId)
         .eq("id", customerId);
 
       setUpdatingId(null);
 
-      if (error) {
-        console.error("[pipeline] update status failed:", error);
-        setError(error.message || t.updateFailed);
+      if (updateError) {
+        console.error("[pipeline] update status failed:", updateError);
+        setError(updateError.message || t.updateFailed);
         setCustomers(prevSnapshot);
       }
     },
-    [customers, companyId, companyReady, t.updateFailed],
+    [customers, companyId, t.updateFailed],
   );
 
-  const handleDragStart = (
-    e: DragEvent<HTMLDivElement>,
-    customerId: string | number,
-  ) => {
-    e.dataTransfer.setData("text/plain", String(customerId));
-    e.dataTransfer.effectAllowed = "move";
+  const moveToBoardColumn = useCallback(
+    (customerId: string | number, column: PipelineBoardColumn) => {
+      void updateStatus(customerId, boardColumnToCustomerStatus(column));
+    },
+    [updateStatus],
+  );
+
+  const deleteCustomer = useCallback(
+    async (id: string | number) => {
+      if (!confirm(t.confirmDelete)) return;
+      const { error: deleteError } = await supabase
+        .from("customers")
+        .update(softDeleteCustomerPayload())
+        .eq("company_id", companyId)
+        .eq("id", id);
+      if (deleteError) {
+        setError(deleteError.message);
+        return;
+      }
+      setCustomers((rows) => rows.filter((r) => String(r.id) !== String(id)));
+    },
+    [companyId, t.confirmDelete],
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>, target: PipelineStatus) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragOver !== target) setDragOver(target);
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const customerId = parseCardDragId(String(active.id));
+    if (!customerId) return;
+
+    const overId = String(over.id);
+    let targetCol: PipelineBoardColumn | null = null;
+    if (isBoardColumnId(overId)) {
+      targetCol = overId;
+    } else {
+      const overCardId = parseCardDragId(overId);
+      if (overCardId) {
+        const overCustomer = customers.find((c) => String(c.id) === overCardId);
+        if (overCustomer) {
+          targetCol = customerStatusToBoardColumn(getRawCustomerStatus(overCustomer));
+        }
+      }
+    }
+
+    if (targetCol) moveToBoardColumn(customerId, targetCol);
   };
 
-  const handleDragLeave = (target: PipelineStatus) => {
-    if (dragOver === target) setDragOver(null);
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>, target: PipelineStatus) => {
-    e.preventDefault();
-    setDragOver(null);
-    const id = e.dataTransfer.getData("text/plain");
-    if (id) void updateStatus(id, target);
-  };
+  const activeCustomer = useMemo(() => {
+    const id = activeDragId ? parseCardDragId(activeDragId) : null;
+    if (!id) return null;
+    return customers.find((c) => String(c.id) === id) ?? null;
+  }, [activeDragId, customers]);
 
   const font =
     'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -158,10 +361,9 @@ export default function PipelineBoardPage() {
     <main
       style={{
         minHeight: "100vh",
-        background:
-          "linear-gradient(135deg,#001133 0%,#001a44 40%,#003b46 100%)",
+        background: CRM_THEME.pageBg,
         padding: isMobile ? 20 : 40,
-        color: "white",
+        color: CRM_THEME.text,
         fontFamily: font,
         boxSizing: "border-box",
         width: "100%",
@@ -170,14 +372,14 @@ export default function PipelineBoardPage() {
         lineHeight: 1.5,
       }}
     >
-      <div
+      <header
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: isMobile ? "flex-start" : "center",
           flexDirection: isMobile ? "column" : "row",
-          gap: 20,
-          marginBottom: 28,
+          gap: 16,
+          marginBottom: 20,
         }}
       >
         <div>
@@ -187,31 +389,31 @@ export default function PipelineBoardPage() {
               margin: 0,
               fontWeight: 700,
               letterSpacing: "-0.02em",
-              lineHeight: 1.15,
+              color: CRM_THEME.text,
             }}
           >
             {t.title}
           </h1>
-          <p style={{ opacity: 0.82, marginTop: 10, fontSize: 16 }}>
-            {t.subtitle(customers.length)}
+          <p style={{ color: CRM_THEME.textMuted, marginTop: 10, fontSize: isMobile ? 16 : 18 }}>
+            {t.subtitle(filteredCustomers.length)}
           </p>
         </div>
         <div
           style={{
             display: "flex",
-            gap: 12,
+            gap: 10,
             flexWrap: "wrap",
             width: isMobile ? "100%" : "auto",
           }}
         >
           <Link href="/customers" style={{ width: isMobile ? "100%" : "auto" }}>
-            <button style={navButton(isMobile, "#102742")}>{t.backCustomers}</button>
+            <button style={navButton(isMobile)}>{t.backCustomers}</button>
           </Link>
           <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>
-            <button style={navButton(isMobile, "#081b33")}>{t.backHome}</button>
+            <button style={navButtonSecondary(isMobile)}>{t.backHome}</button>
           </Link>
         </div>
-      </div>
+      </header>
 
       <StatsSummary
         total={stats.total}
@@ -222,16 +424,58 @@ export default function PipelineBoardPage() {
         isMobile={isMobile}
       />
 
-      <p
+      <div
         style={{
-          opacity: 0.7,
-          fontSize: 14,
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          gap: 12,
           marginTop: 18,
-          marginBottom: 18,
+          marginBottom: 14,
         }}
       >
-        {t.dragHint}
-      </p>
+        <input
+          placeholder={t.searchPlaceholder}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            flex: 1,
+            padding: isMobile ? "14px 16px" : "16px 18px",
+            borderRadius: 14,
+            border: "none",
+            background: CRM_THEME.inputBg,
+            color: CRM_THEME.text,
+            fontSize: 16,
+            boxSizing: "border-box",
+            minWidth: 0,
+          }}
+        />
+        <select
+          value={columnFilter}
+          onChange={(e) =>
+            setColumnFilter(e.target.value as "all" | PipelineBoardColumn)
+          }
+          aria-label={t.filterAll}
+          style={{
+            padding: "12px 14px",
+            borderRadius: 10,
+            border: `1px solid ${CRM_THEME.cardBorder}`,
+            background: CRM_THEME.inputBg,
+            color: CRM_THEME.text,
+            fontSize: 14,
+            fontWeight: 600,
+            minWidth: isMobile ? "100%" : 180,
+          }}
+        >
+          <option value="all">{t.filterAll}</option>
+          {PIPELINE_BOARD_COLUMNS.map((col) => (
+            <option key={col} value={col}>
+              {pipelineBoardColumnLabel(col, lang)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <p style={{ color: CRM_THEME.textMuted, fontSize: 14, marginBottom: 16 }}>{t.dragHint}</p>
 
       {error ? (
         <div
@@ -240,9 +484,10 @@ export default function PipelineBoardPage() {
             background: "rgba(239,68,68,0.15)",
             border: "1px solid rgba(248,113,113,0.35)",
             color: "#fecaca",
-            padding: 14,
-            borderRadius: 12,
+            padding: 12,
+            borderRadius: 10,
             marginBottom: 16,
+            fontSize: 14,
           }}
         >
           {error}
@@ -250,105 +495,87 @@ export default function PipelineBoardPage() {
       ) : null}
 
       {loading ? (
-        <div style={{ opacity: 0.7, padding: 24 }}>…</div>
+        <div style={{ color: CRM_THEME.textMuted, padding: 24 }}>…</div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(6, minmax(260px, 1fr))",
-            gap: 16,
-            overflowX: isMobile ? "visible" : "auto",
-            paddingBottom: 8,
-          }}
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         >
-          {PIPELINE_STATUSES.map((s) => {
-            const v = pipelineStatusVisual(s);
-            const rows = grouped.get(s) || [];
-            const isOver = dragOver === s;
-            return (
-              <div
-                key={s}
-                onDragOver={(e) => handleDragOver(e, s)}
-                onDragLeave={() => handleDragLeave(s)}
-                onDrop={(e) => handleDrop(e, s)}
-                style={{
-                  background: isOver ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.55)",
-                  border: `1px solid ${isOver ? v.columnAccent : "rgba(148,163,184,0.18)"}`,
-                  borderRadius: 16,
-                  padding: 14,
-                  minHeight: 240,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  transition: "background 120ms ease, border-color 120ms ease",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    paddingBottom: 8,
-                    borderBottom: `1px solid ${v.columnAccent}55`,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span
-                      aria-hidden
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 999,
-                        background: v.columnAccent,
-                      }}
-                    />
-                    <strong style={{ fontSize: 15, letterSpacing: "-0.01em" }}>
-                      {pipelineStatusLabel(s, lang)}
-                    </strong>
-                  </div>
-                  <span style={{ fontSize: 13, opacity: 0.75 }}>{rows.length}</span>
-                </div>
+          <style>{`
+            .pipeline-board-grid {
+              display: grid;
+              gap: 14px;
+              grid-template-columns: minmax(0, 1fr);
+              align-items: start;
+            }
+            @media (min-width: 768px) {
+              .pipeline-board-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+              }
+            }
+            @media (min-width: 1024px) {
+              .pipeline-board-grid {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+              }
+            }
+          `}</style>
+          <div className="pipeline-board-grid">
+            {PIPELINE_BOARD_COLUMNS.map((col) => (
+              <KanbanColumn
+                key={col}
+                column={col}
+                rows={grouped.get(col) || []}
+                meta={columnMeta.get(col)!}
+                lang={lang}
+                t={t}
+                collapsed={collapsedColumns.has(col)}
+                onToggleCollapsed={() => toggleColumnCollapsed(col)}
+                conversationSourceByCustomerId={conversationSourceByCustomerId}
+                onMove={moveToBoardColumn}
+                onDelete={deleteCustomer}
+                updatingId={updatingId}
+              />
+            ))}
+          </div>
 
-                {rows.length === 0 ? (
-                  <div
-                    style={{
-                      opacity: 0.55,
-                      fontSize: 13,
-                      padding: "8px 4px",
-                    }}
-                  >
-                    {t.emptyColumn}
-                  </div>
-                ) : (
-                  rows.map((c) => (
-                    <PipelineCard
-                      key={String(c.id)}
-                      customer={c}
-                      currentStatus={s}
-                      lang={lang}
-                      t={t}
-                      isMobile={isMobile}
-                      onDragStart={handleDragStart}
-                      onChangeStatus={updateStatus}
-                      busy={updatingId === String(c.id)}
-                    />
-                  ))
-                )}
-              </div>
-            );
-          })}
-        </div>
+          <DragOverlay dropAnimation={{ duration: 220, easing: "cubic-bezier(0.2,0,0,1)" }}>
+            {activeCustomer ? (
+              <PipelineCardView
+                customer={activeCustomer}
+                lang={lang}
+                t={t}
+                conversationSource={conversationSourceByCustomerId.get(String(activeCustomer.id)) ?? ""}
+                isDragging
+                isOverlay
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
     </main>
   );
 }
 
-function navButton(isMobile: boolean, bg: string): CSSProperties {
+function navButton(isMobile: boolean): CSSProperties {
   return {
-    background: bg,
+    background: CRM_THEME.accent,
     color: "white",
     border: "none",
+    padding: isMobile ? "13px 18px" : "13px 22px",
+    borderRadius: 12,
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: 15,
+    width: isMobile ? "100%" : "auto",
+  };
+}
+
+function navButtonSecondary(isMobile: boolean): CSSProperties {
+  return {
+    background: CRM_THEME.cardBg,
+    color: "white",
+    border: `1px solid ${CRM_THEME.cardBorderStrong}`,
     padding: isMobile ? "13px 18px" : "13px 22px",
     borderRadius: 12,
     cursor: "pointer",
@@ -375,13 +602,13 @@ function StatsSummary({
 }) {
   const cards: Array<{ label: string; value: string; helper?: string; color: string }> = [
     { label: labels.statsTotal, value: String(total), color: "#94a3b8" },
-    { label: labels.statsWon, value: String(won), color: "#22c55e" },
-    { label: labels.statsLost, value: String(lost), color: "#ef4444" },
+    { label: labels.statsWon, value: String(won), color: "#4ade80" },
+    { label: labels.statsLost, value: String(lost), color: "#f87171" },
     {
       label: labels.statsConversion,
       value: `${(conversionRate * 100).toFixed(1)}%`,
       helper: labels.statsConversionHelp,
-      color: "#6366f1",
+      color: "#818cf8",
     },
   ];
 
@@ -390,7 +617,7 @@ function StatsSummary({
       style={{
         display: "grid",
         gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
-        gap: 12,
+        gap: 10,
       }}
     >
       {cards.map((card) => (
@@ -398,25 +625,26 @@ function StatsSummary({
           key={card.label}
           style={{
             background: "rgba(15,23,42,0.6)",
-            border: "1px solid rgba(148,163,184,0.2)",
+            border: `1px solid ${CRM_THEME.cardBorder}`,
             borderRadius: 14,
             padding: isMobile ? 14 : 18,
+            boxShadow: CRM_THEME.shadowSoft,
           }}
         >
           <div
             style={{
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.08em",
-              color: "rgba(226,232,240,0.75)",
+              color: CRM_THEME.textMuted,
             }}
           >
             {card.label}
           </div>
           <div
             style={{
-              fontSize: isMobile ? 26 : 34,
+              fontSize: isMobile ? 24 : 32,
               fontWeight: 700,
               color: card.color,
               marginTop: 6,
@@ -426,13 +654,7 @@ function StatsSummary({
             {card.value}
           </div>
           {card.helper ? (
-            <div
-              style={{
-                fontSize: 12,
-                opacity: 0.65,
-                marginTop: 4,
-              }}
-            >
+            <div style={{ fontSize: 11, color: CRM_THEME.textSubtle, marginTop: 4 }}>
               {card.helper}
             </div>
           ) : null}
@@ -442,160 +664,506 @@ function StatsSummary({
   );
 }
 
-function PipelineCard({
-  customer,
-  currentStatus,
+function KanbanColumn({
+  column,
+  rows,
+  meta,
   lang,
   t,
-  isMobile,
-  onDragStart,
-  onChangeStatus,
-  busy,
+  collapsed,
+  onToggleCollapsed,
+  conversationSourceByCustomerId,
+  onMove,
+  onDelete,
+  updatingId,
 }: {
-  customer: PipelineCustomer;
-  currentStatus: PipelineStatus;
+  column: PipelineBoardColumn;
+  rows: PipelineCustomer[];
+  meta: { count: number; amountTotal: number; amountLabel: string };
   lang: ReturnType<typeof useAppLang>["lang"];
   t: ReturnType<typeof pipelineBoardCopy>;
-  isMobile: boolean;
-  onDragStart: (e: DragEvent<HTMLDivElement>, id: string | number) => void;
-  onChangeStatus: (id: string | number, next: PipelineStatus) => void;
-  busy: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  conversationSourceByCustomerId: Map<string, string>;
+  onMove: (id: string | number, col: PipelineBoardColumn) => void;
+  onDelete: (id: string | number) => void;
+  updatingId: string | null;
 }) {
-  const followYmd = normalizeFollowUpDateValue(customer.follow_up_date);
-  const followBadge = followYmd ? getFollowUpBadge(followYmd) : "none";
-  const todayYmd = getTaipeiTodayYmd();
-  const diff = followYmd ? diffCalendarDaysYmd(todayYmd, followYmd) : null;
+  const v = pipelineBoardColumnVisual(column);
+  const { setNodeRef, isOver } = useDroppable({ id: column });
 
   return (
     <div
-      draggable={!isMobile && !busy}
-      onDragStart={(e) => onDragStart(e, customer.id)}
+      ref={setNodeRef}
       style={{
-        background: "#102742",
-        borderRadius: 12,
-        padding: 12,
-        cursor: !isMobile && !busy ? "grab" : "default",
-        opacity: busy ? 0.65 : 1,
-        border: "1px solid rgba(148,163,184,0.18)",
+        minWidth: 0,
+        width: "100%",
+        background: isOver ? "#1a3557" : CRM_THEME.panelBg,
+        border: `1px solid ${isOver ? v.dropRing : CRM_THEME.cardBorder}`,
+        borderRadius: 14,
+        boxShadow: isOver
+          ? `0 0 0 2px ${v.dropRing}, ${CRM_THEME.shadow}`
+          : CRM_THEME.shadowSoft,
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        maxHeight: collapsed ? undefined : "min(520px, calc(100vh - 240px))",
+        transition: "border-color 180ms ease, box-shadow 180ms ease, max-height 200ms ease",
       }}
     >
       <div
         style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 8,
+          padding: "12px 14px",
+          borderBottom: collapsed ? "none" : `1px solid ${CRM_THEME.cardBorder}`,
+          background: v.headerBg,
+          borderTopLeftRadius: 14,
+          borderTopRightRadius: 14,
+          borderBottomLeftRadius: collapsed ? 14 : undefined,
+          borderBottomRightRadius: collapsed ? 14 : undefined,
         }}
       >
-        <div style={{ minWidth: 0 }}>
-          <div
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapsed();
+            }}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? t.expandColumn : t.collapseColumn}
             style={{
+              flexShrink: 0,
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              border: `1px solid ${CRM_THEME.cardBorder}`,
+              background: "rgba(15,23,42,0.45)",
+              color: CRM_THEME.text,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 14,
               fontWeight: 700,
-              fontSize: 15,
-              lineHeight: 1.25,
+              lineHeight: 1,
+            }}
+          >
+            {collapsed ? "▸" : "▾"}
+          </button>
+          <span
+            aria-hidden
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              background: v.accent,
+              flexShrink: 0,
+            }}
+          />
+          <strong
+            style={{
+              fontSize: 14,
+              color: CRM_THEME.text,
+              flex: 1,
+              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {customer.customer_name?.trim() || t.unnamed}
-          </div>
-          {customer.company_name?.trim() ? (
-            <div
-              style={{
-                fontSize: 13,
-                opacity: 0.7,
-                marginTop: 2,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {customer.company_name}
-            </div>
-          ) : null}
-        </div>
-        <PipelineStatusBadge status={currentStatus} lang={lang} size="sm" />
-      </div>
-
-      {followYmd ? (
-        <div
-          style={{
-            fontSize: 12,
-            opacity: 0.85,
-            color: followBadge === "overdue" ? "#fecaca" : "rgba(226,232,240,0.85)",
-          }}
-        >
-          {t.followUpPrefix}：{formatFollowUpDateDisplay(followYmd, lang)}
-          {diff != null ? (
-            <span style={{ opacity: 0.65 }}>
-              {" "}
-              ({diff === 0 ? "D0" : diff > 0 ? `+${diff}d` : `${diff}d`})
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      {customer.estimated_amount?.trim() ? (
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          {t.estimatedShort}：{customer.estimated_amount}
-        </div>
-      ) : null}
-
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          marginTop: 4,
-          flexWrap: "wrap",
-        }}
-      >
-        <Link href={`/customers/${customer.id}`}>
-          <button
+            {pipelineBoardColumnLabel(column, lang)}
+          </strong>
+          <span
             style={{
-              background: "rgba(34,197,94,0.18)",
-              color: "#86efac",
-              border: "1px solid rgba(74,222,128,0.4)",
-              padding: "6px 12px",
-              borderRadius: 999,
-              cursor: "pointer",
               fontSize: 12,
               fontWeight: 700,
+              color: CRM_THEME.text,
+              background: "rgba(15,23,42,0.4)",
+              border: `1px solid ${CRM_THEME.cardBorder}`,
+              padding: "2px 8px",
+              borderRadius: 999,
+              flexShrink: 0,
             }}
           >
-            {t.openCustomer}
-          </button>
-        </Link>
-        <select
-          value={currentStatus}
-          disabled={busy}
-          onChange={(e) => onChangeStatus(customer.id, e.target.value as PipelineStatus)}
-          aria-label={t.moveTo}
+            {t.columnCount(meta.count)}
+          </span>
+        </div>
+        <div
           style={{
-            background: "rgba(15,23,42,0.85)",
-            color: "white",
-            border: "1px solid rgba(148,163,184,0.3)",
-            borderRadius: 8,
-            padding: "6px 8px",
+            marginTop: 6,
             fontSize: 12,
-            fontWeight: 600,
-            cursor: busy ? "not-allowed" : "pointer",
+            color: CRM_THEME.textMuted,
+            paddingLeft: 36,
           }}
         >
-          {PIPELINE_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {pipelineStatusLabel(s, lang)}
-            </option>
-          ))}
-        </select>
-        {busy ? (
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{t.updating}</span>
+          {t.columnAmount}:{" "}
+          <span style={{ fontWeight: 700, color: v.accent }}>{meta.amountLabel}</span>
+        </div>
+      </div>
+
+      {!collapsed ? (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 120,
+            overflowY: "auto",
+            padding: 10,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          {rows.length === 0 ? (
+            <div style={{ color: CRM_THEME.textSubtle, fontSize: 13, padding: "8px 4px" }}>
+              {t.emptyColumn}
+            </div>
+          ) : (
+            rows.map((c) => (
+              <DraggablePipelineCard
+                key={String(c.id)}
+                customer={c}
+                lang={lang}
+                t={t}
+                conversationSource={conversationSourceByCustomerId.get(String(c.id)) ?? ""}
+                onMove={onMove}
+                onDelete={onDelete}
+                busy={updatingId === String(c.id)}
+              />
+            ))
+          )}
+        </div>
+      ) : isOver ? (
+        <div
+          style={{
+            padding: "10px 14px 12px",
+            fontSize: 12,
+            color: CRM_THEME.textSubtle,
+            fontStyle: "italic",
+          }}
+        >
+          {t.emptyColumn}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DraggablePipelineCard({
+  customer,
+  lang,
+  t,
+  conversationSource,
+  onMove,
+  onDelete,
+  busy,
+}: {
+  customer: PipelineCustomer;
+  lang: ReturnType<typeof useAppLang>["lang"];
+  t: ReturnType<typeof pipelineBoardCopy>;
+  conversationSource: string;
+  onMove: (id: string | number, col: PipelineBoardColumn) => void;
+  onDelete: (id: string | number) => void;
+  busy: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: cardDragId(customer.id),
+    disabled: busy,
+  });
+
+  const style: CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.35 : busy ? 0.7 : 1,
+    transition: isDragging ? undefined : "opacity 160ms ease, transform 160ms ease",
+    touchAction: "none",
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
+      <PipelineCardView
+        customer={customer}
+        lang={lang}
+        t={t}
+        conversationSource={conversationSource}
+        onMove={onMove}
+        onDelete={onDelete}
+        busy={busy}
+        isDragging={isDragging}
+      />
+    </div>
+  );
+}
+
+function PipelineCardView({
+  customer,
+  lang,
+  t,
+  conversationSource,
+  onMove,
+  onDelete,
+  busy,
+  isDragging,
+  isOverlay,
+}: {
+  customer: PipelineCustomer;
+  lang: ReturnType<typeof useAppLang>["lang"];
+  t: ReturnType<typeof pipelineBoardCopy>;
+  conversationSource: string;
+  onMove?: (id: string | number, col: PipelineBoardColumn) => void;
+  onDelete?: (id: string | number) => void;
+  busy?: boolean;
+  isDragging?: boolean;
+  isOverlay?: boolean;
+}) {
+  const status = normalizeCustomerStatus(getRawCustomerStatus(customer));
+  const currentColumn = customerStatusToBoardColumn(getRawCustomerStatus(customer));
+  const importantDate = resolveDisplayImportantDate(
+    conversationSource,
+    lang,
+    new Date(),
+    customer.important_date,
+  );
+  const note = customer.note?.trim();
+  const tags = buildPipelineCardTags(customer);
+  const score = customer.success_rate?.trim();
+
+  return (
+    <article
+      style={{
+        background: CRM_THEME.cardBg,
+        borderRadius: 12,
+        padding: "12px 12px 10px",
+        border: isOverlay
+          ? `1px solid ${CRM_THEME.accent}`
+          : isDragging
+            ? "1px dashed rgba(129,140,248,0.65)"
+            : `1px solid ${CRM_THEME.cardBorderStrong}`,
+        boxShadow: isOverlay ? CRM_THEME.shadow : CRM_THEME.shadowSoft,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        cursor: busy ? "wait" : "grab",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: 14,
+            color: CRM_THEME.text,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {customer.customer_name?.trim() || t.unnamed}
+        </div>
+        {customer.company_name?.trim() ? (
+          <div
+            style={{
+              fontSize: 12,
+              color: CRM_THEME.textMuted,
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {customer.company_name}
+          </div>
+        ) : null}
+        {(() => {
+          const createdLabel = formatCustomerCreatedAtDisplay(customer.created_at, lang);
+          const lastAt = getCustomerLastContactAt(customer);
+          return (
+            <>
+              {createdLabel ? (
+                <div style={{ fontSize: 11, color: CRM_THEME.textSubtle, marginTop: 2 }}>
+                  {t.createdAtLabel}：{createdLabel}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 11, color: CRM_THEME.textSubtle, marginTop: 2 }}>
+                {t.lastContactLabel}：
+                {lastAt ? formatWorkspaceDateTime(lastAt, lang) : "—"}
+              </div>
+            </>
+          );
+        })()}
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "3px 8px",
+            borderRadius: 999,
+            background: "rgba(30,58,95,0.65)",
+            color: "#bfdbfe",
+            border: "1px solid rgba(96,165,250,0.35)",
+          }}
+        >
+          {customerStatusLabel(status, lang)}
+        </span>
+        {score ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: "rgba(99,102,241,0.25)",
+              color: "#c7d2fe",
+              border: "1px solid rgba(129,140,248,0.4)",
+            }}
+          >
+            {t.aiScore} {score}
+          </span>
+        ) : null}
+        {customer.urgent ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: "rgba(239,68,68,0.22)",
+              color: "#fecaca",
+              border: "1px solid rgba(248,113,113,0.4)",
+            }}
+          >
+            {t.urgent}
+          </span>
+        ) : customer.priority === "high" ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 999,
+              background: "rgba(249,115,22,0.22)",
+              color: "#fed7aa",
+              border: "1px solid rgba(251,146,60,0.4)",
+            }}
+          >
+            {t.highPriority}
+          </span>
         ) : null}
       </div>
-    </div>
+
+      <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.45 }}>
+        <span style={{ fontWeight: 700, color: CRM_THEME.textMuted }}>{t.latestNote}: </span>
+        {note || t.noNote}
+      </div>
+
+      <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+        <span style={{ fontWeight: 700, color: CRM_THEME.textMuted }}>{t.importantDate}: </span>
+        {importantDate || t.noImportantDate}
+      </div>
+
+      {customer.estimated_amount?.trim() ? (
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#facc15" }}>
+          {customer.estimated_amount}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "2px 7px",
+              borderRadius: 6,
+              background: "rgba(6,25,47,0.6)",
+              border: `1px solid ${CRM_THEME.cardBorderStrong}`,
+              color: CRM_THEME.textSubtle,
+            }}
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      {onMove || onDelete ? (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "center",
+            flexWrap: "wrap",
+            marginTop: 2,
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Link href={`/customers/${customer.id}`}>
+            <button
+              type="button"
+              style={{
+                background: "rgba(34,197,94,0.16)",
+                color: "#86efac",
+                border: "1px solid rgba(74,222,128,0.35)",
+                padding: "5px 10px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              {t.openCustomer}
+            </button>
+          </Link>
+          {onMove ? (
+            <select
+              value={currentColumn}
+              disabled={busy}
+              onChange={(e) =>
+                onMove(customer.id, e.target.value as PipelineBoardColumn)
+              }
+              aria-label={t.moveTo}
+              style={{
+                flex: "1 1 100px",
+                minWidth: 0,
+                background: "rgba(15,23,42,0.85)",
+                color: CRM_THEME.text,
+                border: `1px solid ${CRM_THEME.cardBorder}`,
+                borderRadius: 8,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: busy ? "not-allowed" : "pointer",
+              }}
+            >
+              {PIPELINE_BOARD_COLUMNS.map((col) => (
+                <option key={col} value={col}>
+                  {pipelineBoardColumnLabel(col, lang)}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {onDelete ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onDelete(customer.id)}
+              style={{
+                background: "rgba(239,68,68,0.18)",
+                color: "#fecaca",
+                border: "1px solid rgba(248,113,113,0.35)",
+                padding: "5px 10px",
+                borderRadius: 8,
+                cursor: busy ? "not-allowed" : "pointer",
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              {t.deleteCustomer}
+            </button>
+          ) : null}
+          {busy ? (
+            <span style={{ fontSize: 11, color: CRM_THEME.textSubtle }}>{t.updating}</span>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
   );
 }

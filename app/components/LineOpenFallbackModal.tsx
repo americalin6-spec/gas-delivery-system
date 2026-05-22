@@ -95,10 +95,10 @@ export function LineOpenFallbackModal({
 
   const copyLabel =
     copyState === "copied"
-      ? "已複製 LINE ID"
+      ? "已複製 LINE 帳號"
       : copyState === "failed"
-        ? "點我複製 LINE ID"
-        : "複製 LINE ID";
+        ? "點我複製 LINE 帳號"
+        : "複製 LINE 帳號";
 
   return (
     <div role="dialog" aria-modal="true" style={overlay} onClick={onClose}>
@@ -120,7 +120,7 @@ export function LineOpenFallbackModal({
         >
           <li>從手機主畫面開啟 LINE App</li>
           <li>點選「搜尋」或「加入好友」</li>
-          <li>貼上下方 LINE ID 並開始聊天</li>
+          <li>貼上下方 LINE 帳號並開始聊天</li>
         </ol>
 
         {trimmedId ? (
@@ -170,7 +170,7 @@ export function LineOpenFallbackModal({
           </>
         ) : (
           <p style={{ margin: "0 0 18px", fontSize: 15, color: "#fcd34d" }}>
-            尚未設定 LINE ID，請先到編輯頁新增後再試。
+            尚未設定 LINE 帳號，請先到編輯頁新增後再試。
           </p>
         )}
 

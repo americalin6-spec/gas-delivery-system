@@ -101,6 +101,12 @@
       "namedRegex": "^/api/line\\-webhook(?:/)?$"
     },
     {
+      "page": "/api/notifications",
+      "regex": "^/api/notifications(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/notifications(?:/)?$"
+    },
+    {
       "page": "/api/reminder-check",
       "regex": "^/api/reminder\\-check(?:/)?$",
       "routeKeys": {},

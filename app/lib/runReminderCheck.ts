@@ -1,5 +1,10 @@
 import { pushDueCustomerReminders, type CustomerPushResult } from "./customerLinePush";
+import {
+  buildFollowUpReminderNotification,
+  createCrmNotification,
+} from "./crmNotifications";
 import { sendLinePushMessage } from "./lineMessaging";
+import { formatFollowUpDateDisplay } from "./followUpReminders";
 import {
   loadLineReminderSettings,
   markReminderSentToday,
@@ -11,6 +16,7 @@ import {
   REMINDER_CHECK_SELECT,
   type DueReminderCustomer,
 } from "./reminderCheck";
+import { activeCustomersOnly } from "./customerSoftDelete";
 import { getSupabaseServer } from "./supabaseServer";
 import { DEFAULT_COMPANY_ID } from "./companyContext";
 import type { ReminderCustomerRow } from "./calendarReminders";
@@ -39,10 +45,9 @@ export async function fetchReminderCheckState(companyId: number = DEFAULT_COMPAN
   due: DueReminderCustomer[];
 }> {
   const supabase = getSupabaseServer();
-  const { data, error } = await supabase
-    .from("customers")
-    .select(REMINDER_CHECK_SELECT)
-    .eq("company_id", companyId);
+  const { data, error } = await activeCustomersOnly(
+    supabase.from("customers").select(REMINDER_CHECK_SELECT).eq("company_id", companyId),
+  );
   const rows = (data ?? []) as ReminderCustomerRow[];
   return {
     rows,
@@ -93,6 +98,25 @@ export async function runReminderCheck(options?: {
   }
 
   const message = formatLineReminderMessage(due, lang);
+
+  const supabase = getSupabaseServer();
+  await Promise.all(
+    due.map(async (c) => {
+      const name = c.customer_name?.trim() || (lang === "zh" ? "客戶" : "Customer");
+      const hint =
+        c.follow_up_note?.trim() ||
+        formatFollowUpDateDisplay(c.follow_up_date, lang);
+      const copy = buildFollowUpReminderNotification(name, hint, lang);
+      await createCrmNotification(supabase, {
+        companyId,
+        type: "follow_up_reminder",
+        title: copy.title,
+        body: copy.body,
+        customerId: String(c.id),
+        dedupePerDay: true,
+      });
+    }),
+  );
 
   // Customer-side push always runs when channel access token is present and we have due rows.
   const customerPushes = await pushDueCustomerReminders(due, channelAccessToken, companyId);

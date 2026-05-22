@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { logActiveCompany } from "../lib/clientCompany";
+import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { WORKSPACE_CUSTOMER_SELECT, type WorkspaceCustomerRow } from "../lib/followUpWorkspace";
 import { supabase } from "../../supabase";
 
@@ -21,11 +22,13 @@ export function useWorkspaceCustomers() {
     setLoadError(null);
     try {
       logActiveCompany("workspaceCustomers.load", { companyId });
-      const { data, error } = await supabase
-        .from("customers")
-        .select(WORKSPACE_CUSTOMER_SELECT)
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
+      const { data, error } = await activeCustomersOnly(
+        supabase
+          .from("customers")
+          .select(WORKSPACE_CUSTOMER_SELECT)
+          .eq("company_id", companyId),
+      )
+        .order("created_at", { ascending: false, nullsFirst: false })
         .limit(500);
 
       if (error) {

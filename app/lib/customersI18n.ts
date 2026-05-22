@@ -23,16 +23,34 @@ export function followUpBadgeLabelForLang(badge: FollowUpBadge, lang: AppLang): 
 export function customersListCopy(lang: AppLang) {
   const zh = lang === "zh";
   return {
-    title: zh ? "客戶資料庫 CRM" : "Customer CRM",
+    title: zh ? "客戶資料庫" : "Customer CRM",
     count: (total: number, shown: number) =>
       zh ? `共 ${total} 筆 · 顯示 ${shown} 筆` : `${total} total · showing ${shown}`,
     backHome: zh ? "← 回到 LINE Work AI" : "← Back to LINE Work AI",
     searchPlaceholder: zh
-      ? "搜尋姓名 / 公司 / 電話 / LINE / Email"
+      ? "搜尋姓名 / 公司 / 電話 / LINE 帳號 / 電子郵件"
       : "Search name / company / phone / LINE / email",
+    lineId: zh ? "LINE 帳號" : "LINE ID",
+    email: zh ? "電子郵件" : "Email",
     enterName: zh ? "請輸入客戶姓名" : "Please enter customer name",
     addSuccess: zh ? "新增成功" : "Customer added",
-    confirmDelete: zh ? "確定刪除？" : "Delete this customer?",
+    confirmDelete: zh
+      ? "確定將此客戶移至垃圾桶？"
+      : "Move this customer to trash?",
+    confirmRestore: zh ? "確定還原此客戶？" : "Restore this customer?",
+    confirmPermanentDelete: zh
+      ? "永久刪除後無法復原，確定要刪除嗎？"
+      : "Permanently delete? This cannot be undone.",
+    trash: zh ? "垃圾桶" : "Trash",
+    exitTrash: zh ? "返回客戶列表" : "Back to customers",
+    trashTitle: zh ? "垃圾桶" : "Trash",
+    trashCount: (n: number) =>
+      zh ? `共 ${n} 筆已刪除客戶` : `${n} deleted customer${n === 1 ? "" : "s"}`,
+    restoreCustomer: zh ? "還原" : "Restore",
+    permanentDelete: zh ? "永久刪除" : "Delete permanently",
+    createdAtLabel: zh ? "建檔時間" : "Created",
+    lastContactLabel: zh ? "最後聯絡時間" : "Last contact",
+    deletedAtLabel: zh ? "刪除時間" : "Deleted",
     unnamed: zh ? "未命名客戶" : "Unnamed customer",
     unknown: zh ? "未知" : "Unknown",
     company: zh ? "公司" : "Company",
@@ -46,9 +64,10 @@ export function customersListCopy(lang: AppLang) {
     churnRisk: zh ? "流失風險" : "Churn risk",
     todo: zh ? "待辦事項" : "Todo",
     replySuggestion: zh ? "回覆建議" : "Reply suggestion",
-    followUp: zh ? "Follow Up" : "Follow up",
+    followUp: zh ? "客戶追蹤" : "Follow up",
     aiSend: zh ? "AI 發送" : "AI send",
     followUpReminder: zh ? "追蹤提醒" : "Follow-up",
+    noExplicitDate: zh ? "無明確日期" : "No explicit date",
     note: zh ? "備註" : "Note",
     viewDetail: zh ? "查看詳情" : "View details",
     deleteCustomer: zh ? "刪除客戶" : "Delete",
@@ -58,8 +77,8 @@ export function customersListCopy(lang: AppLang) {
     companyPlaceholder: zh ? "公司名稱" : "Company name",
     phonePlaceholder: zh ? "電話" : "Phone",
     followUpTitle: (date: string) => (zh ? `追蹤：${date}` : `Follow-up: ${date}`),
-    salesStatus: zh ? "業務狀態" : "Sales status",
-    filtersTitle: zh ? "Pipeline 篩選" : "Pipeline filters",
+    salesStatus: zh ? "客戶狀態" : "Customer status",
+    filtersTitle: zh ? "業務流程篩選" : "Pipeline filters",
     filterStatus: zh ? "狀態" : "Status",
     filterFollowUp: zh ? "追蹤日" : "Follow-up date",
     filterUrgency: zh ? "緊急度" : "Urgency",
@@ -75,21 +94,34 @@ export function customersListCopy(lang: AppLang) {
     filterUrgencyLater: zh ? "7 天以上" : "7+ days",
     filterUrgencyCompleted: zh ? "已完成" : "Completed",
     filterUrgencyNone: zh ? "未排程" : "Not scheduled",
-    openPipeline: zh ? "Pipeline 看板" : "Pipeline board",
+    openPipeline: zh ? "業務流程看板" : "Pipeline board",
+    selectAll: zh ? "全選" : "Select all",
+    selectAllShown: (n: number) => (zh ? `全選（顯示中 ${n} 筆）` : `Select all (${n} shown)`),
+    selectedCount: (n: number) => (zh ? `已選擇 ${n} 筆` : `${n} selected`),
+    batchDelete: zh ? "刪除" : "Delete",
+    batchDeleteConfirmTitle: zh ? "確定要刪除這些客戶資料嗎？" : "Delete selected customers?",
+    batchDeleteConfirmBody: zh
+      ? "客戶將移至垃圾桶，可於垃圾桶還原。"
+      : "Customers will move to trash. You can restore them from Trash.",
+    cancel: zh ? "取消" : "Cancel",
+    confirmBatchDelete: zh ? "確認刪除" : "Confirm delete",
+    batchDeleteSuccess: (n: number) =>
+      zh ? `已將 ${n} 筆客戶移至垃圾桶` : `Moved ${n} customer${n === 1 ? "" : "s"} to trash`,
+    batchDeleting: zh ? "刪除中…" : "Deleting…",
   };
 }
 
 export function pipelineBoardCopy(lang: AppLang) {
   const zh = lang === "zh";
   return {
-    title: zh ? "業務 Pipeline 看板" : "Sales pipeline board",
+    title: zh ? "業務流程看板" : "Sales pipeline board",
     subtitle: (n: number) =>
       zh ? `共 ${n} 位客戶` : `${n} customer${n === 1 ? "" : "s"}`,
     backCustomers: zh ? "← 客戶列表" : "← Customer list",
     backHome: zh ? "回首頁" : "Home",
     statsTotal: zh ? "客戶總數" : "Total customers",
-    statsWon: zh ? "成交客戶" : "Won",
-    statsLost: zh ? "流失客戶" : "Lost",
+    statsWon: zh ? "已成交" : "Won",
+    statsLost: zh ? "無效客戶" : "Invalid",
     statsConversion: zh ? "成交率" : "Conversion rate",
     statsConversionHelp: zh
       ? "成交 ÷ (成交 + 流失)"
@@ -99,12 +131,32 @@ export function pipelineBoardCopy(lang: AppLang) {
     updating: zh ? "更新中…" : "Updating…",
     updateFailed: zh ? "更新狀態失敗" : "Failed to update status",
     dragHint: zh
-      ? "桌面：拖曳卡片切換狀態；手機：點選卡片上的下拉選單。"
-      : "Desktop: drag cards between columns. Mobile: use the dropdown on each card.",
+      ? "拖曳卡片到欄位即可更新狀態；手機亦可長按拖曳，或使用卡片上的下拉選單。"
+      : "Drag cards between columns to update status. On mobile, long-press to drag or use the dropdown.",
+    searchPlaceholder: zh ? "搜尋客戶、公司、備註…" : "Search name, company, notes…",
+    filterAll: zh ? "全部欄位" : "All columns",
+    columnCount: (n: number) => (zh ? `${n} 位` : `${n}`),
+    columnAmount: zh ? "預估合計" : "Est. total",
+    aiScore: zh ? "成交機率" : "Win score",
+    priority: zh ? "優先" : "Priority",
+    latestNote: zh ? "最新備註" : "Latest note",
+    importantDate: zh ? "重要日期" : "Key date",
+    noNote: zh ? "尚無備註" : "No notes yet",
+    noImportantDate: zh ? "—" : "—",
+    deleteCustomer: zh ? "刪除" : "Delete",
+    confirmDelete: zh
+      ? "確定將此客戶移至垃圾桶？"
+      : "Move this customer to trash?",
+    urgent: zh ? "緊急" : "Urgent",
+    highPriority: zh ? "高優先" : "High priority",
     unnamed: zh ? "未命名客戶" : "Unnamed",
     followUpPrefix: zh ? "追蹤" : "Follow-up",
     estimatedShort: zh ? "預估" : "Est.",
     openCustomer: zh ? "查看" : "Open",
+    collapseColumn: zh ? "收合欄位" : "Collapse column",
+    expandColumn: zh ? "展開欄位" : "Expand column",
+    createdAtLabel: zh ? "建檔時間" : "Created",
+    lastContactLabel: zh ? "最後聯絡時間" : "Last contact",
   };
 }
 
@@ -128,7 +180,9 @@ export function customerDetailCopy(lang: AppLang) {
     saving: zh ? "儲存中…" : "Saving…",
     cancel: zh ? "取消" : "Cancel",
     saved: zh ? "已儲存" : "Saved",
-    confirmDelete: zh ? "確定要刪除此客戶嗎？" : "Delete this customer?",
+    confirmDelete: zh
+      ? "確定將此客戶移至垃圾桶？"
+      : "Move this customer to trash?",
     followUpModeTitle: zh ? "AI 追蹤發送模式" : "AI follow-up send mode",
     lineNotConnected: zh ? "尚未連接真實 LINE，以下為模擬流程" : "LINE is not connected; flows below are simulated",
     syncing: zh ? "同步中…" : "Syncing…",
@@ -138,16 +192,17 @@ export function customerDetailCopy(lang: AppLang) {
     sectionMetrics: zh ? "指標與分析" : "Metrics & analysis",
     sectionFollowPanel: zh ? "追蹤與回覆" : "Follow-up & replies",
     sectionRecords: zh ? "記錄" : "Records",
-    createdAt: zh ? "建立時間" : "Created",
+    createdAt: zh ? "建檔時間" : "Created",
     updatedAt: zh ? "更新時間" : "Updated",
-    lastContact: zh ? "上次聯絡（模擬發送）" : "Last contact (simulated)",
+    lastContact: zh ? "最後聯絡時間" : "Last contact",
     fieldLabels: {
       customer_name: zh ? "客戶姓名" : "Customer name",
       company_name: zh ? "公司" : "Company",
       phone: zh ? "電話" : "Phone",
-      line_id: "LINE",
-      email: "Email",
-      status: zh ? "業務狀態" : "Sales status",
+      line_id: zh ? "LINE 帳號" : "LINE",
+      email: zh ? "電子郵件" : "Email",
+      customer_status: zh ? "客戶狀態" : "Customer status",
+      status: zh ? "客戶狀態" : "Customer status",
       note: zh ? "備註" : "Note",
       customer_need: zh ? "客戶需求" : "Customer needs",
       customer_emotion: zh ? "客戶情緒" : "Emotion",
@@ -159,23 +214,36 @@ export function customerDetailCopy(lang: AppLang) {
       next_step: zh ? "下一步" : "Next step",
       follow_up_mode: zh ? "AI 追蹤發送模式" : "AI follow-up send mode",
       follow_up_date: zh ? "追蹤提醒日期" : "Follow-up reminder date",
+      noExplicitFollowUpDate: zh ? "無明確日期" : "No explicit date",
       todo: zh ? "待辦事項" : "Todo",
       follow_up: zh ? "追蹤訊息" : "Follow-up message",
       reply_suggestion: zh ? "專業回覆" : "Reply suggestion",
     },
     lineQuickContact: zh ? "快速聯絡" : "Quick contact",
     lineQuickLead: zh
-      ? "複製 LINE ID 後在 LINE 內搜尋加好友（未串接官方 API）。"
+      ? "複製 LINE 帳號後在 LINE 內搜尋加好友（未串接官方 API）。"
       : "Copy LINE ID and search in LINE (no official API connected).",
     lineLastSend: zh ? "上次模擬發送：" : "Last simulated send: ",
-    lineNoId: zh ? " 尚未填寫 LINE ID — 請先編輯客戶資料。" : " No LINE ID — edit customer first.",
+    lineNoId: zh ? " 尚未填寫 LINE 帳號 — 請先編輯客戶資料。" : " No LINE ID — edit customer first.",
     sendToLine: zh ? "傳送到 LINE（一鍵模擬）" : "Send to LINE (simulated)",
     sendToLineHint: zh
       ? "將複製建議追蹤文案、記錄發送時間並嘗試開啟 LINE App；在 LINE 搜尋貼上 ID 後傳訊。"
       : "Copies follow-up text, logs send time, and opens LINE app; paste ID in LINE search to message.",
     openLineSearch: zh ? "打開 LINE 並貼上此 ID 搜尋" : "Open LINE and paste this ID into search",
-    noLineId: zh ? "— 未填寫 LINE ID" : "— No LINE ID",
-    copyLineId: zh ? "複製 LINE ID" : "Copy LINE ID",
+    noLineId: zh ? "尚未填 LINE 帳號" : "No LINE ID on file",
+    aiLineReplyTitle: zh ? "AI 建議 LINE 回覆" : "AI-suggested LINE reply",
+    aiLineReplyLead: zh
+      ? "依客戶姓名、公司、狀態、需求、備註、成交機率與最後聯絡時間產生追蹤文案。"
+      : "Draft based on name, company, status, needs, notes, deal probability, and last contact.",
+    copyAiLineReply: zh ? "複製 AI 回覆訊息" : "Copy AI reply",
+    copyAiLineReplyTitle: zh ? "複製 AI 回覆訊息" : "Copy AI reply message",
+    copyAiLineReplyDesc: zh
+      ? "複製後會更新「最後聯絡時間」。若無法自動複製，請點下方按鈕。"
+      : "Copying also updates last contact time. Tap the button below if auto-copy fails.",
+    aiLineReplyCopiedToast: zh
+      ? "已複製 AI 回覆並更新最後聯絡時間。"
+      : "AI reply copied and last contact time updated.",
+    copyLineId: zh ? "複製 LINE 帳號" : "Copy LINE ID",
     openLineApp: zh ? "開啟 LINE App" : "Open LINE app",
     copyFollowUp: zh ? "複製追蹤訊息" : "Copy follow-up",
     sendHistory: zh ? "發送紀錄（模擬）" : "Send history (simulated)",
@@ -189,13 +257,16 @@ export function customerDetailCopy(lang: AppLang) {
     modeHintAuto: zh ? "自動送出" : "Auto send",
     modeRadiogroup: zh ? "AI 追蹤發送模式" : "AI follow-up send mode",
     nothingToCopy: zh ? "沒有可複製的內容" : "Nothing to copy",
-    noLineIdAlert: zh ? "尚未填寫 LINE ID" : "No LINE ID on file",
+    noLineIdAlert: zh ? "尚未填寫 LINE 帳號" : "No LINE ID on file",
+    tapToCopy: zh ? "點此複製" : "Tap to Copy",
+    copyKindTitle: (kind: string) => (zh ? `複製${kind}` : `Copy ${kind}`),
+    copyGenericDesc: zh ? "請點下方按鈕複製，再貼到需要的位置。" : "Tap the button to copy, then paste where you need it.",
     copiedKind: (kind: string) => (zh ? `已複製${kind}` : `Copied: ${kind}`),
     followUpCopiedToast: zh
       ? "已複製追蹤訊息，請貼到 LINE。"
       : "Follow-up message copied. Paste into LINE.",
-    noFollowUpToCopy: zh ? "No follow-up message to copy." : "No follow-up message to copy.",
-    lineIdCopied: zh ? "已複製 LINE ID" : "LINE ID copied.",
+    noFollowUpToCopy: zh ? "沒有可複製的追蹤訊息。" : "No follow-up message to copy.",
+    lineIdCopied: zh ? "已複製 LINE 帳號" : "LINE ID copied.",
     manualHint: zh
       ? "僅顯示提醒與建議文案，由您自行在外部管道聯絡客戶。"
       : "Shows reminders and suggested copy only; you contact the customer externally.",
@@ -235,13 +306,24 @@ export function customerDetailCopy(lang: AppLang) {
     simulatedSent: zh ? "已模擬送出追蹤訊息。" : "Follow-up simulated.",
     simulatedAutoSent: zh ? "已模擬自動發送追蹤訊息。" : "Auto follow-up simulated.",
     processingLine: zh ? "處理中…" : "Processing…",
+    boundLineAccountsTitle: zh ? "Bound LINE Accounts" : "Bound LINE Accounts",
+    boundLineCount: (n: number) =>
+      zh ? `已綁定 ${n} 個 LINE 帳號` : `${n} bound LINE account${n === 1 ? "" : "s"}`,
+    primaryLineAccount: zh ? "主要 LINE" : "Primary LINE",
+    openConversation: zh ? "Open Conversation" : "Open Conversation",
+    noBoundLineAccounts: zh ? "尚無綁定的 LINE 官方帳號。客戶在 LINE 傳送「綁定」後會顯示於此。" : "No bound LINE accounts yet. They appear after the customer sends「綁定」in LINE.",
+    lineDisplayNameLabel: zh ? "顯示名稱" : "Display name",
+    lineUserIdLabel: zh ? "LINE User ID" : "LINE User ID",
+    lineBoundAtLabel: zh ? "綁定時間" : "Bound at",
+    conversationsFiltered: (name: string) =>
+      zh ? `對話紀錄 · ${name}` : `Conversations · ${name}`,
     conversationsTitle: zh ? "對話紀錄" : "Conversation history",
-    conversationsEmpty: "No conversations yet.",
+    conversationsEmpty: zh ? "尚無對話紀錄。" : "No conversations yet.",
     conversationsLoading: zh ? "載入中…" : "Loading…",
     directionInbound: zh ? "客戶" : "Inbound",
     directionOutbound: zh ? "系統" : "Outbound",
     conversationDeleteAria: zh ? "刪除這筆對話" : "Delete this message",
-    conversationDeleteConfirm: "確定要刪除這筆對話？",
+    conversationDeleteConfirm: zh ? "確定要刪除這筆對話？" : "Delete this message?",
     conversationClearAll: zh ? "清空全部對話" : "Clear all conversations",
     conversationClearAllConfirm: zh
       ? "確定要清空此客戶的全部對話？"

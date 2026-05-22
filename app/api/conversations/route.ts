@@ -52,9 +52,17 @@ export async function POST(req: Request) {
     customer_id: customerId,
     message_text: messageText,
     direction,
-    line_user_id: lineUserId || null,
+    line_user_id: lineUserId || `crm-paste:${customerId}`,
     company_id: companyId,
+    created_at: new Date().toISOString(),
   };
+
+  console.log("[CONVERSATION_SAVE_START]", {
+    customerId,
+    companyId,
+    direction,
+    messageLength: messageText.length,
+  });
 
   const { data, error } = await supabase
     .from("conversations")
@@ -63,7 +71,7 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (error) {
-    console.error("[conversations] POST insert error:", {
+    console.warn("[CONVERSATION_SAVE_FAILED]", {
       message: error.message,
       details: error.details,
       hint: error.hint,
@@ -76,7 +84,7 @@ export async function POST(req: Request) {
     );
   }
 
-  console.log("[conversations] POST ok:", {
+  console.log("[CONVERSATION_SAVE_SUCCESS]", {
     id: data?.id ?? null,
     customerId,
     direction,
@@ -93,6 +101,7 @@ export async function GET(req: Request) {
   const companyId = getServerCompanyId(req);
   const url = new URL(req.url);
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
+  const lineUserId = url.searchParams.get("line_user_id")?.trim() ?? "";
 
   if (!customerId) {
     return NextResponse.json(
@@ -102,12 +111,16 @@ export async function GET(req: Request) {
   }
 
   const supabase = getSupabaseServer();
-  const { data, error } = await supabase
+  let query = supabase
     .from("conversations")
     .select(CONVERSATIONS_SELECT)
-    .eq("company_id", companyId)
-    .eq("customer_id", customerId)
-    .order("created_at", { ascending: true });
+    .eq("customer_id", customerId);
+
+  if (lineUserId) {
+    query = query.eq("line_user_id", lineUserId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   if (error) {
     console.error("[conversations] GET error:", {
@@ -127,6 +140,7 @@ export async function GET(req: Request) {
   const rows = data ?? [];
   console.log("[conversations] GET ok:", {
     customerId,
+    lineUserId: lineUserId || null,
     companyId,
     rowCount: rows.length,
     firstId: rows[0] && "id" in rows[0] ? rows[0].id : null,
@@ -135,10 +149,25 @@ export async function GET(req: Request) {
   return NextResponse.json({ ok: true, rows });
 }
 
+function parseDeleteIds(url: URL): string[] {
+  const raw = url.searchParams.get("ids")?.trim() ?? "";
+  if (raw) {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return url.searchParams
+    .getAll("ids")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /**
- * Delete conversations within the active company.
- * - `?id=...` removes a single row (only if it belongs to the active company).
- * - `?customer_id=...&all=1` removes every conversation for the customer in that company.
+ * Delete conversations.
+ * - `?ids=id1,id2` — delete by row id(s) from loaded messages (preferred).
+ * - `?id=...` — single row.
+ * - `?customer_id=...&all=1` — fallback when ids not provided.
  */
 export async function DELETE(req: Request) {
   const companyId = getServerCompanyId(req);
@@ -146,30 +175,137 @@ export async function DELETE(req: Request) {
   const id = url.searchParams.get("id")?.trim() ?? "";
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
   const all = url.searchParams.get("all") === "1";
+  const ids = parseDeleteIds(url);
 
-  if (!id && !(customerId && all)) {
+  console.log("[conversations] DELETE /api/conversations received:", {
+    receivedCustomerId: customerId || null,
+    receivedCompanyId: companyId,
+    receivedIds: ids,
+    all,
+    singleRowId: id || null,
+    companyHeader: req.headers.get("x-company-id"),
+  });
+
+  if (ids.length === 0 && !id && !(customerId && all)) {
+    console.warn("[conversations] DELETE rejected: missing ids, id, or customer_id+all");
     return NextResponse.json(
-      { ok: false, error: "id or (customer_id + all=1) is required" },
+      { ok: false, error: "ids, id, or (customer_id + all=1) is required", deletedCount: 0 },
       { status: 400 },
     );
   }
 
   const supabase = getSupabaseServer();
-  let query = supabase.from("conversations").delete().eq("company_id", companyId);
-  if (id) {
-    query = query.eq("id", id);
-  } else {
-    query = query.eq("customer_id", customerId);
+
+  if (ids.length > 0) {
+    const { error, count } = await supabase
+      .from("conversations")
+      .delete({ count: "exact" })
+      .in("id", ids);
+
+    if (error) {
+      console.error("[conversations] DELETE by ids error:", {
+        receivedIds: ids,
+        receivedCompanyId: companyId,
+        deletedCount: 0,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: error.message, deletedCount: 0 },
+        { status: 500 },
+      );
+    }
+
+    const deletedCount = count ?? 0;
+    console.log("[conversations] DELETE by ids ok:", {
+      receivedIds: ids,
+      receivedCompanyId: companyId,
+      deletedCount,
+    });
+
+    return NextResponse.json({ ok: true, deletedCount });
   }
 
-  const { data, error } = await query.select("id");
+  if (customerId && all) {
+    const { data: rows, error: listError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("customer_id", customerId);
+
+    if (listError) {
+      console.error("[conversations] DELETE list error:", {
+        receivedCustomerId: customerId,
+        receivedCompanyId: companyId,
+        message: listError.message,
+        details: listError.details,
+        hint: listError.hint,
+        code: listError.code,
+      });
+      return NextResponse.json(
+        { ok: false, error: listError.message, deletedCount: 0 },
+        { status: 500 },
+      );
+    }
+
+    const ids = (rows ?? []).map((row) => row.id);
+    console.log("[conversations] DELETE rows matched (GET filter):", {
+      receivedCustomerId: customerId,
+      receivedCompanyId: companyId,
+      matchCount: ids.length,
+      ids,
+    });
+
+    let deletedCount = 0;
+    if (ids.length > 0) {
+      const { error, count } = await supabase
+        .from("conversations")
+        .delete({ count: "exact" })
+        .in("id", ids);
+
+      if (error) {
+        console.error("[conversations] DELETE error:", {
+          receivedCustomerId: customerId,
+          receivedCompanyId: companyId,
+          all,
+          matchCount: ids.length,
+          deletedCount: 0,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+        return NextResponse.json(
+          { ok: false, error: error.message, deletedCount: 0 },
+          { status: 500 },
+        );
+      }
+
+      deletedCount = count ?? 0;
+    }
+
+    console.log("[conversations] DELETE ok:", {
+      receivedCustomerId: customerId,
+      receivedCompanyId: companyId,
+      all,
+      matchCount: ids.length,
+      deletedCount,
+    });
+
+    return NextResponse.json({ ok: true, deletedCount });
+  }
+
+  const { error, count } = await supabase
+    .from("conversations")
+    .delete({ count: "exact" })
+    .eq("id", id);
 
   if (error) {
     console.error("[conversations] DELETE error:", {
-      id,
-      customerId,
-      companyId,
-      all,
+      singleRowId: id,
+      receivedCompanyId: companyId,
+      deletedCount: 0,
       message: error.message,
       details: error.details,
       hint: error.hint,
@@ -181,8 +317,12 @@ export async function DELETE(req: Request) {
     );
   }
 
-  const deletedCount = data?.length ?? 0;
-  console.log("[conversations] DELETE ok:", { id, customerId, companyId, all, deletedCount });
+  const deletedCount = count ?? 0;
+  console.log("[conversations] DELETE ok:", {
+    singleRowId: id,
+    receivedCompanyId: companyId,
+    deletedCount,
+  });
 
   return NextResponse.json({ ok: true, deletedCount });
 }

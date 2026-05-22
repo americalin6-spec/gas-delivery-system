@@ -27,7 +27,7 @@ export default function WorkspaceCategoryPage() {
   const { lang } = useAppLang();
   const labels = followUpWorkspaceCopy(lang);
   const isMobile = useIsViewportBelow(MOBILE_MAX);
-  const { copyWithFallback, fallbackModal } = useCopyWithFallback(isMobile);
+  const { copyWithFallback, fallbackModal } = useCopyWithFallback(isMobile, lang);
   const { rows, loading, loadError, refresh } = useWorkspaceCustomers();
 
   const categoryRows = useMemo(
