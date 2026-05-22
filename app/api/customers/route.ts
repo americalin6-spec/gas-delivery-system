@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerCompanyId } from "../../lib/companyContext";
-import { fetchCustomersForCompanyList } from "../../lib/customersListServer";
+import { activeCustomersOnly } from "../../lib/customerSoftDelete";
+import {
+  fetchCustomersForCompanyList,
+  logCustomerListStats,
+} from "../../lib/customersListServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 
 /**
@@ -14,6 +18,19 @@ export async function GET(req: Request) {
     new URL(req.url).searchParams.get("trash") === "true";
 
   const supabase = getSupabaseServer();
+
+  const [{ count: tableTotal }, { count: tableActive }] = await Promise.all([
+    supabase.from("customers").select("id", { count: "exact", head: true }),
+    activeCustomersOnly(supabase.from("customers").select("id", { count: "exact", head: true })),
+  ]);
+
+  console.log("[api/customers] table diagnostics:", {
+    activeCompanyId: companyId,
+    trash,
+    customersTableTotal: tableTotal ?? null,
+    customersTableActiveNotDeleted: tableActive ?? null,
+  });
+
   const result = await fetchCustomersForCompanyList(supabase, companyId, { trash });
 
   if (result.error) {
@@ -34,10 +51,10 @@ export async function GET(req: Request) {
     );
   }
 
-  console.log("[api/customers] GET ok:", {
+  logCustomerListStats("[api/customers] GET ok", result.stats, {
     activeCompanyId: companyId,
+    apiCompanyId: companyId,
     trash,
-    customersFetchedCount: result.fetchedCount,
     backfilledOrphanCount: result.backfilledOrphanCount,
   });
 
@@ -47,5 +64,6 @@ export async function GET(req: Request) {
     fetchedCount: result.fetchedCount,
     companyId,
     backfilledOrphanCount: result.backfilledOrphanCount,
+    stats: result.stats,
   });
 }
