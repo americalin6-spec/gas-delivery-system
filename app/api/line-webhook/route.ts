@@ -6,6 +6,7 @@ import {
 } from "../../lib/conversationsServer";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
+import { activeCustomersOnly } from "../../lib/customerSoftDelete";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 import { DEFAULT_COMPANY_ID } from "../../lib/companyContext";
 
@@ -86,11 +87,13 @@ async function findCustomerByName(
   customerName: string,
   companyId: number,
 ): Promise<CustomerLookupRow | null> {
-  const exact = await supabase
-    .from("customers")
-    .select("id, customer_name")
-    .eq("company_id", companyId)
-    .eq("customer_name", customerName)
+  const exact = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .select("id, customer_name")
+      .eq("company_id", companyId)
+      .eq("customer_name", customerName),
+  )
     .limit(1)
     .maybeSingle();
 
@@ -100,11 +103,13 @@ async function findCustomerByName(
     return exact.data as CustomerLookupRow;
   }
 
-  const fuzzy = await supabase
-    .from("customers")
-    .select("id, customer_name")
-    .eq("company_id", companyId)
-    .ilike("customer_name", `%${customerName}%`)
+  const fuzzy = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .select("id, customer_name")
+      .eq("company_id", companyId)
+      .ilike("customer_name", `%${customerName}%`),
+  )
     .limit(1)
     .maybeSingle();
 
@@ -136,6 +141,38 @@ async function upsertLineUser(
   if (error) {
     throw new Error(error.message);
   }
+}
+
+/** Persist official LINE userId on the CRM customer row (Messaging API push target). */
+async function updateCustomerLineUserId(
+  supabase: SupabaseClient,
+  customerId: string,
+  companyId: number,
+  lineUserId: string,
+): Promise<void> {
+  const { error } = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .update({ line_user_id: lineUserId })
+      .eq("company_id", companyId)
+      .eq("id", customerId),
+  );
+
+  if (error) {
+    throw new Error(`customers.line_user_id update failed: ${error.message}`);
+  }
+}
+
+async function bindLineUserToCustomer(
+  supabase: SupabaseClient,
+  lineUserId: string,
+  displayName: string | null,
+  customer: CustomerLookupRow,
+  companyId: number,
+): Promise<void> {
+  const customerId = String(customer.id);
+  await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
+  await updateCustomerLineUserId(supabase, customerId, companyId, lineUserId);
 }
 
 async function resolveChannelAccessToken(): Promise<string> {
@@ -237,7 +274,7 @@ async function handleTextMessage(
       return;
     }
 
-    await upsertLineUser(supabase, userId, displayName, String(customer.id), companyId);
+    await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
     const matchedName = customer.customer_name?.trim() || command.customerName;
     await sendLineReplyMessage(
       replyToken,
@@ -245,6 +282,20 @@ async function handleTextMessage(
       channelAccessToken,
     );
     return;
+  }
+
+  if (displayName) {
+    const customer = await findCustomerByName(supabase, displayName, companyId);
+    if (customer) {
+      await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
+      const matchedName = customer.customer_name?.trim() || displayName;
+      await sendLineReplyMessage(
+        replyToken,
+        `已綁定客戶：${matchedName} ✅`,
+        channelAccessToken,
+      );
+      return;
+    }
   }
 
   await upsertLineUser(supabase, userId, displayName, null, companyId);
