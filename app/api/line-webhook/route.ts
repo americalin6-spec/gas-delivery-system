@@ -6,7 +6,6 @@ import {
 } from "../../lib/conversationsServer";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
-import { activeCustomersOnly } from "../../lib/customerSoftDelete";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 import { DEFAULT_COMPANY_ID } from "../../lib/companyContext";
 
@@ -47,6 +46,11 @@ const BIND_INSTRUCTION_REPLY =
 const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
 
 const BIND_COMMAND = "綁定";
+
+/** Exclude soft-deleted customers (same filter as customerSoftDelete.activeCustomersOnly). */
+function activeCustomersOnly<T extends { is: (col: string, val: null) => T }>(query: T): T {
+  return query.is("deleted_at", null);
+}
 
 function isTextMessageEvent(event: LineWebhookEvent): boolean {
   return event.type === "message" && event.message?.type === "text";
