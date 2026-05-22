@@ -6,6 +6,7 @@
   "/api/analyze/route": "/api/analyze",
   "/api/companies/route": "/api/companies",
   "/api/conversations/route": "/api/conversations",
+  "/api/customers/route": "/api/customers",
   "/api/line-push-test/route": "/api/line-push-test",
   "/api/line-users/route": "/api/line-users",
   "/api/line-webhook/route": "/api/line-webhook",

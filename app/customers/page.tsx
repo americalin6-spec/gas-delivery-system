@@ -33,14 +33,12 @@ import {
 } from "../lib/pipelineStatus";
 import PipelineStatusBadge from "../components/PipelineStatusBadge";
 import {
-  activeCustomersOnly,
   formatCustomerCreatedAtDisplay,
   getCustomerLastContactAt,
   restoreCustomerPayload,
   softDeleteCustomerPayload,
-  trashCustomersOnly,
 } from "../lib/customerSoftDelete";
-import { logActiveCompany } from "../lib/clientCompany";
+import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../../supabase";
 
@@ -139,30 +137,57 @@ export default function CustomersPage() {
   async function loadCustomers() {
     if (!companyReady || companyId <= 0) return;
     logActiveCompany("customersList.load", { companyId, trashView });
-    const customerQuery = trashView
-      ? trashCustomersOnly(
-          supabase.from("customers").select("*").eq("company_id", companyId),
-        ).order("deleted_at", { ascending: false, nullsFirst: false })
-      : activeCustomersOnly(
-          supabase.from("customers").select("*").eq("company_id", companyId),
-        ).order("created_at", { ascending: false, nullsFirst: false });
 
     const [customersRes, convosRes] = await Promise.all([
-      customerQuery,
+      fetch(`/api/customers?trash=${trashView ? "1" : "0"}`, {
+        headers: companyIdHeader(),
+        cache: "no-store",
+      }).then(async (res) => {
+        const json = (await res.json()) as {
+          ok?: boolean;
+          rows?: unknown[];
+          fetchedCount?: number;
+          error?: string;
+          companyId?: number;
+        };
+        return { res, json };
+      }),
       supabase
         .from("conversations")
         .select("customer_id, message_text")
         .eq("company_id", companyId)
-        .order("created_at", { ascending: true }),
+        .order("created_at", { ascending: true })
+        .limit(5000),
     ]);
 
-    if (!customersRes.error && customersRes.data) {
-      setCustomers(customersRes.data);
+    const fetchedCount = customersRes.json.fetchedCount ?? customersRes.json.rows?.length ?? 0;
+    console.log("[customersList] fetch result:", {
+      activeCompanyId: companyId,
+      trashView,
+      httpOk: customersRes.res.ok,
+      customersFetchedCount: fetchedCount,
+      apiCompanyId: customersRes.json.companyId,
+      error: customersRes.json.error ?? null,
+    });
+
+    if (customersRes.res.ok && customersRes.json.ok && Array.isArray(customersRes.json.rows)) {
+      setCustomers(customersRes.json.rows);
+    } else {
+      console.error("[customersList] fetch failed — clearing list:", customersRes.json.error);
+      setCustomers([]);
     }
+
     if (!convosRes.error && convosRes.data) {
       setConversationSourceByCustomerId(buildConversationSourceMap(convosRes.data));
+      console.log("[customersList] conversations loaded (optional enrichment):", {
+        conversationRows: convosRes.data.length,
+        customersWithConversationText: convosRes.data.length,
+      });
     } else {
       setConversationSourceByCustomerId(new Map());
+      if (convosRes.error) {
+        console.warn("[customersList] conversations fetch failed (list still shown):", convosRes.error.message);
+      }
     }
   }
 
@@ -232,7 +257,7 @@ export default function CustomersPage() {
     const keyword = search.trim().toLowerCase();
     const todayYmd = getTaipeiTodayYmd();
 
-    return customers.filter((c) => {
+    const filtered = customers.filter((c) => {
       if (keyword) {
         const haystack = [
           c.customer_name,
@@ -280,6 +305,8 @@ export default function CustomersPage() {
 
       return true;
     });
+
+    return filtered;
   }, [
     customers,
     search,
@@ -288,6 +315,31 @@ export default function CustomersPage() {
     followFilter,
     urgencyFilter,
     conversationSourceByCustomerId,
+  ]);
+
+  useEffect(() => {
+    if (!companyReady) return;
+    console.log("[customersList] render stats:", {
+      activeCompanyId: companyId,
+      customersFetchedCount: customers.length,
+      filteredCount: filteredCustomers.length,
+      finalRenderedCount: filteredCustomers.length,
+      trashView,
+      statusFilter,
+      followFilter,
+      urgencyFilter,
+      search: search.trim() || null,
+    });
+  }, [
+    companyReady,
+    companyId,
+    customers.length,
+    filteredCustomers.length,
+    trashView,
+    statusFilter,
+    followFilter,
+    urgencyFilter,
+    search,
   ]);
 
   const filteredIds = useMemo(

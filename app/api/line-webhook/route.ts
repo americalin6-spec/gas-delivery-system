@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  findCompanyIdForLineUser,
-  findCustomerIdForLineUser,
-  logLineConversation,
-} from "../../lib/conversationsServer";
+import { findCompanyIdForLineUser, logLineConversation } from "../../lib/conversationsServer";
 import {
   buildBindingSuccessNotification,
   buildLineMessageNotification,
@@ -41,6 +37,20 @@ type CustomerLookupRow = {
   customer_name: string | null;
 };
 
+type LineUserRow = {
+  line_user_id: string;
+  customer_id: string | null;
+  display_name: string | null;
+  company_id: number | null;
+};
+
+type ResolvedLineCustomer = {
+  customerId: string;
+  customer: CustomerLookupRow;
+  createdCustomer: boolean;
+  existingLineUser: boolean;
+};
+
 const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 
 const BIND_SUCCESS_REPLY =
@@ -50,6 +60,9 @@ const BIND_FAILED_REPLY = "綁定失敗，請稍後再試。";
 
 const BIND_INSTRUCTION_REPLY =
   "我已收到您的訊息，目前請輸入「綁定」完成 LINE CRM 通知設定。";
+
+const BIND_NAME_REQUIRED_REPLY =
+  "請輸入「綁定 客戶姓名」以連結既有客戶，或先傳送一般訊息以建立專屬客戶。";
 
 const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
 
@@ -95,7 +108,44 @@ async function fetchLineDisplayName(userId: string, channelAccessToken: string):
   return profile.displayName?.trim() || null;
 }
 
-/** Find a CRM customer by name within the active company. */
+async function findLineUserRow(
+  supabase: SupabaseClient,
+  lineUserId: string,
+): Promise<LineUserRow | null> {
+  const { data, error } = await supabase
+    .from("line_users")
+    .select("line_user_id, customer_id, display_name, company_id")
+    .eq("line_user_id", lineUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[line-webhook] line_users lookup failed:", error.message);
+    return null;
+  }
+  return (data as LineUserRow | null) ?? null;
+}
+
+async function loadCustomerById(
+  supabase: SupabaseClient,
+  customerId: string,
+  companyId: number,
+): Promise<CustomerLookupRow | null> {
+  const { data, error } = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .select("id, customer_name")
+      .eq("company_id", companyId)
+      .eq("id", customerId),
+  ).maybeSingle();
+
+  if (error) {
+    console.error("[line-webhook] customer load failed:", error.message);
+    return null;
+  }
+  return (data as CustomerLookupRow | null) ?? null;
+}
+
+/** Find a CRM customer by name — only for explicit「綁定 客戶名」manual binding. */
 async function findCustomerByName(
   supabase: SupabaseClient,
   customerName: string,
@@ -134,30 +184,7 @@ async function findCustomerByName(
   return (fuzzy.data as CustomerLookupRow | null) ?? null;
 }
 
-/** Find customer already linked to this official LINE userId. */
-async function findCustomerByLineUserId(
-  supabase: SupabaseClient,
-  lineUserId: string,
-  companyId: number,
-): Promise<CustomerLookupRow | null> {
-  const { data, error } = await activeCustomersOnly(
-    supabase
-      .from("customers")
-      .select("id, customer_name")
-      .eq("company_id", companyId)
-      .eq("line_user_id", lineUserId),
-  )
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[line-webhook] customers line_user_id lookup failed:", error.message);
-    return null;
-  }
-  return (data as CustomerLookupRow | null) ?? null;
-}
-
-async function createCustomerForLineBind(
+async function createCustomerForLineUser(
   supabase: SupabaseClient,
   companyId: number,
   lineUserId: string,
@@ -185,51 +212,28 @@ async function createCustomerForLineBind(
   return data as CustomerLookupRow;
 }
 
-async function confirmCustomerLineUserIdSaved(
-  supabase: SupabaseClient,
-  customerId: string,
-  companyId: number,
-  lineUserId: string,
-): Promise<boolean> {
-  const { data, error } = await activeCustomersOnly(
-    supabase
-      .from("customers")
-      .select("line_user_id")
-      .eq("company_id", companyId)
-      .eq("id", customerId),
-  ).maybeSingle();
-
-  if (error) {
-    console.error("[line-webhook] customers line_user_id verify failed:", error.message);
-    return false;
-  }
-  return data?.line_user_id?.trim() === lineUserId;
-}
-
 async function upsertLineUser(
   supabase: SupabaseClient,
-  userId: string,
+  lineUserId: string,
   displayName: string | null,
-  customerId: string | null,
+  customerId: string,
   companyId: number,
 ): Promise<void> {
-  const row: Record<string, unknown> = {
-    line_user_id: userId,
-    display_name: displayName,
-    company_id: companyId,
-  };
-  if (customerId !== null) row.customer_id = customerId;
-
-  const { error } = await supabase
-    .from("line_users")
-    .upsert(row, { onConflict: "line_user_id" });
+  const { error } = await supabase.from("line_users").upsert(
+    {
+      line_user_id: lineUserId,
+      display_name: displayName,
+      company_id: companyId,
+      customer_id: customerId,
+    },
+    { onConflict: "line_user_id" },
+  );
 
   if (error) {
     throw new Error(error.message);
   }
 }
 
-/** Persist official LINE userId on the CRM customer row (Messaging API push target). */
 async function updateCustomerLineUserId(
   supabase: SupabaseClient,
   customerId: string,
@@ -249,17 +253,87 @@ async function updateCustomerLineUserId(
   }
 }
 
-async function bindLineUserToCustomer(
+/**
+ * Resolve CRM customer for a LINE user.
+ * - Existing line_users row → keep its customer_id (never steal another customer's id).
+ * - manualCustomer → explicit「綁定 姓名」only.
+ * - Otherwise → create a brand-new customer (no display-name matching).
+ */
+async function resolveCustomerForLineUser(
   supabase: SupabaseClient,
   lineUserId: string,
   displayName: string | null,
-  customer: CustomerLookupRow,
   companyId: number,
-): Promise<boolean> {
+  manualCustomer?: CustomerLookupRow | null,
+): Promise<ResolvedLineCustomer> {
+  console.log("[line-webhook] resolveCustomerForLineUser start:", {
+    lineUserId,
+    displayName,
+    companyId,
+    manualBind: Boolean(manualCustomer),
+  });
+
+  const existingLineUser = await findLineUserRow(supabase, lineUserId);
+  console.log("[line-webhook] existingLineUser:", {
+    lineUserId,
+    found: Boolean(existingLineUser),
+    customer_id: existingLineUser?.customer_id ?? null,
+  });
+
+  if (manualCustomer) {
+    const customerId = String(manualCustomer.id);
+    await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
+    await updateCustomerLineUserId(supabase, customerId, companyId, lineUserId);
+    console.log("[line-webhook] manual bind final customer_id:", {
+      lineUserId,
+      createdCustomer_id: customerId,
+      finalCustomer_id: customerId,
+    });
+    return {
+      customerId,
+      customer: manualCustomer,
+      createdCustomer: false,
+      existingLineUser: Boolean(existingLineUser),
+    };
+  }
+
+  const existingCustomerId = existingLineUser?.customer_id?.trim() ?? "";
+  if (existingCustomerId) {
+    await upsertLineUser(supabase, lineUserId, displayName, existingCustomerId, companyId);
+    const customer =
+      (await loadCustomerById(supabase, existingCustomerId, companyId)) ?? {
+        id: existingCustomerId,
+        customer_name: displayName,
+      };
+    console.log("[line-webhook] reuse existing line_users customer_id:", {
+      lineUserId,
+      finalCustomer_id: existingCustomerId,
+    });
+    return {
+      customerId: existingCustomerId,
+      customer,
+      createdCustomer: false,
+      existingLineUser: true,
+    };
+  }
+
+  const customer = await createCustomerForLineUser(supabase, companyId, lineUserId, displayName);
   const customerId = String(customer.id);
   await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
-  await updateCustomerLineUserId(supabase, customerId, companyId, lineUserId);
-  return confirmCustomerLineUserIdSaved(supabase, customerId, companyId, lineUserId);
+
+  console.log("[line-webhook] created new customer for LINE user:", {
+    lineUserId,
+    displayName,
+    createdCustomer_id: customerId,
+    finalCustomer_id: customerId,
+  });
+
+  return {
+    customerId,
+    customer,
+    createdCustomer: true,
+    existingLineUser: Boolean(existingLineUser),
+  };
 }
 
 async function notifyBindingSuccess(
@@ -304,15 +378,6 @@ async function resolveChannelAccessToken(): Promise<string> {
   }
 }
 
-/**
- * Resolve which tenant this LINE message belongs to.
- *
- * 1. If the LINE user is already bound (line_users row exists), keep their company.
- * 2. Otherwise fall back to DEFAULT_COMPANY_ID (env override `DEFAULT_COMPANY_ID`).
- *
- * The webhook is a single LINE channel — one tenant per channel — so the default
- * is the right answer for any deployment with one company.
- */
 async function resolveCompanyForLineUser(
   supabase: SupabaseClient,
   userId: string | null | undefined,
@@ -327,63 +392,88 @@ async function resolveCompanyForLineUser(
   }
 }
 
-/** STEP 1 — Always log every inbound text first, fully isolated from reply/binding. */
+/** Log inbound messages + provision one CRM customer per LINE userId. */
 async function logInboundEvents(
   supabase: SupabaseClient,
   events: LineWebhookEvent[],
+  channelAccessToken: string,
 ): Promise<void> {
   await Promise.all(
     events.map(async (event) => {
-      const userId = event.source?.userId?.trim();
+      const lineUserId = event.source?.userId?.trim();
       const messageText = event.message?.text;
 
-      if (!userId || !messageText) {
+      if (!lineUserId || !messageText) {
         console.log("[line-webhook] skipping log for event:", {
           type: event.type,
           messageType: event.message?.type,
-          hasUserId: Boolean(userId),
+          hasUserId: Boolean(lineUserId),
           hasText: Boolean(messageText),
         });
         return;
       }
 
       try {
-        const companyId = await resolveCompanyForLineUser(supabase, userId);
-        const customerId = await findCustomerIdForLineUser(supabase, userId, companyId);
-        let customerName: string | null = null;
-        if (customerId) {
-          const { data: nameRow } = await activeCustomersOnly(
-            supabase
-              .from("customers")
-              .select("customer_name")
-              .eq("company_id", companyId)
-              .eq("id", customerId),
-          ).maybeSingle();
-          customerName = (nameRow as { customer_name?: string | null } | null)?.customer_name ?? null;
+        const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
+        const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
+
+        const bindCmd = parseBindCommand(messageText);
+        let manualCustomer: CustomerLookupRow | null = null;
+        if (bindCmd?.customerName) {
+          manualCustomer = await findCustomerByName(
+            supabase,
+            bindCmd.customerName,
+            companyId,
+          );
         }
+
+        const resolved = await resolveCustomerForLineUser(
+          supabase,
+          lineUserId,
+          displayName,
+          companyId,
+          manualCustomer,
+        );
+
         await logLineConversation(supabase, {
-          lineUserId: userId,
+          lineUserId,
           messageText,
           direction: "inbound",
           companyId,
-          customerId,
+          customerId: resolved.customerId,
         });
-        const preview = buildLineMessageNotification(customerName, messageText, "zh");
+
+        console.log("[line-webhook] conversation logged:", {
+          lineUserId,
+          displayName,
+          finalCustomer_id: resolved.customerId,
+          createdCustomer: resolved.createdCustomer,
+          existingLineUser: resolved.existingLineUser,
+        });
+
+        const preview = buildLineMessageNotification(
+          resolved.customer.customer_name,
+          messageText,
+          "zh",
+        );
         await createCrmNotification(supabase, {
           companyId,
           type: "line_message",
           title: preview.title,
           body: preview.body,
-          customerId,
+          customerId: resolved.customerId,
         });
       } catch (err) {
-        console.error("[line-webhook] logLineConversation threw:", err);
+        console.error("[line-webhook] inbound pipeline threw:", {
+          lineUserId,
+          err,
+        });
       }
     }),
   );
 }
 
-/** STEP 2 — Bind/reply logic. Runs after logging; failures here do not block logging. */
+/** Bind command replies only — customer resolution happens in logInboundEvents first. */
 async function handleTextMessage(
   event: LineWebhookEvent,
   channelAccessToken: string,
@@ -398,66 +488,79 @@ async function handleTextMessage(
     return;
   }
 
-  const userId = event.source?.userId?.trim();
-  if (!userId) {
+  const lineUserId = event.source?.userId?.trim();
+  if (!lineUserId) {
     await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
     return;
   }
 
-  const companyId = await resolveCompanyForLineUser(supabase, userId);
-  const displayName = await fetchLineDisplayName(userId, channelAccessToken);
+  const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
+  const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
+
+  console.log("[line-webhook] bind command:", {
+    lineUserId,
+    displayName,
+    namedCustomer: command.customerName,
+  });
 
   if (command.customerName) {
-    const customer = await findCustomerByName(supabase, command.customerName, companyId);
-    if (!customer) {
+    const manualCustomer = await findCustomerByName(
+      supabase,
+      command.customerName,
+      companyId,
+    );
+    if (!manualCustomer) {
       await sendLineReplyMessage(replyToken, CUSTOMER_NOT_FOUND_REPLY, channelAccessToken);
       return;
     }
 
-    const saved = await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
-    if (!saved) {
-      await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
-      return;
-    }
-    await notifyBindingSuccess(supabase, companyId, customer, command.customerName);
-    await replyBindSuccess(replyToken, channelAccessToken, customer, command.customerName);
-    return;
-  }
-
-  let customer: CustomerLookupRow | null = null;
-  if (displayName) {
-    customer = await findCustomerByName(supabase, displayName, companyId);
-  }
-  if (!customer) {
-    customer = await findCustomerByLineUserId(supabase, userId, companyId);
-  }
-  if (!customer) {
     try {
-      customer = await createCustomerForLineBind(supabase, companyId, userId, displayName);
+      const resolved = await resolveCustomerForLineUser(
+        supabase,
+        lineUserId,
+        displayName,
+        companyId,
+        manualCustomer,
+      );
+      await notifyBindingSuccess(supabase, companyId, resolved.customer, command.customerName);
+      await replyBindSuccess(replyToken, channelAccessToken, resolved.customer, command.customerName);
     } catch (err) {
-      console.error("[line-webhook] createCustomerForLineBind failed:", err);
+      console.error("[line-webhook] manual bind failed:", err);
       await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
-      return;
     }
-  }
-
-  const saved = await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
-  if (!saved) {
-    await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
     return;
   }
-  await notifyBindingSuccess(
-    supabase,
-    companyId,
-    customer,
-    displayName || DEFAULT_LINE_CUSTOMER_NAME,
-  );
-  await replyBindSuccess(
-    replyToken,
-    channelAccessToken,
-    customer,
-    displayName || DEFAULT_LINE_CUSTOMER_NAME,
-  );
+
+  try {
+    const existingLineUser = await findLineUserRow(supabase, lineUserId);
+    const resolved = await resolveCustomerForLineUser(
+      supabase,
+      lineUserId,
+      displayName,
+      companyId,
+    );
+
+    if (existingLineUser?.customer_id?.trim()) {
+      await notifyBindingSuccess(
+        supabase,
+        companyId,
+        resolved.customer,
+        displayName || DEFAULT_LINE_CUSTOMER_NAME,
+      );
+      await replyBindSuccess(
+        replyToken,
+        channelAccessToken,
+        resolved.customer,
+        displayName || DEFAULT_LINE_CUSTOMER_NAME,
+      );
+      return;
+    }
+
+    await sendLineReplyMessage(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken);
+  } catch (err) {
+    console.error("[line-webhook] bare bind failed:", err);
+    await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
+  }
 }
 
 export async function POST(req: Request) {
@@ -481,17 +584,19 @@ export async function POST(req: Request) {
   }
 
   const supabase = getSupabaseServer();
+  const channelAccessToken = await resolveChannelAccessToken();
 
-  // STEP 1: log inbound messages first — must run regardless of any downstream failure.
   try {
-    await logInboundEvents(supabase, textEvents);
+    if (channelAccessToken) {
+      await logInboundEvents(supabase, textEvents, channelAccessToken);
+    } else {
+      console.error("[line-webhook] no channel access token; skipping inbound pipeline.");
+    }
   } catch (err) {
     console.error("[line-webhook] logInboundEvents threw:", err);
   }
 
-  // STEP 2: binding + reply logic. Token fetch is wrapped so failure can't block logging.
   try {
-    const channelAccessToken = await resolveChannelAccessToken();
     if (channelAccessToken) {
       await Promise.all(
         textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
