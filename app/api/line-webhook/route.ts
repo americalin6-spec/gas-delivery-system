@@ -40,12 +40,16 @@ const LINE_PROFILE_ENDPOINT = "https://api.line.me/v2/bot/profile";
 const BIND_SUCCESS_REPLY =
   "綁定成功 ✅\n之後 CRM 提醒會傳到這個 LINE 帳號。";
 
+const BIND_FAILED_REPLY = "綁定失敗，請稍後再試。";
+
 const BIND_INSTRUCTION_REPLY =
   "我已收到您的訊息，目前請輸入「綁定」完成 LINE CRM 通知設定。";
 
 const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
 
 const BIND_COMMAND = "綁定";
+
+const DEFAULT_LINE_CUSTOMER_NAME = "LINE 客戶";
 
 /** Exclude soft-deleted customers (same filter as customerSoftDelete.activeCustomersOnly). */
 function activeCustomersOnly<T extends { is: (col: string, val: null) => T }>(query: T): T {
@@ -124,6 +128,78 @@ async function findCustomerByName(
   return (fuzzy.data as CustomerLookupRow | null) ?? null;
 }
 
+/** Find customer already linked to this official LINE userId. */
+async function findCustomerByLineUserId(
+  supabase: SupabaseClient,
+  lineUserId: string,
+  companyId: number,
+): Promise<CustomerLookupRow | null> {
+  const { data, error } = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .select("id, customer_name")
+      .eq("company_id", companyId)
+      .eq("line_user_id", lineUserId),
+  )
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[line-webhook] customers line_user_id lookup failed:", error.message);
+    return null;
+  }
+  return (data as CustomerLookupRow | null) ?? null;
+}
+
+async function createCustomerForLineBind(
+  supabase: SupabaseClient,
+  companyId: number,
+  lineUserId: string,
+  displayName: string | null,
+): Promise<CustomerLookupRow> {
+  const customer_name = displayName?.trim() || DEFAULT_LINE_CUSTOMER_NAME;
+  const { data, error } = await supabase
+    .from("customers")
+    .insert({
+      company_id: companyId,
+      customer_name,
+      line_user_id: lineUserId,
+      customer_status: "new_lead",
+      status: "new_lead",
+    })
+    .select("id, customer_name")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`customers insert failed: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("customers insert returned no row");
+  }
+  return data as CustomerLookupRow;
+}
+
+async function confirmCustomerLineUserIdSaved(
+  supabase: SupabaseClient,
+  customerId: string,
+  companyId: number,
+  lineUserId: string,
+): Promise<boolean> {
+  const { data, error } = await activeCustomersOnly(
+    supabase
+      .from("customers")
+      .select("line_user_id")
+      .eq("company_id", companyId)
+      .eq("id", customerId),
+  ).maybeSingle();
+
+  if (error) {
+    console.error("[line-webhook] customers line_user_id verify failed:", error.message);
+    return false;
+  }
+  return data?.line_user_id?.trim() === lineUserId;
+}
+
 async function upsertLineUser(
   supabase: SupabaseClient,
   userId: string,
@@ -173,10 +249,25 @@ async function bindLineUserToCustomer(
   displayName: string | null,
   customer: CustomerLookupRow,
   companyId: number,
-): Promise<void> {
+): Promise<boolean> {
   const customerId = String(customer.id);
   await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
   await updateCustomerLineUserId(supabase, customerId, companyId, lineUserId);
+  return confirmCustomerLineUserIdSaved(supabase, customerId, companyId, lineUserId);
+}
+
+async function replyBindSuccess(
+  replyToken: string,
+  channelAccessToken: string,
+  customer: CustomerLookupRow,
+  fallbackName: string,
+): Promise<void> {
+  const matchedName = customer.customer_name?.trim() || fallbackName;
+  const message =
+    matchedName && matchedName !== DEFAULT_LINE_CUSTOMER_NAME
+      ? `已綁定客戶：${matchedName} ✅`
+      : BIND_SUCCESS_REPLY;
+  await sendLineReplyMessage(replyToken, message, channelAccessToken);
 }
 
 async function resolveChannelAccessToken(): Promise<string> {
@@ -278,32 +369,43 @@ async function handleTextMessage(
       return;
     }
 
-    await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
-    const matchedName = customer.customer_name?.trim() || command.customerName;
-    await sendLineReplyMessage(
-      replyToken,
-      `已綁定客戶：${matchedName} ✅`,
-      channelAccessToken,
-    );
+    const saved = await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
+    if (!saved) {
+      await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
+      return;
+    }
+    await replyBindSuccess(replyToken, channelAccessToken, customer, command.customerName);
     return;
   }
 
+  let customer: CustomerLookupRow | null = null;
   if (displayName) {
-    const customer = await findCustomerByName(supabase, displayName, companyId);
-    if (customer) {
-      await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
-      const matchedName = customer.customer_name?.trim() || displayName;
-      await sendLineReplyMessage(
-        replyToken,
-        `已綁定客戶：${matchedName} ✅`,
-        channelAccessToken,
-      );
+    customer = await findCustomerByName(supabase, displayName, companyId);
+  }
+  if (!customer) {
+    customer = await findCustomerByLineUserId(supabase, userId, companyId);
+  }
+  if (!customer) {
+    try {
+      customer = await createCustomerForLineBind(supabase, companyId, userId, displayName);
+    } catch (err) {
+      console.error("[line-webhook] createCustomerForLineBind failed:", err);
+      await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
       return;
     }
   }
 
-  await upsertLineUser(supabase, userId, displayName, null, companyId);
-  await sendLineReplyMessage(replyToken, BIND_SUCCESS_REPLY, channelAccessToken);
+  const saved = await bindLineUserToCustomer(supabase, userId, displayName, customer, companyId);
+  if (!saved) {
+    await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
+    return;
+  }
+  await replyBindSuccess(
+    replyToken,
+    channelAccessToken,
+    customer,
+    displayName || DEFAULT_LINE_CUSTOMER_NAME,
+  );
 }
 
 export async function POST(req: Request) {
