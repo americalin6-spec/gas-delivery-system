@@ -70,6 +70,9 @@ export function customersListCopy(lang: AppLang) {
     noExplicitDate: zh ? "無明確日期" : "No explicit date",
     note: zh ? "備註" : "Note",
     viewDetail: zh ? "查看詳情" : "View details",
+    clickCardHint: zh ? "點擊「查看詳情」開啟完整客戶資料" : "Use “View details” for the full profile",
+    openCustomerDetail: (name: string) =>
+      zh ? `開啟 ${name || "客戶"} 詳情` : `Open ${name || "customer"} details`,
     deleteCustomer: zh ? "刪除客戶" : "Delete",
     addCustomer: zh ? "新增客戶" : "Add customer",
     addCustomerBtn: zh ? "＋ 新增客戶" : "+ Add customer",
@@ -165,7 +168,8 @@ export type CustomerDetailCopy = ReturnType<typeof customerDetailCopy>;
 export function customerDetailCopy(lang: AppLang) {
   const zh = lang === "zh";
   return {
-    customerList: zh ? "客戶列表" : "Customers",
+    customerList: zh ? "返回客戶列表" : "Back to Customers",
+    sectionTimeline: zh ? "時間軸" : "Timeline",
     loading: zh ? "載入客戶資料中…" : "Loading customer…",
     notFoundTitle: zh ? "找不到客戶" : "Customer not found",
     notFoundBody: zh ? "此客戶不存在或已被刪除。" : "This customer does not exist or was deleted.",
@@ -306,14 +310,16 @@ export function customerDetailCopy(lang: AppLang) {
     simulatedSent: zh ? "已模擬送出追蹤訊息。" : "Follow-up simulated.",
     simulatedAutoSent: zh ? "已模擬自動發送追蹤訊息。" : "Auto follow-up simulated.",
     processingLine: zh ? "處理中…" : "Processing…",
-    boundLineAccountsTitle: zh ? "Bound LINE Accounts" : "Bound LINE Accounts",
+    boundLineAccountsTitle: zh ? "已綁定 LINE 帳號" : "Bound LINE accounts",
     boundLineCount: (n: number) =>
       zh ? `已綁定 ${n} 個 LINE 帳號` : `${n} bound LINE account${n === 1 ? "" : "s"}`,
     primaryLineAccount: zh ? "主要 LINE" : "Primary LINE",
-    openConversation: zh ? "Open Conversation" : "Open Conversation",
-    noBoundLineAccounts: zh ? "尚無綁定的 LINE 官方帳號。客戶在 LINE 傳送「綁定」後會顯示於此。" : "No bound LINE accounts yet. They appear after the customer sends「綁定」in LINE.",
+    openConversation: zh ? "開啟對話" : "Open conversation",
+    noBoundLineAccounts: zh
+      ? "尚無綁定的 LINE 官方帳號。客戶在 LINE 傳送「綁定」後會顯示於此。"
+      : "No bound LINE accounts yet. They appear after the customer sends「綁定」in LINE.",
     lineDisplayNameLabel: zh ? "顯示名稱" : "Display name",
-    lineUserIdLabel: zh ? "LINE User ID" : "LINE User ID",
+    lineUserIdLabel: zh ? "LINE 使用者 ID" : "LINE user ID",
     lineBoundAtLabel: zh ? "綁定時間" : "Bound at",
     conversationsFiltered: (name: string) =>
       zh ? `對話紀錄 · ${name}` : `Conversations · ${name}`,

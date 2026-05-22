@@ -8,6 +8,7 @@ import {
 } from "../../lib/crmNotifications";
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
+import { persistCustomerLineUserId } from "../../lib/lineCustomerBinding";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 import { DEFAULT_COMPANY_ID } from "../../lib/companyContext";
 
@@ -234,22 +235,20 @@ async function upsertLineUser(
   }
 }
 
-async function updateCustomerLineUserId(
+async function ensureCustomerLineUserId(
   supabase: SupabaseClient,
   customerId: string,
   companyId: number,
   lineUserId: string,
 ): Promise<void> {
-  const { error } = await activeCustomersOnly(
-    supabase
-      .from("customers")
-      .update({ line_user_id: lineUserId })
-      .eq("company_id", companyId)
-      .eq("id", customerId),
+  const { ok, error } = await persistCustomerLineUserId(
+    supabase,
+    customerId,
+    lineUserId,
+    companyId,
   );
-
-  if (error) {
-    throw new Error(`customers.line_user_id update failed: ${error.message}`);
+  if (!ok) {
+    throw new Error(`customers.line_user_id update failed: ${error ?? "unknown"}`);
   }
 }
 
@@ -283,7 +282,7 @@ async function resolveCustomerForLineUser(
   if (manualCustomer) {
     const customerId = String(manualCustomer.id);
     await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
-    await updateCustomerLineUserId(supabase, customerId, companyId, lineUserId);
+    await ensureCustomerLineUserId(supabase, customerId, companyId, lineUserId);
     console.log("[line-webhook] manual bind final customer_id:", {
       lineUserId,
       createdCustomer_id: customerId,
@@ -300,6 +299,7 @@ async function resolveCustomerForLineUser(
   const existingCustomerId = existingLineUser?.customer_id?.trim() ?? "";
   if (existingCustomerId) {
     await upsertLineUser(supabase, lineUserId, displayName, existingCustomerId, companyId);
+    await ensureCustomerLineUserId(supabase, existingCustomerId, companyId, lineUserId);
     const customer =
       (await loadCustomerById(supabase, existingCustomerId, companyId)) ?? {
         id: existingCustomerId,
@@ -320,6 +320,7 @@ async function resolveCustomerForLineUser(
   const customer = await createCustomerForLineUser(supabase, companyId, lineUserId, displayName);
   const customerId = String(customer.id);
   await upsertLineUser(supabase, lineUserId, displayName, customerId, companyId);
+  await ensureCustomerLineUserId(supabase, customerId, companyId, lineUserId);
 
   console.log("[line-webhook] created new customer for LINE user:", {
     lineUserId,

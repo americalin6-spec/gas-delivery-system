@@ -954,7 +954,9 @@ export default function CustomerDetailPage() {
                     refreshSignal={conversationRefresh}
                     lineUserId={selectedLineUserId}
                     titleOverride={
-                      selectedLineLabel ? t.conversationsFiltered(selectedLineLabel) : undefined
+                      selectedLineLabel
+                        ? t.conversationsFiltered(selectedLineLabel)
+                        : t.sectionTimeline
                     }
                   />
                 </section>

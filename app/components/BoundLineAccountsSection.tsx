@@ -95,7 +95,11 @@ export function BoundLineAccountsSection({
     logActiveCompany("boundLineAccounts.load", { customerId: id, companyId });
 
     try {
-      const url = `/api/line-users?customer_id=${encodeURIComponent(id)}`;
+      const query = new URLSearchParams({ customer_id: id });
+      const primary = primaryLineUserId?.trim();
+      if (primary) query.set("primary_line_user_id", primary);
+
+      const url = `/api/line-users?${query.toString()}`;
       const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -103,6 +107,15 @@ export function BoundLineAccountsSection({
         count?: number;
         error?: string;
       };
+
+      console.log("[boundLineAccounts] API response:", {
+        customerId: id,
+        companyId,
+        httpOk: res.ok,
+        apiOk: body.ok,
+        count: body.count ?? body.rows?.length ?? 0,
+        error: body.error ?? null,
+      });
 
       if (!res.ok || !body.ok) {
         setError(body.error ?? `HTTP ${res.status}`);
@@ -112,7 +125,7 @@ export function BoundLineAccountsSection({
       }
 
       const rows = Array.isArray(body.rows) ? body.rows : [];
-      const count = rows.length;
+      const count = typeof body.count === "number" ? body.count : rows.length;
       setRowCount(count);
       setAccounts(toBoundAccounts(rows, primaryLineUserId));
     } catch (err) {

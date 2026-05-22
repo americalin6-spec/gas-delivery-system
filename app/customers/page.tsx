@@ -55,6 +55,73 @@ type UrgencyFilter =
 
 const CRM_MOBILE_MAX_WIDTH = 768;
 
+function ChevronRightIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function ViewDetailLink({
+  href,
+  label,
+  fullWidth,
+  cardHovered,
+}: {
+  href: string;
+  label: string;
+  fullWidth?: boolean;
+  cardHovered?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        background: cardHovered
+          ? "linear-gradient(135deg, #4ade80 0%, #22c55e 45%, #16a34a 100%)"
+          : "linear-gradient(135deg, #34d399 0%, #22c55e 50%, #15803d 100%)",
+        color: "white",
+        textDecoration: "none",
+        padding: fullWidth ? "13px 18px" : "11px 18px",
+        borderRadius: 12,
+        cursor: "pointer",
+        fontWeight: 800,
+        fontSize: fullWidth ? 15 : 14,
+        width: fullWidth ? "100%" : "auto",
+        boxSizing: "border-box",
+        border: cardHovered
+          ? "1px solid rgba(255,255,255,0.55)"
+          : "1px solid rgba(255,255,255,0.28)",
+        boxShadow: cardHovered
+          ? "0 8px 28px rgba(74,222,128,0.55), 0 0 20px rgba(34,197,94,0.35)"
+          : "0 6px 20px rgba(34,197,94,0.4)",
+        flexShrink: 0,
+        transform: cardHovered ? "scale(1.06) translateX(2px)" : "scale(1)",
+        transition:
+          "transform 0.22s cubic-bezier(0.34, 1.2, 0.64, 1), box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease",
+      }}
+    >
+      <span>{label}</span>
+      <ChevronRightIcon size={cardHovered ? 20 : 18} />
+    </Link>
+  );
+}
+
 const filterSelectStyle: CSSProperties = {
   width: "100%",
   padding: "12px 14px",
@@ -111,6 +178,7 @@ export default function CustomersPage() {
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [trashView, setTrashView] = useState(false);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
 
   const { companyId, ready: companyReady } = useActiveCompany();
 
@@ -732,34 +800,95 @@ export default function CustomersPage() {
             {filteredCustomers.map((c) => {
               const rowId = String(c.id);
               const isSelected = selectedIds.has(rowId);
+              const isHovered = !trashView && hoveredCardId === rowId;
+              const detailHref = `/customers/${c.id}`;
               return (
               <div
                 key={c.id}
+                onMouseEnter={() => !trashView && setHoveredCardId(rowId)}
+                onMouseLeave={() => setHoveredCardId(null)}
             style={{
-              background: "#102742",
+              background: isHovered ? "#123052" : "#102742",
               borderRadius: 24,
               padding: isMobile ? 24 : 36,
               width: "100%",
               maxWidth: "100%",
               boxSizing: "border-box",
               minWidth: 0,
+              position: "relative",
               border: isSelected
-                ? "2px solid rgba(129,140,248,0.75)"
-                : "2px solid transparent",
-              boxShadow: isSelected ? "0 0 0 1px rgba(99,102,241,0.25)" : undefined,
+                ? "2px solid rgba(167,139,250,0.95)"
+                : isHovered
+                  ? "2px solid rgba(167,139,250,0.85)"
+                  : "2px solid rgba(148,163,184,0.2)",
+              boxShadow: isSelected
+                ? "0 0 0 1px rgba(167,139,250,0.4), 0 20px 48px rgba(99,102,241,0.45), 0 0 32px rgba(129,140,248,0.35)"
+                : isHovered
+                  ? "0 0 0 1px rgba(167,139,250,0.35), 0 22px 52px rgba(0,0,0,0.5), 0 0 40px rgba(99,102,241,0.42), 0 0 80px rgba(129,140,248,0.18)"
+                  : "0 4px 18px rgba(0,0,0,0.22)",
+              transform: isHovered ? "translateY(-6px) scale(1.015)" : "translateY(0) scale(1)",
+              cursor: "default",
+              transition:
+                "border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.2, 0.64, 1), background 0.25s ease",
             }}
               >
                 <div
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: isMobile ? "flex-start" : "center",
-                    flexDirection: isMobile ? "column" : "row",
-                    gap: 18,
+                    position: "relative",
                     marginBottom: 26,
                   }}
                 >
-                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
+                  {!trashView ? (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        right: 0,
+                        zIndex: 3,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 8,
+                        maxWidth: isMobile ? "min(100%, 200px)" : "none",
+                        pointerEvents: "auto",
+                      }}
+                    >
+                      <ViewDetailLink
+                        href={detailHref}
+                        label={t.viewDetail}
+                        fullWidth={isMobile}
+                        cardHovered={isHovered}
+                      />
+                      <span
+                        style={{
+                          fontSize: isMobile ? 12 : 13,
+                          fontWeight: 600,
+                          color: isHovered ? "rgba(196,181,253,0.95)" : "rgba(148,163,184,0.7)",
+                          opacity: isHovered ? 1 : isMobile ? 0.72 : 0,
+                          maxHeight: isHovered || isMobile ? 28 : 0,
+                          overflow: "hidden",
+                          transition: "opacity 0.25s ease, max-height 0.25s ease, color 0.25s ease",
+                          cursor: "default",
+                          textAlign: "right",
+                          lineHeight: 1.35,
+                          whiteSpace: isMobile ? "normal" : "nowrap",
+                        }}
+                      >
+                        {t.clickCardHint}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 14,
+                      alignItems: "flex-start",
+                      minWidth: 0,
+                      paddingRight: !trashView ? (isMobile ? 0 : 168) : 0,
+                      paddingTop: !trashView && isMobile ? 52 : 0,
+                    }}
+                  >
                     {!trashView ? (
                     <label
                       style={{
@@ -769,7 +898,6 @@ export default function CustomersPage() {
                         cursor: "pointer",
                         flexShrink: 0,
                       }}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       <input
                         type="checkbox"
@@ -837,20 +965,12 @@ export default function CustomersPage() {
                   <div
                     style={{
                       display: "flex",
-                      flexDirection: "column",
-                      alignItems: isMobile ? "stretch" : "flex-end",
-                      gap: 10,
-                      flexShrink: 0,
+                      flexWrap: "wrap",
+                      gap: 8,
+                      justifyContent: "flex-start",
+                      marginTop: isMobile ? 14 : 16,
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 8,
-                        justifyContent: isMobile ? "flex-start" : "flex-end",
-                      }}
-                    >
                       <PipelineStatusBadge status={c.status} lang={lang} />
                       {(() => {
                         const mode = normalizeFollowUpMode(c.follow_up_mode);
@@ -883,7 +1003,6 @@ export default function CustomersPage() {
                       >
                         {displayValue(c.customer_level) === "-" ? t.unknown : displayValue(c.customer_level)}
                       </div>
-                    </div>
                   </div>
                   ) : null}
                 </div>
@@ -897,7 +1016,7 @@ export default function CustomersPage() {
                     c.important_date,
                   );
                   return (
-                    <>
+                    <div>
                       <div
                         style={{
                           display: "grid",
@@ -980,7 +1099,7 @@ export default function CustomersPage() {
                         showFollowUpReminder={false}
                         clampLongText
                       />
-                    </>
+                    </div>
                   );
                 })()}
 
@@ -1031,27 +1150,6 @@ export default function CustomersPage() {
                     </>
                   ) : (
                     <>
-                      <Link
-                        href={`/customers/${c.id}`}
-                        style={{ width: isMobile ? "100%" : "auto" }}
-                      >
-                        <button
-                          style={{
-                            background: "#22c55e",
-                            color: "white",
-                            border: "none",
-                            padding: "15px 22px",
-                            borderRadius: 12,
-                            cursor: "pointer",
-                            fontWeight: 700,
-                            fontSize: 16,
-                            width: isMobile ? "100%" : "auto",
-                          }}
-                        >
-                          {t.viewDetail}
-                        </button>
-                      </Link>
-
                       <button
                         type="button"
                         onClick={() => moveCustomerToTrash(c.id)}
