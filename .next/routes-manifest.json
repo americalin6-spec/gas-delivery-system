@@ -95,6 +95,12 @@
       "namedRegex": "^/api/line\\-push\\-test(?:/)?$"
     },
     {
+      "page": "/api/line-users",
+      "regex": "^/api/line\\-users(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/line\\-users(?:/)?$"
+    },
+    {
       "page": "/api/line-webhook",
       "regex": "^/api/line\\-webhook(?:/)?$",
       "routeKeys": {},

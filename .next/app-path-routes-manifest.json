@@ -7,6 +7,7 @@
   "/api/companies/route": "/api/companies",
   "/api/conversations/route": "/api/conversations",
   "/api/line-push-test/route": "/api/line-push-test",
+  "/api/line-users/route": "/api/line-users",
   "/api/line-webhook/route": "/api/line-webhook",
   "/api/notifications/route": "/api/notifications",
   "/api/reminder-check/route": "/api/reminder-check",

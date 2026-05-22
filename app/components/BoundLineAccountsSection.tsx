@@ -4,21 +4,15 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 import { formatCustomerCreatedAtDisplay } from "../lib/customerSoftDelete";
-import { logActiveCompany } from "../lib/clientCompany";
+import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
+import type { LineUserBindingRow } from "../lib/lineUsersServer";
 import { useActiveCompany } from "./ActiveCompanyProvider";
-import { supabase } from "../../supabase";
 
 export type BoundLineAccount = {
   line_user_id: string;
   display_name: string | null;
   created_at: string | null;
   isPrimary: boolean;
-};
-
-type LineUserRow = {
-  line_user_id: string;
-  display_name: string | null;
-  created_at: string | null;
 };
 
 const ui = {
@@ -38,39 +32,29 @@ const ui = {
   radiusMd: 12,
 };
 
-function mergeBoundAccounts(
-  rows: LineUserRow[],
+function toBoundAccounts(
+  rows: LineUserBindingRow[],
   primaryLineUserId: string | null | undefined,
 ): BoundLineAccount[] {
   const primary = primaryLineUserId?.trim() || null;
-  const map = new Map<string, BoundLineAccount>();
-
-  for (const row of rows) {
-    const id = row.line_user_id?.trim();
-    if (!id) continue;
-    map.set(id, {
-      line_user_id: id,
-      display_name: row.display_name?.trim() || null,
-      created_at: row.created_at ?? null,
-      isPrimary: primary === id,
+  return rows
+    .map((row) => {
+      const line_user_id = row.line_user_id?.trim() ?? "";
+      if (!line_user_id) return null;
+      return {
+        line_user_id,
+        display_name: row.display_name?.trim() || null,
+        created_at: row.created_at ?? null,
+        isPrimary: primary === line_user_id,
+      };
+    })
+    .filter((row): row is BoundLineAccount => row != null)
+    .sort((a, b) => {
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
     });
-  }
-
-  if (primary && !map.has(primary)) {
-    map.set(primary, {
-      line_user_id: primary,
-      display_name: null,
-      created_at: null,
-      isPrimary: true,
-    });
-  }
-
-  return Array.from(map.values()).sort((a, b) => {
-    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
-    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-    return tb - ta;
-  });
 }
 
 function formatBoundAt(value: string | null, lang: AppLang): string {
@@ -98,6 +82,7 @@ export function BoundLineAccountsSection({
   const t = customerDetailCopy(lang);
   const { companyId, ready: companyReady } = useActiveCompany();
   const [accounts, setAccounts] = useState<BoundLineAccount[]>([]);
+  const [rowCount, setRowCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,20 +94,34 @@ export function BoundLineAccountsSection({
     setError(null);
     logActiveCompany("boundLineAccounts.load", { customerId: id, companyId });
 
-    const { data, error: qErr } = await supabase
-      .from("line_users")
-      .select("line_user_id, display_name, created_at")
-      .eq("company_id", companyId)
-      .eq("customer_id", id)
-      .order("created_at", { ascending: false });
+    try {
+      const url = `/api/line-users?customer_id=${encodeURIComponent(id)}`;
+      const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        rows?: LineUserBindingRow[];
+        count?: number;
+        error?: string;
+      };
 
-    if (qErr) {
-      setError(qErr.message);
+      if (!res.ok || !body.ok) {
+        setError(body.error ?? `HTTP ${res.status}`);
+        setAccounts([]);
+        setRowCount(0);
+        return;
+      }
+
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      const count = rows.length;
+      setRowCount(count);
+      setAccounts(toBoundAccounts(rows, primaryLineUserId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
       setAccounts([]);
-    } else {
-      setAccounts(mergeBoundAccounts((data ?? []) as LineUserRow[], primaryLineUserId));
+      setRowCount(0);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [customerId, companyId, companyReady, primaryLineUserId]);
 
   useEffect(() => {
@@ -169,7 +168,7 @@ export function BoundLineAccountsSection({
             {t.boundLineAccountsTitle}
           </h2>
           <p style={{ margin: 0, fontSize: 14, color: ui.muted, lineHeight: 1.5 }}>
-            {loading ? t.conversationsLoading : t.boundLineCount(accounts.length)}
+            {loading ? t.conversationsLoading : t.boundLineCount(rowCount)}
           </p>
         </div>
       </div>
@@ -178,7 +177,7 @@ export function BoundLineAccountsSection({
         <p style={{ margin: 0, color: "#fca5a5", fontSize: 14 }}>{error}</p>
       ) : null}
 
-      {!loading && !error && accounts.length === 0 ? (
+      {!loading && !error && rowCount === 0 ? (
         <p style={{ margin: 0, fontSize: 15, color: ui.muted, lineHeight: 1.55 }}>{t.noBoundLineAccounts}</p>
       ) : null}
 
