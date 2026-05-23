@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import type { CSSProperties } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { WorkspaceCategoryList } from "../../components/WorkspaceCategoryList";
 import { useCopyWithFallback } from "../../hooks/useCopyWithFallback";
 import { useAppLang } from "../../hooks/useAppLang";
@@ -30,10 +30,33 @@ export default function WorkspaceCategoryPage() {
   const { copyWithFallback, fallbackModal } = useCopyWithFallback(isMobile, lang);
   const { rows, loading, loadError, refresh } = useWorkspaceCustomers();
 
+  const [search, setSearch] = useState("");
+
   const categoryRows = useMemo(
     () => (category ? getWorkspaceCategoryRows(category, rows) : []),
     [category, rows],
   );
+
+  const filteredRows = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return categoryRows;
+    return categoryRows.filter((row) => {
+      const haystack = [
+        row.customer_name,
+        row.phone,
+        row.line_id,
+        row.customer_need,
+        row.note,
+        row.next_step,
+        row.follow_up,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [categoryRows, search]);
+
   const title = category ? workspaceCategoryTitle(category, lang) : labels.title;
 
   if (!category) {
@@ -83,9 +106,34 @@ export default function WorkspaceCategoryPage() {
         <h1 style={{ margin: "0 0 8px", fontSize: isMobile ? 26 : 32, fontWeight: 800, lineHeight: 1.25 }}>
           {title}
         </h1>
-        <p style={{ margin: "0 0 20px", color: "#94a3b8", fontSize: 15 }}>
-          {categoryRows.length} {lang === "zh" ? "位客戶" : "customers"}
+        <p style={{ margin: "0 0 16px", color: "#94a3b8", fontSize: 15 }}>
+          {filteredRows.length} {lang === "zh" ? "位客戶" : "customers"}
+          {search.trim() && filteredRows.length !== categoryRows.length
+            ? lang === "zh"
+              ? `（共 ${categoryRows.length} 位）`
+              : ` (${categoryRows.length} total)`
+            : null}
         </p>
+
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={labels.searchPlaceholder}
+          aria-label={labels.searchPlaceholder}
+          style={{
+            width: "100%",
+            maxWidth: "100%",
+            boxSizing: "border-box",
+            padding: "16px 18px",
+            marginBottom: 20,
+            borderRadius: 12,
+            border: "1px solid rgba(148,163,184,0.4)",
+            background: "#102742",
+            color: "#fff",
+            fontSize: 16,
+          }}
+        />
 
         {loadError ? (
           <p style={{ color: "#fecaca", marginBottom: 16, lineHeight: 1.5 }}>
@@ -99,7 +147,7 @@ export default function WorkspaceCategoryPage() {
           <p style={{ color: "#94a3b8" }}>{labels.loading}</p>
         ) : (
           <WorkspaceCategoryList
-            rows={categoryRows}
+            rows={filteredRows}
             lang={lang}
             isMobile={isMobile}
             onRefresh={() => void refresh()}

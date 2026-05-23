@@ -14,6 +14,7 @@ import {
 import { customerStatusLabel, customerStatusVisual } from "../lib/customerStatus";
 import { translateDisplayValue } from "../lib/uiI18n";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
+import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
 
 export function WorkspaceCustomerCard({
   row,
@@ -40,7 +41,7 @@ export function WorkspaceCustomerCard({
   const fields: { label: string; value: string }[] = [
     { label: labels.customerName, value: name },
     { label: labels.phone, value: row.phone?.trim() || "—" },
-    { label: labels.lineId, value: row.line_id?.trim() || "—" },
+    { label: labels.lineId, value: normalizeLineIdForDisplay(row.line_id) || "—" },
     { label: labels.customerNeed, value: row.customer_need?.trim() || "—" },
     {
       label: labels.dealProbability,

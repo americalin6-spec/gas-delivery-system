@@ -22,6 +22,7 @@ import {
   sanitizeAiCustomerFields,
   toFinalMergedCustomerFields,
 } from "./extractCustomerFromLineChat";
+import { normalizeLineIdForDisplay } from "./lineIdDisplay";
 
 const EMPTY_INSIGHT = "--";
 
@@ -344,11 +345,13 @@ export function buildHomeAnalysisMapping(
   const replySuggestion = buildReplySuggestion(needChips, formName, lineText, lang, "");
   const followUp = buildFollowUpStrategy(needChips, lineText, lang, "");
 
+  const lineId = normalizeLineIdForDisplay(mergedFields.lineId);
+
   const confirmed: ConfirmedCrmMapping = {
     customerName: formName,
     companyName: mergedFields.companyName,
     phone: mergedFields.phone,
-    lineId: mergedFields.lineId,
+    lineId,
     email: mergedFields.email,
     estimatedAmount: estimatedAmount || notProvided(lang),
     customerNeed: customerNeedDisplay,
@@ -405,7 +408,7 @@ export function buildHomeAnalysisMapping(
       customer_name: formName || extracted.customer_name,
       company_name: mergedFields.companyName,
       phone: mergedFields.phone,
-      line_id: mergedFields.lineId,
+      line_id: lineId,
       email: mergedFields.email,
       customer_need: customerNeedDisplay,
     },

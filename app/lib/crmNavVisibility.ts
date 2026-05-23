@@ -17,6 +17,11 @@ export type HomeNavItem = {
   labelEn: string;
 };
 
+/**
+ * Customer CRM UI (search, filters, list, detail) is always visible.
+ * Only routes/links in INTERNAL_HOME_NAV and isInternalCrmRoute() are gated.
+ */
+
 /** Primary navigation for general CRM users. */
 export const CUSTOMER_HOME_NAV: HomeNavItem[] = [
   { id: "dashboard", labelZh: "儀表板", labelEn: "Dashboard" },
@@ -38,6 +43,20 @@ export function showInternalCrmNav(): boolean {
   return (
     process.env.NEXT_PUBLIC_SHOW_INTERNAL_NAV === "1" ||
     process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1"
+  );
+}
+
+const INTERNAL_ROUTE_PREFIXES = [
+  "/tasks",
+  "/calendar",
+  "/alerts",
+  "/settings",
+  "/pipeline",
+] as const;
+
+export function isInternalCrmRoute(pathname: string): boolean {
+  return INTERNAL_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 

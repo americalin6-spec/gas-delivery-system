@@ -6,6 +6,7 @@ import {
   mergeConfirmedCrmExtraction,
   sanitizeAiCustomerFields,
 } from "../../lib/extractCustomerFromLineChat";
+import { normalizeLineIdForDisplay } from "../../lib/lineIdDisplay";
 import { parseAiJsonObject } from "../../lib/parseAiJson";
 import { sanitizeImportantDateFields } from "../../lib/sanitizeImportantDateFields";
 
@@ -27,8 +28,8 @@ export async function POST(req: Request) {
 請分析以下 LINE 對話內容。
 
 規則：
-1. customerName 僅在對話明確自介時填寫（我叫/我是/XXX先生/XXX小姐/公司名+姓名）；禁止用第一句、問候語、疑問句當姓名
-2. 沒有明確姓名時 customerName 必須寫「未提供姓名」
+1. customerName 僅在對話明確自介時填寫（我叫/我是/XXX先生/XXX小姐/王小姐：/陳先生：/Linda/Dr. Chen）；禁止用第一句、問候語、疑問句、動詞片段當姓名
+2. 禁止把「在、有、想、我們、今天、最近」或「我在 IG 看到你們」裡的單字當姓名；沒有明確姓名時 customerName 必須寫「未提供姓名」
 3. 從對話擷取並填入：客戶(customerName)、公司(company)、電話(phone)、LINE ID(lineId)、預算(estimatedAmount)、需求(customerNeed)
 4. 有標籤列（如「客戶：」「公司：」「電話：」「LINE ID：」「預算：」「需求：」）時優先使用該列內容
 5. 其他欄位沒有明確資料就寫「未提供」
@@ -96,17 +97,16 @@ ${inputText}
     );
 
     const notProvided = lang === "zh" ? "未提供" : "Not provided";
-    const aiCustomerName = String(aiParsed.customerName ?? "").trim();
     const aiCompany = String(aiParsed.company ?? aiParsed.companyName ?? "").trim();
 
     const payload = sanitizeImportantDateFields(
       {
         ...aiParsed,
-        customerName: profile.customer_name || (isNotProvidedLabel(aiCustomerName) ? "" : aiCustomerName),
+        customerName: profile.customer_name,
         company: profile.company_name || (isNotProvidedLabel(aiCompany) ? "" : aiCompany),
         companyName: profile.company_name || (isNotProvidedLabel(aiCompany) ? "" : aiCompany),
         phone: profile.phone || String(aiParsed.phone ?? "").trim(),
-        lineId: profile.line_id || String(aiParsed.lineId ?? "").trim(),
+        lineId: normalizeLineIdForDisplay(profile.line_id),
         email: profile.email || String(aiParsed.email ?? "").trim(),
         customerNeed: profile.customer_need || notProvided,
         estimatedAmount: estimatedAmount || notProvided,

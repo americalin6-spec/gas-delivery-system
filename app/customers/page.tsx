@@ -4,12 +4,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 import Link from "next/link";
+import { CrmCustomerSearchToolbar } from "../components/CrmCustomerSearchToolbar";
 import { getTaipeiTodayYmd, diffCalendarDaysYmd } from "../lib/followUpReminders";
 import { formatWorkspaceDateTime } from "../lib/followUpWorkspace";
 import { followUpModeBadgeMeta, normalizeFollowUpMode } from "../lib/followUpMode";
@@ -42,6 +43,7 @@ import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../../supabase";
 import { showInternalCrmNav } from "../lib/crmNavVisibility";
+import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
 
 type StatusFilter = "all" | PipelineStatus;
 type FollowFilter = "all" | "has_date" | "no_date" | "overdue" | "today" | "next7";
@@ -123,43 +125,8 @@ function ViewDetailLink({
   );
 }
 
-const filterSelectStyle: CSSProperties = {
-  width: "100%",
-  padding: "12px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(148,163,184,0.35)",
-  background: "#102742",
-  color: "white",
-  fontSize: 15,
-  fontWeight: 600,
-};
-
-function FilterColumn({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "rgba(226,232,240,0.75)",
-        }}
-      >
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
 export default function CustomersPage() {
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
 
@@ -171,6 +138,22 @@ export default function CustomersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [followFilter, setFollowFilter] = useState<FollowFilter>("all");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q) setSearch(q);
+
+    const focusSearch =
+      params.get("focus") === "search" || params.get("crm") === "1";
+    if (!focusSearch) return;
+
+    const id = window.setTimeout(() => {
+      searchInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      searchInputRef.current?.focus();
+    }, 80);
+    return () => window.clearTimeout(id);
+  }, []);
   const [conversationSourceByCustomerId, setConversationSourceByCustomerId] = useState<
     Map<string, string>
   >(new Map());
@@ -641,81 +624,20 @@ export default function CustomersPage() {
         }}
       >
         <div style={{ flex: 1, width: "100%", minWidth: 0 }}>
-          <input
-            placeholder={t.searchPlaceholder}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "18px 20px",
-              borderRadius: 14,
-              border: "none",
-              marginBottom: 16,
-              background: "#102742",
-              color: "white",
-              fontSize: 17,
-              boxSizing: "border-box",
-            }}
+          <CrmCustomerSearchToolbar
+            lang={lang}
+            isMobile={isMobile}
+            trashView={trashView}
+            search={search}
+            onSearchChange={setSearch}
+            searchInputRef={searchInputRef}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            followFilter={followFilter}
+            onFollowFilterChange={setFollowFilter}
+            urgencyFilter={urgencyFilter}
+            onUrgencyFilterChange={setUrgencyFilter}
           />
-
-          {!trashView ? (
-          <div
-            style={{
-              background: "#081b33",
-              border: "1px solid rgba(148,163,184,0.18)",
-              padding: isMobile ? 16 : 18,
-              borderRadius: 14,
-              marginBottom: 28,
-              display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
-              gap: 12,
-            }}
-          >
-            <FilterColumn label={t.filterStatus}>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                style={filterSelectStyle}
-              >
-                <option value="all">{t.filterAll}</option>
-                {PIPELINE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {pipelineStatusLabel(s, lang)}
-                  </option>
-                ))}
-              </select>
-            </FilterColumn>
-            <FilterColumn label={t.filterFollowUp}>
-              <select
-                value={followFilter}
-                onChange={(e) => setFollowFilter(e.target.value as FollowFilter)}
-                style={filterSelectStyle}
-              >
-                <option value="all">{t.filterAll}</option>
-                <option value="has_date">{t.filterFollowHasDate}</option>
-                <option value="no_date">{t.filterFollowNoDate}</option>
-                <option value="overdue">{t.filterFollowOverdue}</option>
-                <option value="today">{t.filterFollowToday}</option>
-                <option value="next7">{t.filterFollowNext7}</option>
-              </select>
-            </FilterColumn>
-            <FilterColumn label={t.filterUrgency}>
-              <select
-                value={urgencyFilter}
-                onChange={(e) => setUrgencyFilter(e.target.value as UrgencyFilter)}
-                style={filterSelectStyle}
-              >
-                <option value="all">{t.filterAll}</option>
-                <option value="overdue_today">{t.filterUrgencyOverdueToday}</option>
-                <option value="within3">{t.filterUrgencyWithin3}</option>
-                <option value="within7">{t.filterUrgencyWithin7}</option>
-                <option value="later">{t.filterUrgencyLater}</option>
-                <option value="completed">{t.filterUrgencyCompleted}</option>
-                <option value="none">{t.filterUrgencyNone}</option>
-              </select>
-            </FilterColumn>
-          </div>
-          ) : null}
 
           {!trashView && selectedCount > 0 ? (
             <div
@@ -935,7 +857,9 @@ export default function CustomersPage() {
                     >
                       <div>{t.company}：{c.company_name || "-"}</div>
                       <div>{t.phone}：{c.phone || "-"}</div>
-                      <div>{t.lineId}：{c.line_id || "-"}</div>
+                      <div>
+                        {t.lineId}：{normalizeLineIdForDisplay(c.line_id) || "-"}
+                      </div>
                       <div>{t.email}：{c.email || "-"}</div>
                       {(() => {
                         const createdLabel = formatCustomerCreatedAtDisplay(c.created_at, lang);

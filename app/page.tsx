@@ -61,6 +61,7 @@ import { saveManualPasteConversation } from "./lib/saveManualPasteConversation";
 import { customerStatusWritePayload } from "./lib/customerStatus";
 import { computeCustomerUrgencyFromImportantDate } from "./lib/customerUrgency";
 import { postCrmNotification } from "./lib/crmNotificationsClient";
+import { normalizeLineIdForDisplay } from "./lib/lineIdDisplay";
 import {
   getHomeNavItems,
   type HomeNavId,
@@ -368,9 +369,15 @@ export default function Home() {
       return;
     }
 
-    if (id === "customers" || id === "crm") {
+    if (id === "customers") {
       persistDraftNow();
       router.push("/customers");
+      return;
+    }
+
+    if (id === "crm") {
+      persistDraftNow();
+      router.push("/customers?focus=search");
       return;
     }
 
@@ -474,7 +481,7 @@ export default function Home() {
       setCustomerName(resolvedDisplayName);
       setCompanyName(crmFields.company_name);
       setPhone(crmFields.phone);
-      setLineId(crmFields.line_id);
+      setLineId(normalizeLineIdForDisplay(crmFields.line_id));
       setEmail(crmFields.email);
 
       const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
@@ -625,7 +632,7 @@ export default function Home() {
       setCustomerName(confirmed.customerName);
       setCompanyName(confirmed.companyName || "");
       setPhone(confirmed.phone || "");
-      setLineId(confirmed.lineId || "");
+      setLineId(normalizeLineIdForDisplay(confirmed.lineId));
       setEmail(confirmed.email || "");
       setNote(confirmed.note || "");
 
@@ -1206,7 +1213,7 @@ function ExtractedCustomerPreviewCard({
     { label: ui.extractedName, value: extracted.customer_name },
     { label: ui.extractedCompany, value: extracted.company_name },
     { label: ui.extractedPhone, value: extracted.phone },
-    { label: ui.fieldLineId, value: extracted.line_id },
+    { label: ui.fieldLineId, value: normalizeLineIdForDisplay(extracted.line_id) },
     { label: ui.fieldEmail, value: extracted.email },
     { label: ui.extractedNeeds, value: extracted.customer_need },
   ];

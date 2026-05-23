@@ -27,6 +27,7 @@ export function customersListCopy(lang: AppLang) {
     count: (total: number, shown: number) =>
       zh ? `共 ${total} 筆 · 顯示 ${shown} 筆` : `${total} total · showing ${shown}`,
     backHome: zh ? "← 回到 LINE Work AI" : "← Back to LINE Work AI",
+    searchTitle: zh ? "搜尋客戶" : "Search customers",
     searchPlaceholder: zh
       ? "搜尋姓名 / 公司 / 電話 / LINE 帳號 / 電子郵件"
       : "Search name / company / phone / LINE / email",
@@ -81,7 +82,7 @@ export function customersListCopy(lang: AppLang) {
     phonePlaceholder: zh ? "電話" : "Phone",
     followUpTitle: (date: string) => (zh ? `追蹤：${date}` : `Follow-up: ${date}`),
     salesStatus: zh ? "客戶狀態" : "Customer status",
-    filtersTitle: zh ? "業務流程篩選" : "Pipeline filters",
+    filtersTitle: zh ? "客戶篩選" : "Customer filters",
     filterStatus: zh ? "狀態" : "Status",
     filterFollowUp: zh ? "追蹤日" : "Follow-up date",
     filterUrgency: zh ? "緊急度" : "Urgency",

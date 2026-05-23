@@ -5,6 +5,10 @@
  */
 
 import type { AppLang } from "./appLang";
+import {
+  LINE_ID_FIELD_SPEAKER_RE,
+  normalizeLineIdForDisplay,
+} from "./lineIdDisplay";
 
 export type ExtractedCustomerProfile = {
   customer_name: string;
@@ -95,6 +99,70 @@ const NAME_BLACKLIST_EXACT = new Set([
 ]);
 
 const NAME_BLACKLIST_CONTAINS = ["叫晨光美", "晨光美", "我們公司", "我们公司", "我們是", "我们是", "有限公司", "工作室"];
+
+/** Common words that must never be treated as customer names (e.g. 我在 IG → 在). */
+const NAME_STOPWORDS_EXACT = new Set([
+  "在",
+  "有",
+  "想",
+  "我們",
+  "我们",
+  "今天",
+  "最近",
+  "我",
+  "你",
+  "他",
+  "她",
+  "它",
+  "的",
+  "了",
+  "是",
+  "不",
+  "嗎",
+  "吗",
+  "呢",
+  "吧",
+  "啊",
+  "喔",
+  "哦",
+  "嗯",
+  "好",
+  "對",
+  "对",
+  "看",
+  "到",
+  "說",
+  "说",
+  "會",
+  "会",
+  "能",
+  "要",
+  "請",
+  "请",
+  "問",
+  "问",
+  "嗨",
+  "欸",
+  "喂",
+  "這個",
+  "这个",
+  "那個",
+  "那个",
+  "一下",
+  "謝謝",
+  "谢谢",
+  "了解",
+  "知道",
+  "好的",
+  "沒問題",
+  "没问题",
+  "看到",
+  "看到們",
+  "看到你們",
+  "ID",
+  "LINE",
+  "LINE ID",
+]);
 
 const GREETING_NAME_TOKENS = new Set([
   "哈囉",
@@ -213,6 +281,16 @@ function hasForbiddenNameToken(value: string): boolean {
   return false;
 }
 
+function isRejectedChineseNameToken(token: string): boolean {
+  const core = stripHonorifics(token.trim());
+  if (!core) return true;
+  if (NAME_STOPWORDS_EXACT.has(core)) return true;
+  if (/[0-9@#]|IG|FB|LINE|http|www\.|\.com/i.test(token)) return true;
+  if (/^(?:我|你|他|她|它|咱|俺|咱們|咱们|大家|各位|這|这|那|某)/u.test(core)) return true;
+  if (/(?:看到|想要|需要|可以|應該|应该|覺得|觉得|知道|了解|請問|请问)/u.test(core)) return true;
+  return false;
+}
+
 /** Strict validator — used before CRM save and after extraction. */
 export function isValidExtractedCustomerName(value: string): boolean {
   const trimmed = value.trim();
@@ -220,12 +298,19 @@ export function isValidExtractedCustomerName(value: string): boolean {
   if (isGreetingName(trimmed)) return false;
   if (isBlacklistedName(trimmed)) return false;
   if (hasForbiddenNameToken(trimmed)) return false;
+  if (isRejectedChineseNameToken(trimmed)) return false;
 
+  const hasHonorific = /(先生|小姐|經理|经理)$/u.test(trimmed);
   const core = stripHonorifics(trimmed);
   if (!core || core.length > 8) return false;
 
+  if (/^(?:Dr\.|Mr\.|Ms\.|Mrs\.)\s+[A-Za-z][A-Za-z.'-]{1,29}$/i.test(trimmed)) {
+    return true;
+  }
+
   if (/^[\u4e00-\u9fff]+$/u.test(core)) {
     if (core.length < 1 || core.length > 4) return false;
+    if (!hasHonorific && core.length < 2) return false;
     if (/[？?！!，,]/.test(trimmed)) return false;
     return true;
   }
@@ -369,7 +454,16 @@ export function extractLabeledCrmFields(lines: string[]): LabeledCrmFields {
       const m = line.match(re);
       if (!m?.[1]) continue;
       const value = m[1].trim().replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
-      if (value) out[key] = value;
+      if (!value) continue;
+      if (key === "customer_name") {
+        const name = sanitizeCustomerNameValue(value);
+        if (name) out[key] = name;
+      } else if (key === "line_id") {
+        const lid = normalizeLineIdForDisplay(value);
+        if (lid) out[key] = lid;
+      } else {
+        out[key] = value;
+      }
     }
   }
 
@@ -513,6 +607,17 @@ function isLikelyLineId(id: string, email: string): boolean {
   if (email && v.toLowerCase() === email.toLowerCase()) return false;
   if (/@/.test(v) && /\.[a-z]{2,}$/i.test(v)) return false;
   return /^@?[A-Za-z0-9][A-Za-z0-9._-]{2,39}$/.test(v);
+}
+
+/**「ID：dr_beauty_clinic」/「LINE ID：@foo」chat export lines — speaker is a field label, content is the id. */
+function extractLineIdFromFieldSpeakerLines(lines: string[], email: string): string {
+  for (const line of lines) {
+    const { speaker, content } = parseChatSpeakerLine(line);
+    if (!speaker || !LINE_ID_FIELD_SPEAKER_RE.test(speaker.trim())) continue;
+    const id = normalizeLineIdForDisplay(content);
+    if (id && isLikelyLineId(id, email)) return id;
+  }
+  return "";
 }
 
 function extractLineIdStep1(text: string, email: string): string {
@@ -715,10 +820,15 @@ type NamePattern = { re: RegExp; minLen: number; maxLen: number };
 const ZH_NAME_PATTERNS: NamePattern[] = [
   { re: /我姓\s*([\u4e00-\u9fff]{1,2})/u, minLen: 1, maxLen: 2 },
   { re: /我是\s*([\u4e00-\u9fff]{1,3})(先生|小姐)/u, minLen: 1, maxLen: 3 },
-  { re: /我是\s*([\u4e00-\u9fff]{1,3})(?![\u4e00-\u9fff])/u, minLen: 1, maxLen: 3 },
   { re: /我叫\s*([\u4e00-\u9fff]{2,4})/u, minLen: 2, maxLen: 4 },
-  { re: /可以叫我\s*([\u4e00-\u9fff]{1,3})(先生|小姐)?/u, minLen: 1, maxLen: 3 },
+  { re: /可以叫我\s*([\u4e00-\u9fff]{1,3})(先生|小姐)/u, minLen: 1, maxLen: 3 },
 ];
+
+const SPEAKER_LABEL_HONORIFIC_RE =
+  /^([\u4e00-\u9fff]{1,3})(先生|小姐|經理|经理)$/u;
+const SPEAKER_LABEL_EN_TITLED_RE =
+  /^(Dr\.|Mr\.|Ms\.|Mrs\.)\s+([A-Za-z][A-Za-z.'-]{1,29})$/i;
+const SPEAKER_LABEL_EN_RE = /^[A-Za-z][A-Za-z.'-]{1,29}$/;
 
 const EN_NAME_PATTERNS: NamePattern[] = [
   { re: /我是\s*([A-Za-z]{2,30})(?![A-Za-z])/u, minLen: 2, maxLen: 30 },
@@ -782,6 +892,47 @@ function tryNamePatternsOnLine(line: string, lang: string): string {
   return "";
 }
 
+function formatSpeakerLabelName(speaker: string): string {
+  const t = speaker.trim();
+  const zh = t.match(SPEAKER_LABEL_HONORIFIC_RE);
+  if (zh?.[1] && zh[2]) return formatChineseNameMatch(zh[1], zh[2]);
+  const titled = t.match(SPEAKER_LABEL_EN_TITLED_RE);
+  if (titled) return `${titled[1]} ${titled[2]}`.trim();
+  return t;
+}
+
+function isPlausibleChatSpeakerLabel(speaker: string): boolean {
+  const t = speaker.trim();
+  if (!t || t.length > 12) return false;
+  if (BUSINESS_SIDE_SPEAKER_RE.test(t)) return false;
+  if (LINE_ID_FIELD_SPEAKER_RE.test(t)) return false;
+  if (/^(?:客戶|客户|customer|client|對方|对方)$/iu.test(t)) return false;
+  if (/[0-9@#]|[：:].*[：:]/u.test(t)) return false;
+  if (isRejectedChineseNameToken(t)) return false;
+  if (SPEAKER_LABEL_HONORIFIC_RE.test(t)) return true;
+  if (SPEAKER_LABEL_EN_TITLED_RE.test(t)) return true;
+  if (SPEAKER_LABEL_EN_RE.test(t)) return true;
+  const formatted = formatSpeakerLabelName(t);
+  return isValidExtractedCustomerName(formatted);
+}
+
+/** Prefer「王小姐：」style speaker labels before colon. */
+function extractNameFromSpeakerLabels(lines: string[]): string {
+  for (const line of lines) {
+    const { speaker } = parseChatSpeakerLine(line);
+    if (!speaker || !isPlausibleChatSpeakerLabel(speaker)) continue;
+    const candidate = formatSpeakerLabelName(speaker);
+    if (!isValidExtractedCustomerName(candidate)) continue;
+    console.log("NAME_EXTRACTION_DEBUG", {
+      line,
+      matchedName: candidate,
+      source: "speaker-label-colon",
+    });
+    return candidate;
+  }
+  return "";
+}
+
 /** Deterministic honorific name (王先生 / 陳小姐 / 張經理) — runs before AI and self-intro patterns. */
 export function extractHonorificCustomerName(text: string): string {
   const fullText = text.trim();
@@ -825,6 +976,9 @@ export function extractHonorificCustomerName(text: string): string {
 }
 
 function extractCustomerNameStep3(fullText: string, lines: string[], lang: string): string {
+  const fromSpeaker = extractNameFromSpeakerLabels(lines);
+  if (fromSpeaker) return fromSpeaker;
+
   const honorific = extractHonorificCustomerName(fullText);
   if (honorific) return honorific;
 
@@ -1494,6 +1648,13 @@ export function validateCustomerData(
     phone = normalized || "";
   }
 
+  if (line_id) {
+    line_id = normalizeLineIdForDisplay(line_id);
+    if (line_id && !isLikelyLineId(line_id, email)) {
+      line_id = "";
+    }
+  }
+
   const profileForClean: ExtractedCustomerProfile = {
     customer_name,
     company_name,
@@ -1609,7 +1770,7 @@ export function sanitizeAiCustomerFields(
   const rawPhone = String(ai.phone ?? "");
   const phone = rawPhone ? normalizePhone(rawPhone) || rawPhone.trim() : "";
 
-  let line_id = String(ai.lineId ?? "").trim();
+  let line_id = normalizeLineIdForDisplay(String(ai.lineId ?? ""));
   if (line_id && /^09\d{8}$/.test(line_id.replace(/\D/g, ""))) {
     line_id = "";
   }
@@ -1647,6 +1808,20 @@ function pickConfirmedField(
   return "";
 }
 
+function pickConfirmedCustomerName(regexValue: string, aiValue: string): string {
+  const fromRegex = sanitizeCustomerNameValue(regexValue);
+  if (fromRegex) return fromRegex;
+  return sanitizeCustomerNameValue(aiValue);
+}
+
+function pickConfirmedLineId(regexValue: string, aiValue: string, email = ""): string {
+  const fromRegex = normalizeLineIdForDisplay(regexValue);
+  if (fromRegex && isLikelyLineId(fromRegex, email)) return fromRegex;
+  const fromAi = normalizeLineIdForDisplay(aiValue);
+  if (fromAi && isLikelyLineId(fromAi, email)) return fromAi;
+  return "";
+}
+
 /**
  * Confirmed CRM fields: labeled > conversational/regex > AI fallback.
  * customer_need never taken from generic AI phrases.
@@ -1669,8 +1844,9 @@ export function mergeConfirmedCrmExtraction(
   if (labeled.customer_name && isValidExtractedCustomerName(labeled.customer_name)) {
     customer_name = labeled.customer_name;
   } else {
-    customer_name = sanitizeCustomerNameValue(
-      pickConfirmedField("", regexExtracted.customer_name, sanitizedAi.customer_name),
+    customer_name = pickConfirmedCustomerName(
+      regexExtracted.customer_name,
+      sanitizedAi.customer_name,
     );
   }
 
@@ -1681,7 +1857,11 @@ export function mergeConfirmedCrmExtraction(
   const phone =
     (labeled.phone ? normalizePhone(labeled.phone) : "") ||
     pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone);
-  const line_id = pickConfirmedField(labeled.line_id, regexExtracted.line_id, sanitizedAi.line_id);
+  const line_id = pickConfirmedLineId(
+    labeled.line_id || regexExtracted.line_id,
+    sanitizedAi.line_id,
+    regexExtracted.email || sanitizedAi.email,
+  );
   const email = pickConfirmedField(labeled.email, regexExtracted.email, sanitizedAi.email);
 
   const aiAmount = (aiExtras?.estimatedAmount ?? "").trim();
@@ -1737,7 +1917,10 @@ export function mergeCustomerExtraction(
   }
 
   const merged: ExtractedCustomerProfile = {
-    customer_name: pickConfirmedField("", regexExtracted.customer_name, sanitizedAi.customer_name),
+    customer_name: pickConfirmedCustomerName(
+      regexExtracted.customer_name,
+      sanitizedAi.customer_name,
+    ),
     company_name:
       companyNameFromExtraction("", regexExtracted.company_name) ||
       pickConfirmedField("", "", sanitizedAi.company_name),
@@ -1771,7 +1954,10 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
   // STEP 1
   const email = extractEmailStep1(fullText) || labeled.email;
   const phone = extractPhoneStep1(fullText) || normalizePhone(labeled.phone);
-  let line_id = extractLineIdStep1(fullText, email) || labeled.line_id.trim();
+  let line_id =
+    extractLineIdFromFieldSpeakerLines(lines, email) ||
+    extractLineIdStep1(fullText, email) ||
+    normalizeLineIdForDisplay(labeled.line_id);
   if (line_id && !isLikelyLineId(line_id, email)) line_id = "";
 
   // STEP 2 — labeled 公司： wins over inferred company

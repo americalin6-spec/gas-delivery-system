@@ -9,6 +9,9 @@ export function followUpWorkspaceCopy(lang: AppLang) {
     highDeal: zh ? "高成交機率客戶" : "High deal probability",
     recent: zh ? "最近新增客戶" : "Recently added",
     empty: zh ? "目前沒有客戶" : "No customers",
+    searchPlaceholder: zh
+      ? "搜尋姓名 / 電話 / LINE / 需求 / 備註"
+      : "Search name, phone, LINE, needs, notes",
     loading: zh ? "載入中…" : "Loading…",
     loadError: zh ? "載入失敗" : "Failed to load",
     sqlHint: zh

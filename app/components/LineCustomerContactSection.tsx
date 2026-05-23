@@ -5,6 +5,7 @@ import { openLineChat } from "../lib/openLineApp";
 import { supabase } from "../../supabase";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 import { BoundLineAccountsSection } from "./BoundLineAccountsSection";
+import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
 
 const LINE_BRAND = "#06C755";
 
@@ -49,7 +50,7 @@ export function LineCustomerContactSection({
 }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  const lid = lineId?.trim() ?? "";
+  const lid = normalizeLineIdForDisplay(lineId);
 
   useEffect(() => {
     setDraft(lid);
