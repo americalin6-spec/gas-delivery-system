@@ -41,6 +41,7 @@ import {
 import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../../supabase";
+import { showInternalCrmNav } from "../lib/crmNavVisibility";
 
 type StatusFilter = "all" | PipelineStatus;
 type FollowFilter = "all" | "has_date" | "no_date" | "overdue" | "today" | "next7";
@@ -587,26 +588,28 @@ export default function CustomersPage() {
               >
                 {t.trash}
               </button>
-              <Link
-                href="/pipeline"
-                style={{ width: isMobile ? "100%" : "auto" }}
-              >
-                <button
-                  style={{
-                    background: "#6366f1",
-                    color: "white",
-                    border: "none",
-                    padding: isMobile ? "15px 20px" : "15px 26px",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    fontSize: 16,
-                    width: isMobile ? "100%" : "auto",
-                  }}
+              {showInternalCrmNav() ? (
+                <Link
+                  href="/pipeline"
+                  style={{ width: isMobile ? "100%" : "auto" }}
                 >
-                  {t.openPipeline}
-                </button>
-              </Link>
+                  <button
+                    style={{
+                      background: "#6366f1",
+                      color: "white",
+                      border: "none",
+                      padding: isMobile ? "15px 20px" : "15px 26px",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      fontSize: 16,
+                      width: isMobile ? "100%" : "auto",
+                    }}
+                  >
+                    {t.openPipeline}
+                  </button>
+                </Link>
+              ) : null}
             </>
           )}
           <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>

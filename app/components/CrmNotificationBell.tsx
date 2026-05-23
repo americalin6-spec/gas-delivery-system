@@ -13,6 +13,7 @@ import {
   crmNotificationTypeAccent,
   crmNotificationTypeLabel,
 } from "../lib/crmNotificationsI18n";
+import { showInternalCrmNav } from "../lib/crmNavVisibility";
 
 const MOBILE_MAX = 1024;
 const POLL_MS = 45_000;
@@ -381,25 +382,27 @@ export function CrmNotificationBell() {
             })}
           </div>
 
-          <div
-            style={{
-              padding: "10px 14px",
-              borderTop: "1px solid rgba(255,255,255,0.08)",
-            }}
-          >
-            <Link
-              href="/alerts"
-              onClick={() => setOpen(false)}
+          {showInternalCrmNav() ? (
+            <div
               style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: "#a5b4fc",
-                textDecoration: "none",
+                padding: "10px 14px",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              {t.viewAll} →
-            </Link>
-          </div>
+              <Link
+                href="/alerts"
+                onClick={() => setOpen(false)}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#a5b4fc",
+                  textDecoration: "none",
+                }}
+              >
+                {t.viewAll} →
+              </Link>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

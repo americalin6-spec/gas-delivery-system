@@ -61,6 +61,10 @@ import { saveManualPasteConversation } from "./lib/saveManualPasteConversation";
 import { customerStatusWritePayload } from "./lib/customerStatus";
 import { computeCustomerUrgencyFromImportantDate } from "./lib/customerUrgency";
 import { postCrmNotification } from "./lib/crmNotificationsClient";
+import {
+  getHomeNavItems,
+  type HomeNavId,
+} from "./lib/crmNavVisibility";
 
 const HOME_MOBILE_MAX_WIDTH = 1024;
 const HOME_DEBUG_ENABLED = process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1";
@@ -186,7 +190,7 @@ export default function Home() {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResultSnapshot | null>(null);
   const [customerWriteEvents, setCustomerWriteEvents] = useState<CustomerWriteEvent[]>([]);
   const draftRestoredRef = useRef(false);
-  const [activeMenu, setActiveMenu] = useState(0);
+  const [activeNavId, setActiveNavId] = useState<HomeNavId>("dashboard");
 
   const [customerName, setCustomerName] = useState(emptyFormDefaults.customerName);
   const [companyName, setCompanyName] = useState(emptyFormDefaults.companyName);
@@ -344,38 +348,52 @@ export default function Home() {
 
   function resetAnalysisForm() {
     clearFormDraft();
-    setActiveMenu(0);
+    setActiveNavId("lineAnalysis");
     scrollToApp();
   }
 
-  function handleMenuClick(index: number) {
-    setActiveMenu(index);
+  function scrollToDashboardTop() {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
 
-    if (index === 0) {
+  function handleNavClick(id: HomeNavId) {
+    setActiveNavId(id);
+
+    if (id === "dashboard") {
       router.push("/");
-      resetAnalysisForm();
+      setActiveNavId("dashboard");
+      scrollToDashboardTop();
       return;
     }
 
-    if (index === 1) {
+    if (id === "customers" || id === "crm") {
       persistDraftNow();
       router.push("/customers");
       return;
     }
 
-    if (index === 2) {
+    if (id === "lineAnalysis") {
+      router.push("/");
+      setActiveNavId("lineAnalysis");
+      scrollToApp();
+      return;
+    }
+
+    if (id === "tasks") {
       persistDraftNow();
       router.push("/tasks");
       return;
     }
 
-    if (index === 3) {
+    if (id === "calendar") {
       persistDraftNow();
       router.push("/calendar");
       return;
     }
 
-    if (index === 4) {
+    if (id === "alerts") {
       persistDraftNow();
       router.push("/alerts");
       return;
@@ -647,15 +665,7 @@ export default function Home() {
       overflowWrap: "anywhere",
     };
     const block = (extra?: CSSProperties): CSSProperties => ({ ...full, ...textFlow, ...extra });
-    const menuItems = [
-      ui.menuNew,
-      ui.menuCustomers,
-      ui.menuTasks,
-      ui.menuCalendar,
-      ui.menuAlerts,
-      ui.menuQuotes,
-      ui.menuReplies,
-    ];
+    const menuItems = getHomeNavItems(lang);
 
     const menuBtn = (active: boolean): CSSProperties => ({
       ...block(),
@@ -796,9 +806,14 @@ export default function Home() {
           <section style={{ ...block(), background: "#132846", borderRadius: 16, padding: 18 }}>
             <h2 style={{ ...block(), margin: "0 0 14px", fontSize: 22 }}>{ui.workspace}</h2>
             <div style={{ ...block(), display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {menuItems.map((item, i) => (
-                <button key={i} type="button" style={menuBtn(activeMenu === i)} onClick={() => handleMenuClick(i)}>
-                  {item}
+              {menuItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  style={menuBtn(activeNavId === item.id)}
+                  onClick={() => handleNavClick(item.id)}
+                >
+                  {item.label}
                 </button>
               ))}
             </div>
@@ -991,17 +1006,14 @@ export default function Home() {
           <h2 style={s.sidebarTitle}>{ui.workspace}</h2>
 
           <div style={s.menuList}>
-            {[
-              ui.menuNew,
-              ui.menuCustomers,
-              ui.menuTasks,
-              ui.menuCalendar,
-              ui.menuAlerts,
-              ui.menuQuotes,
-              ui.menuReplies,
-            ].map((item, i) => (
-              <button key={i} type="button" onClick={() => handleMenuClick(i)} style={activeMenu === i ? s.activeMenu : s.menuBtn}>
-                {item}
+            {getHomeNavItems(lang).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNavClick(item.id)}
+                style={activeNavId === item.id ? s.activeMenu : s.menuBtn}
+              >
+                {item.label}
               </button>
             ))}
           </div>
