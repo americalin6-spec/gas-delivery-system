@@ -1,11 +1,14 @@
 import type { AppLang } from "./appLang";
+import { localizeCrmDisplayText } from "./crmAiDisplayLabels";
 
 /** UI-only translation for values stored in CRM / analysis (does not change DB). */
 export function translateDisplayValue(value: string | null | undefined, lang: AppLang): string {
   if (value == null) return "—";
   const raw = String(value).trim();
   if (!raw || raw === "--" || raw === "-") return raw || "—";
-  if (lang === "zh") return raw;
+
+  const localized = localizeCrmDisplayText(raw);
+  if (lang === "zh") return localized;
 
   const map: Record<string, string> = {
     未提供: "Not provided",
@@ -35,7 +38,7 @@ export function translateDisplayValue(value: string | null | undefined, lang: Ap
     已排程: "Scheduled",
   };
 
-  return map[raw] ?? raw;
+  return map[localized] ?? map[raw] ?? localized;
 }
 
 export function sharedUiCopy(lang: AppLang) {

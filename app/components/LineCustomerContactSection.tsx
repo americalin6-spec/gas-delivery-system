@@ -6,6 +6,7 @@ import { supabase } from "../../supabase";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 import { BoundLineAccountsSection } from "./BoundLineAccountsSection";
 import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
+import { dt } from "../lib/customerDetailTypography";
 
 const LINE_BRAND = "#06C755";
 
@@ -103,7 +104,14 @@ export function LineCustomerContactSection({
 
   return (
     <section style={cardStyle} aria-label="LINE 客戶聯絡">
-      <h2 style={{ margin: "0 0 12px", fontSize: 17, fontWeight: 800, color: "#86efac" }}>
+      <h2
+        style={{
+          margin: "0 0 12px",
+          fontSize: dt.compactSection,
+          fontWeight: 800,
+          color: "#86efac",
+        }}
+      >
         LINE 客戶聯絡
       </h2>
 
@@ -118,7 +126,13 @@ export function LineCustomerContactSection({
         <div>
           <label
             htmlFor="customer-line-id-input"
-            style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}
+            style={{
+              display: "block",
+              fontSize: dt.labelUpper,
+              fontWeight: 700,
+              color: "#64748b",
+              marginBottom: 6,
+            }}
           >
             客戶 LINE ID
           </label>
@@ -137,15 +151,24 @@ export function LineCustomerContactSection({
               border: "1px solid rgba(255,255,255,0.12)",
               background: "rgba(0,0,0,0.28)",
               color: "#f8fafc",
-              fontSize: 14,
+              fontSize: dt.paragraph,
               boxSizing: "border-box",
               outline: "none",
             }}
           />
         </div>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>最後聯絡時間</div>
-          <div style={{ fontSize: 14, color: "#f8fafc", padding: "8px 0" }}>
+          <div
+            style={{
+              fontSize: dt.labelUpper,
+              fontWeight: 700,
+              color: "#64748b",
+              marginBottom: 6,
+            }}
+          >
+            最後聯絡時間
+          </div>
+          <div style={{ fontSize: dt.paragraph, color: "#f8fafc", padding: "8px 0", lineHeight: dt.lineHeight }}>
             {formatLastContact(lastContactedAt)}
           </div>
         </div>
@@ -183,7 +206,7 @@ export function LineCustomerContactSection({
           開啟 LINE 加好友
         </button>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748b", lineHeight: 1.45 }}>
+      <p style={{ margin: "0 0 14px", fontSize: dt.meta, color: "#64748b", lineHeight: dt.lineHeight }}>
         桌機瀏覽器會顯示 QR Code，請用手機 LINE 掃描加入好友。
       </p>
 

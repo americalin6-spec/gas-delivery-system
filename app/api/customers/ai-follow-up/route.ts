@@ -13,6 +13,7 @@ import {
 import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { getServerCompanyId } from "../../../lib/companyContext";
+import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 const CONVERSATIONS_SELECT =
@@ -73,9 +74,22 @@ export async function POST(req: Request) {
     const context = buildCustomerAiContextBlock(customer, conversationText, engagement);
     const apiKey = process.env.OPENAI_API_KEY?.trim();
 
+    const runExtract = async () => {
+      try {
+        return await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
+          conversationText,
+          trigger: "ai-follow-up",
+        });
+      } catch (extractErr) {
+        console.error("[ai-follow-up] extract failed:", extractErr);
+        return null;
+      }
+    };
+
     if (!apiKey) {
       const followUp = buildFallbackCustomerAiFollowUp(customer, engagement);
-      return NextResponse.json({ ok: true, followUp, source: "crm_fallback" });
+      const extract = await runExtract();
+      return NextResponse.json({ ok: true, followUp, source: "crm_fallback", extract });
     }
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -102,11 +116,13 @@ export async function POST(req: Request) {
         preview: typeof content === "string" ? content.slice(0, 300) : content,
       });
       const followUp = buildFallbackCustomerAiFollowUp(customer, engagement);
-      return NextResponse.json({ ok: true, followUp, source: "crm_fallback" });
+      const extract = await runExtract();
+      return NextResponse.json({ ok: true, followUp, source: "crm_fallback", extract });
     }
 
     const followUp = parseCustomerAiFollowUp(parsed, customer, engagement);
-    return NextResponse.json({ ok: true, followUp, source: "ai" });
+    const extract = await runExtract();
+    return NextResponse.json({ ok: true, followUp, source: "ai", extract });
   } catch (err) {
     console.error("[ai-follow-up]", err);
     return NextResponse.json(

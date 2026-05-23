@@ -10,6 +10,7 @@ import {
 } from "../lib/lineReplyTemplates";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
 import { companyIdHeader } from "../lib/clientCompany";
+import { dt } from "../lib/customerDetailTypography";
 
 const LINE_BRAND = "#06C755";
 const ui = {
@@ -147,10 +148,25 @@ export function LineReplySection({
 
   return (
     <section style={cardStyle} aria-label="LINE 回覆訊息">
-      <h2 style={{ margin: "0 0 12px", fontSize: 17, fontWeight: 800, color: "#c7d2fe" }}>
+      <h2
+        style={{
+          margin: "0 0 12px",
+          fontSize: dt.compactSection,
+          fontWeight: 800,
+          color: "#c7d2fe",
+        }}
+      >
         LINE 回覆訊息
       </h2>
-      <label style={{ display: "block", marginBottom: 6, fontSize: 12, fontWeight: 700, color: ui.faint }}>
+      <label
+        style={{
+          display: "block",
+          marginBottom: 6,
+          fontSize: dt.labelUpper,
+          fontWeight: 700,
+          color: ui.faint,
+        }}
+      >
         常用模板
       </label>
       <select
@@ -198,8 +214,8 @@ export function LineReplySection({
           border: "1px solid rgba(255,255,255,0.1)",
           background: "rgba(0,0,0,0.32)",
           color: ui.text,
-          fontSize: 14,
-          lineHeight: 1.6,
+          fontSize: dt.paragraph,
+          lineHeight: dt.lineHeightBody,
           resize: "vertical",
           boxSizing: "border-box",
           fontFamily: "inherit",
@@ -207,7 +223,9 @@ export function LineReplySection({
           marginBottom: 10,
         }}
       />
-      <p style={{ margin: "0 0 10px", fontSize: 12, color: ui.faint }}>預設為 AI 建議文案，可直接修改後傳送。</p>
+      <p style={{ margin: "0 0 10px", fontSize: dt.meta, color: ui.faint, lineHeight: dt.lineHeight }}>
+        預設為 AI 建議文案，可直接修改後傳送。
+      </p>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         <button
           type="button"
@@ -237,7 +255,7 @@ export function LineReplySection({
           {sendBusy ? "處理中…" : "傳送到 LINE"}
         </button>
       </div>
-      <p style={{ margin: "8px 0 0", fontSize: 12, color: ui.faint }}>
+      <p style={{ margin: "8px 0 0", fontSize: dt.meta, color: ui.faint, lineHeight: dt.lineHeight }}>
         {boundLineUserId
           ? "透過 LINE Messaging API 推送至已綁定的官方帳號。"
           : "請先綁定 LINE 官方帳號，或於上方選擇帳號。"}

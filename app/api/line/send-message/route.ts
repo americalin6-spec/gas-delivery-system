@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findCustomerIdForLineUser } from "../../../lib/conversationsServer";
+import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 import { getServerCompanyId } from "../../../lib/companyContext";
 import { sendLinePushMessage } from "../../../lib/lineMessaging";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
@@ -110,6 +111,15 @@ export async function POST(req: Request) {
 
   if (customerError) {
     console.warn("[line/send-message] last_contacted_at update failed:", customerError.message);
+  }
+
+  try {
+    await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
+      conversationText: message,
+      trigger: "line.send-message",
+    });
+  } catch (extractErr) {
+    console.error("[line/send-message] ai extract failed:", extractErr);
   }
 
   console.log("[line/send-message] success:", {

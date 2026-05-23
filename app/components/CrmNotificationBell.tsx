@@ -45,9 +45,11 @@ export function CrmNotificationBell() {
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const notifInFlightRef = useRef(false);
 
   const fetchNotifications = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
+    if (!companyReady || companyId <= 0 || notifInFlightRef.current) return;
+    notifInFlightRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -60,25 +62,27 @@ export function CrmNotificationBell() {
         unreadCount?: number;
         error?: string;
       };
+      const loadError = lang === "zh" ? "無法載入通知" : "Could not load notifications";
       if (!res.ok || !data.ok) {
-        setError(data.error ?? t.loadError);
+        setError(data.error ?? loadError);
         return;
       }
       setItems(data.items ?? []);
       setUnreadCount(data.unreadCount ?? 0);
     } catch {
-      setError(t.loadError);
+      setError(lang === "zh" ? "無法載入通知" : "Could not load notifications");
     } finally {
       setLoading(false);
+      notifInFlightRef.current = false;
     }
-  }, [companyId, companyReady, t.loadError]);
+  }, [companyId, companyReady, lang]);
 
   useEffect(() => {
     if (!companyReady || companyId <= 0) return;
     void fetchNotifications();
     const id = window.setInterval(() => void fetchNotifications(), POLL_MS);
     return () => window.clearInterval(id);
-  }, [fetchNotifications, companyReady, companyId]);
+  }, [companyReady, companyId, fetchNotifications]);
 
   useEffect(() => {
     if (!open) return;

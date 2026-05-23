@@ -80,6 +80,13 @@ export function customersListCopy(lang: AppLang) {
     namePlaceholder: zh ? "客戶姓名" : "Customer name",
     companyPlaceholder: zh ? "公司名稱" : "Company name",
     phonePlaceholder: zh ? "電話" : "Phone",
+    instagramPlaceholder: zh ? "Instagram（帳號或網址）" : "Instagram (handle or URL)",
+    facebookPlaceholder: zh ? "Facebook（帳號或網址）" : "Facebook (handle or URL)",
+    tiktokPlaceholder: zh ? "TikTok（帳號或網址）" : "TikTok (handle or URL)",
+    xiaohongshuPlaceholder: zh ? "小紅書（連結或 ID）" : "Xiaohongshu (link or ID)",
+    youtubePlaceholder: zh ? "YouTube（頻道或網址）" : "YouTube (channel or URL)",
+    websitePlaceholder: zh ? "官方網站網址" : "Official website URL",
+    alternateContactPlaceholder: zh ? "備用聯絡方式" : "Alternate contact",
     followUpTitle: (date: string) => (zh ? `追蹤：${date}` : `Follow-up: ${date}`),
     salesStatus: zh ? "客戶狀態" : "Customer status",
     filtersTitle: zh ? "客戶篩選" : "Customer filters",
@@ -101,8 +108,25 @@ export function customersListCopy(lang: AppLang) {
     openPipeline: zh ? "業務流程看板" : "Pipeline board",
     selectAll: zh ? "全選" : "Select all",
     selectAllShown: (n: number) => (zh ? `全選（顯示中 ${n} 筆）` : `Select all (${n} shown)`),
+    deselectAll: zh ? "取消全選" : "Deselect all",
     selectedCount: (n: number) => (zh ? `已選擇 ${n} 筆` : `${n} selected`),
     batchDelete: zh ? "刪除" : "Delete",
+    batchRestore: zh ? "批次還原" : "Restore selected",
+    batchPermanentDelete: zh ? "批次永久刪除" : "Delete permanently",
+    batchRestoreConfirm: (n: number) =>
+      zh ? `確定還原已選的 ${n} 筆客戶？` : `Restore ${n} selected customer${n === 1 ? "" : "s"}?`,
+    batchPermanentDeleteConfirmTitle: zh
+      ? "確定永久刪除這些客戶？"
+      : "Permanently delete selected customers?",
+    batchPermanentDeleteConfirmBody: zh
+      ? "永久刪除後無法復原，請再次確認。"
+      : "This cannot be undone. Please confirm.",
+    confirmBatchPermanentDelete: zh ? "確認永久刪除" : "Confirm permanent delete",
+    batchRestoreSuccess: (n: number) =>
+      zh ? `已還原 ${n} 筆客戶` : `Restored ${n} customer${n === 1 ? "" : "s"}`,
+    batchPermanentDeleteSuccess: (n: number) =>
+      zh ? `已永久刪除 ${n} 筆客戶` : `Permanently deleted ${n} customer${n === 1 ? "" : "s"}`,
+    batchProcessing: zh ? "處理中…" : "Processing…",
     batchDeleteConfirmTitle: zh ? "確定要刪除這些客戶資料嗎？" : "Delete selected customers?",
     batchDeleteConfirmBody: zh
       ? "客戶將移至垃圾桶，可於垃圾桶還原。"
@@ -192,6 +216,7 @@ export function customerDetailCopy(lang: AppLang) {
     lineNotConnected: zh ? "尚未連接真實 LINE，以下為模擬流程" : "LINE is not connected; flows below are simulated",
     syncing: zh ? "同步中…" : "Syncing…",
     sectionBasic: zh ? "基本資料" : "Basic info",
+    sectionSocial: zh ? "社群媒體" : "Social media",
     sectionAi: zh ? "AI 分析" : "AI analysis",
     sectionFollow: zh ? "追蹤與回覆" : "Follow-up & replies",
     sectionMetrics: zh ? "指標與分析" : "Metrics & analysis",
@@ -206,6 +231,13 @@ export function customerDetailCopy(lang: AppLang) {
       phone: zh ? "電話" : "Phone",
       line_id: zh ? "LINE 帳號" : "LINE",
       email: zh ? "電子郵件" : "Email",
+      instagram: zh ? "Instagram" : "Instagram",
+      facebook: zh ? "Facebook" : "Facebook",
+      tiktok: zh ? "TikTok" : "TikTok",
+      xiaohongshu: zh ? "小紅書" : "Xiaohongshu",
+      youtube: zh ? "YouTube" : "YouTube",
+      website: zh ? "官方網站" : "Website",
+      alternate_contact: zh ? "備用聯絡方式" : "Alternate contact",
       customer_status: zh ? "客戶狀態" : "Customer status",
       status: zh ? "客戶狀態" : "Customer status",
       note: zh ? "備註" : "Note",

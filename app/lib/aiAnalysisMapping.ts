@@ -23,6 +23,11 @@ import {
   toFinalMergedCustomerFields,
 } from "./extractCustomerFromLineChat";
 import { normalizeLineIdForDisplay } from "./lineIdDisplay";
+import {
+  buildExtractedPreviewDisplay,
+  mergeCrmFormSnapshot,
+  type CrmFormSnapshot,
+} from "./mergeCrmFormFields";
 
 const EMPTY_INSIGHT = "--";
 
@@ -306,6 +311,7 @@ export function buildHomeAnalysisMapping(
   lang: AppLang,
   aiResult: AiAnalyzeCustomerPayload | null | undefined,
   dealProbability: string,
+  existingForm?: CrmFormSnapshot,
 ): HomeAnalysisMappingResult {
   const extracted = extractCustomerFromLineChat(lineText, lang);
   const honorific = extractHonorificCustomerName(lineText);
@@ -347,15 +353,28 @@ export function buildHomeAnalysisMapping(
 
   const lineId = normalizeLineIdForDisplay(mergedFields.lineId);
 
-  const confirmed: ConfirmedCrmMapping = {
+  const incomingForm: CrmFormSnapshot = {
     customerName: formName,
     companyName: mergedFields.companyName,
     phone: mergedFields.phone,
     lineId,
     email: mergedFields.email,
+    note: note || customerNeedDisplay,
+  };
+
+  const mergedForm = existingForm
+    ? mergeCrmFormSnapshot(existingForm, incomingForm)
+    : incomingForm;
+
+  const confirmed: ConfirmedCrmMapping = {
+    customerName: mergedForm.customerName,
+    companyName: mergedForm.companyName,
+    phone: mergedForm.phone,
+    lineId: mergedForm.lineId,
+    email: mergedForm.email,
     estimatedAmount: estimatedAmount || notProvided(lang),
     customerNeed: customerNeedDisplay,
-    note,
+    note: mergedForm.note,
   };
 
   const analysisDraft: HomeAnalysisDraft = {
@@ -404,13 +423,23 @@ export function buildHomeAnalysisMapping(
     insights,
     analysis,
     hasExplicitImportantDate: sanitized.hasExplicitImportantDate,
-    extractedPreview: {
-      customer_name: formName || extracted.customer_name,
-      company_name: mergedFields.companyName,
-      phone: mergedFields.phone,
-      line_id: lineId,
-      email: mergedFields.email,
-      customer_need: customerNeedDisplay,
-    },
+    extractedPreview: buildExtractedPreviewDisplay(
+      {
+        customer_name: formName || extracted.customer_name,
+        company_name: mergedFields.companyName,
+        phone: mergedFields.phone,
+        line_id: lineId,
+        email: mergedFields.email,
+        customer_need: customerNeedDisplay,
+      },
+      existingForm ?? {
+        customerName: "",
+        companyName: "",
+        phone: "",
+        lineId: "",
+        email: "",
+        note: "",
+      },
+    ),
   };
 }

@@ -55,8 +55,13 @@ import {
   beginHomepageSave,
   endHomepageSave,
   getWritesThisSaveClick,
+  HOMEPAGE_ANALYZE_SAVE_SOURCE,
   HOMEPAGE_SAVE_SOURCE,
 } from "./lib/customerWriteGate";
+import {
+  mergeFormFromSavedCustomerRow,
+  type CrmFormSnapshot,
+} from "./lib/mergeCrmFormFields";
 import { saveManualPasteConversation } from "./lib/saveManualPasteConversation";
 import { customerStatusWritePayload } from "./lib/customerStatus";
 import { computeCustomerUrgencyFromImportantDate } from "./lib/customerUrgency";
@@ -70,8 +75,25 @@ import {
 const HOME_MOBILE_MAX_WIDTH = 1024;
 const HOME_DEBUG_ENABLED = process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1";
 
-/** Analyze must never persist to CRM — save only via saveToCrm(). */
-const ANALYZE_AUTO_SAVE_ENABLED = false;
+function currentFormSnapshot(
+  fields: {
+    customerName: string;
+    companyName: string;
+    phone: string;
+    lineId: string;
+    email: string;
+    note: string;
+  },
+): CrmFormSnapshot {
+  return {
+    customerName: fields.customerName,
+    companyName: fields.companyName,
+    phone: fields.phone,
+    lineId: fields.lineId,
+    email: fields.email,
+    note: fields.note,
+  };
+}
 
 type AnalyzeResultSnapshot = {
   customer_name: string;
@@ -430,14 +452,31 @@ export default function Home() {
     void saveToCrm();
   }
 
-  async function saveToCrm() {
+  async function persistHomepageCrm(opts?: {
+    source?: string;
+    silent?: boolean;
+    skipClearDraft?: boolean;
+    formOverride?: CrmFormSnapshot;
+    analysisOverride?: typeof analysis;
+  }) {
     if (savingRef.current || savingCrm) {
-      return;
+      return null;
     }
 
     if (!companyReady || companyId <= 0) {
-      return;
+      return null;
     }
+
+    const source = opts?.source ?? HOMEPAGE_SAVE_SOURCE;
+    const form = opts?.formOverride ?? currentFormSnapshot({
+      customerName,
+      companyName,
+      phone,
+      lineId,
+      email,
+      note,
+    });
+    const analysisPayload = opts?.analysisOverride ?? analysis;
 
     savingRef.current = true;
     setSavingCrm(true);
@@ -455,7 +494,7 @@ export default function Home() {
       const chatExtracted = extractCustomerFromLineChat(lineText, lang);
       const extractedName = chatExtracted.customer_name.trim();
       const nameForSave = pickCustomerNameForForm(
-        extractedName || analyzeResult?.customer_name || customerName,
+        extractedName || analyzeResult?.customer_name || form.customerName,
         extractedName,
         lineText,
         lang,
@@ -464,11 +503,11 @@ export default function Home() {
       const crmFields = sanitizeCustomerData(
         {
           customer_name: nameForSave,
-          company_name: companyName || chatExtracted.company_name,
-          phone: phone || chatExtracted.phone,
-          line_id: lineId || chatExtracted.line_id,
-          email: email || chatExtracted.email,
-          customer_need: note,
+          company_name: form.companyName || chatExtracted.company_name,
+          phone: form.phone || chatExtracted.phone,
+          line_id: form.lineId || chatExtracted.line_id,
+          email: form.email || chatExtracted.email,
+          customer_need: form.note,
         },
         lang,
       );
@@ -478,13 +517,16 @@ export default function Home() {
         ? nameForSave
         : crmSaveCustomerName(crmFields.customer_name, lang);
 
-      setCustomerName(resolvedDisplayName);
-      setCompanyName(crmFields.company_name);
-      setPhone(crmFields.phone);
-      setLineId(normalizeLineIdForDisplay(crmFields.line_id));
-      setEmail(crmFields.email);
+      if (source !== HOMEPAGE_ANALYZE_SAVE_SOURCE) {
+        setCustomerName(resolvedDisplayName);
+        setCompanyName(crmFields.company_name);
+        setPhone(crmFields.phone);
+        setLineId(normalizeLineIdForDisplay(crmFields.line_id));
+        setEmail(crmFields.email);
+      }
 
-      const dealProb = analysis.dealProbability === "--" ? null : analysis.dealProbability;
+      const dealProb =
+        analysisPayload.dealProbability === "--" ? null : analysisPayload.dealProbability;
 
       const crmDates = buildSanitizedCrmDatePayload(lineText, lang);
 
@@ -494,20 +536,24 @@ export default function Home() {
         phone: crmFields.phone.trim() || null,
         line_id: crmFields.line_id.trim() || null,
         email: crmFields.email.trim() || null,
-        note: note.trim() || null,
+        note: form.note.trim() || null,
         customer_need:
           chatExtracted.customer_need?.trim() ||
-          (analysis.customerNeed === "--" ? null : analysis.customerNeed),
+          (analysisPayload.customerNeed === "--" ? null : analysisPayload.customerNeed),
         important_date: crmDates.important_date,
-        customer_emotion: analysis.customerEmotion === "--" ? null : analysis.customerEmotion,
-        next_step: analysis.nextStep === "--" ? null : analysis.nextStep,
-        todo: analysis.todo === "--" ? null : analysis.todo,
-        reply_suggestion: analysis.replySuggestion === "--" ? null : analysis.replySuggestion,
-        follow_up: analysis.followUp === "--" ? null : analysis.followUp,
+        customer_emotion:
+          analysisPayload.customerEmotion === "--" ? null : analysisPayload.customerEmotion,
+        next_step: analysisPayload.nextStep === "--" ? null : analysisPayload.nextStep,
+        todo: analysisPayload.todo === "--" ? null : analysisPayload.todo,
+        reply_suggestion:
+          analysisPayload.replySuggestion === "--" ? null : analysisPayload.replySuggestion,
+        follow_up: analysisPayload.followUp === "--" ? null : analysisPayload.followUp,
         success_rate: dealProb,
-        customer_level: analysis.customerLevel === "--" ? null : analysis.customerLevel,
-        churn_risk: analysis.leakRisk === "--" ? null : analysis.leakRisk,
-        estimated_amount: analysis.estimatedAmount === "--" ? null : analysis.estimatedAmount,
+        customer_level:
+          analysisPayload.customerLevel === "--" ? null : analysisPayload.customerLevel,
+        churn_risk: analysisPayload.leakRisk === "--" ? null : analysisPayload.leakRisk,
+        estimated_amount:
+          analysisPayload.estimatedAmount === "--" ? null : analysisPayload.estimatedAmount,
         follow_up_mode: "manual",
         ...customerStatusWritePayload("new_lead"),
       };
@@ -526,11 +572,11 @@ export default function Home() {
       });
       logActiveCompany("saveToCrm.upsert", { requestId, requestNum, companyId, customer_name: savedName });
 
-      const { customerId, action, error } = await upsertCustomerForCompany(
+      const { customerId, action, error, customer: savedRow } = await upsertCustomerForCompany(
         supabase,
         companyId,
         baseInsert,
-        { requestId, source: HOMEPAGE_SAVE_SOURCE, conversationText: lineText, lang },
+        { requestId, source, conversationText: lineText, lang },
       );
 
       console.log("[saveToCrm] upsert response", {
@@ -543,8 +589,28 @@ export default function Home() {
       });
 
       if (error) {
-        alert(JSON.stringify(error, null, 2));
-        return;
+        if (!opts?.silent) {
+          alert(JSON.stringify(error, null, 2));
+        }
+        return null;
+      }
+
+      if (savedRow) {
+        const fromDb = mergeFormFromSavedCustomerRow(form, savedRow);
+        setCustomerName(fromDb.customerName);
+        setCompanyName(fromDb.companyName);
+        setPhone(fromDb.phone);
+        setLineId(normalizeLineIdForDisplay(fromDb.lineId));
+        setEmail(fromDb.email);
+        setNote(fromDb.note);
+        setExtractedPreview({
+          customer_name: fromDb.customerName,
+          company_name: fromDb.companyName,
+          phone: fromDb.phone,
+          line_id: fromDb.lineId,
+          email: fromDb.email,
+          customer_need: fromDb.note,
+        });
       }
 
       if (customerId && lineText.trim()) {
@@ -570,13 +636,22 @@ export default function Home() {
 
       void loadWorkspaceRows();
 
-      alert(ui.savedToCrm);
-      clearFormDraft();
+      if (!opts?.silent) {
+        alert(ui.savedToCrm);
+      }
+      if (!opts?.skipClearDraft) {
+        clearFormDraft();
+      }
+      return customerId;
     } finally {
       endHomepageSave();
       savingRef.current = false;
       setSavingCrm(false);
     }
+  }
+
+  async function saveToCrm() {
+    await persistHomepageCrm();
   }
 
   async function analyze() {
@@ -591,10 +666,7 @@ export default function Home() {
     }
 
     setLoading(true);
-    if (ANALYZE_AUTO_SAVE_ENABLED) {
-      console.error("[analyze] ANALYZE_AUTO_SAVE_ENABLED must stay false");
-    }
-    console.log("[analyze] start — form only, no CRM write");
+    console.log("[analyze] start");
 
     let aiResult: AiAnalyzeCustomerPayload | null = null;
     try {
@@ -617,7 +689,21 @@ export default function Home() {
       }
 
       const probability = calculateDealProbability(lineText, lang);
-      const mapped = buildHomeAnalysisMapping(lineText, lang, aiResult, probability);
+      const existingForm = currentFormSnapshot({
+        customerName,
+        companyName,
+        phone,
+        lineId,
+        email,
+        note,
+      });
+      const mapped = buildHomeAnalysisMapping(
+        lineText,
+        lang,
+        aiResult,
+        probability,
+        existingForm,
+      );
       const { confirmed, analysis: mappedAnalysis, extractedPreview } = mapped;
 
       setAnalyzeResult({
@@ -630,17 +716,15 @@ export default function Home() {
       console.log("INSIGHTS", mapped.insights);
 
       setCustomerName(confirmed.customerName);
-      setCompanyName(confirmed.companyName || "");
-      setPhone(confirmed.phone || "");
+      setCompanyName(confirmed.companyName);
+      setPhone(confirmed.phone);
       setLineId(normalizeLineIdForDisplay(confirmed.lineId));
-      setEmail(confirmed.email || "");
-      setNote(confirmed.note || "");
+      setEmail(confirmed.email);
+      setNote(confirmed.note);
 
       setExtractedPreview(extractedPreview);
       setAnalysis(mappedAnalysis);
       setHasExplicitImportantDate(mapped.hasExplicitImportantDate);
-
-      console.log("[analyze] done — form only, no DB", { customerName: confirmed.customerName });
 
       persistDraftNow({
         lineText,
@@ -649,11 +733,30 @@ export default function Home() {
         phone: confirmed.phone,
         lineId: confirmed.lineId,
         email: confirmed.email,
-        note: confirmed.note || "",
+        note: confirmed.note,
         analysis: mappedAnalysis,
         lang,
         extractedPreview,
       });
+
+      if (companyReady && companyId > 0) {
+        await persistHomepageCrm({
+          source: HOMEPAGE_ANALYZE_SAVE_SOURCE,
+          silent: true,
+          skipClearDraft: true,
+          formOverride: currentFormSnapshot({
+            customerName: confirmed.customerName,
+            companyName: confirmed.companyName,
+            phone: confirmed.phone,
+            lineId: confirmed.lineId,
+            email: confirmed.email,
+            note: confirmed.note,
+          }),
+          analysisOverride: mappedAnalysis,
+        });
+      }
+
+      console.log("[analyze] done", { customerName: confirmed.customerName });
     } finally {
       setLoading(false);
     }

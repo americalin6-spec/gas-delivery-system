@@ -95,6 +95,24 @@
       "namedRegex": "^/api/customers(?:/)?$"
     },
     {
+      "page": "/api/customers/ai-extract",
+      "regex": "^/api/customers/ai\\-extract(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/customers/ai\\-extract(?:/)?$"
+    },
+    {
+      "page": "/api/customers/ai-follow-up",
+      "regex": "^/api/customers/ai\\-follow\\-up(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/customers/ai\\-follow\\-up(?:/)?$"
+    },
+    {
+      "page": "/api/customers/ai-summary",
+      "regex": "^/api/customers/ai\\-summary(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/customers/ai\\-summary(?:/)?$"
+    },
+    {
       "page": "/api/line/send-message",
       "regex": "^/api/line/send\\-message(?:/)?$",
       "routeKeys": {},

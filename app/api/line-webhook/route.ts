@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findCompanyIdForLineUser, logLineConversation } from "../../lib/conversationsServer";
+import { runCustomerAiFieldExtraction } from "../../lib/customerAiExtractServer";
 import {
   buildBindingSuccessNotification,
   buildLineMessageNotification,
@@ -443,6 +444,17 @@ async function logInboundEvents(
           companyId,
           customerId: resolved.customerId,
         });
+
+        if (resolved.customerId) {
+          try {
+            await runCustomerAiFieldExtraction(supabase, companyId, resolved.customerId, {
+              conversationText: messageText,
+              trigger: "line-webhook",
+            });
+          } catch (extractErr) {
+            console.error("[line-webhook] ai extract failed:", extractErr);
+          }
+        }
 
         console.log("[line-webhook] conversation logged:", {
           lineUserId,

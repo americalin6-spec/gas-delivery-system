@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRegisterAiRun } from "../hooks/useRegisterAiRun";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
-import { companyIdHeader } from "../lib/clientCompany";
+import {
+  postAiCustomerEndpoint,
+  shouldSkipDuplicateAiRequest,
+} from "../lib/aiCustomerFetchClient";
 import { customerStatusWritePayload } from "../lib/customerStatus";
 import {
   FOLLOW_UP_URGENCY_THEME,
@@ -10,7 +14,10 @@ import {
   type CustomerAiFollowUp,
   type FollowUpUrgencyLevel,
 } from "../lib/customerAiFollowUp";
+import { localizeCrmDisplayText } from "../lib/crmAiDisplayLabels";
+import { dt } from "../lib/customerDetailTypography";
 import { supabase } from "../../supabase";
+import type { CustomerAiExtractPayload } from "./CustomerAiSummaryDashboard";
 
 type CustomerSnapshot = {
   id: string | number;
@@ -23,10 +30,11 @@ type Props = {
   customer: CustomerSnapshot;
   conversationSourceText: string;
   isMobile: boolean;
-  refreshSignal?: number;
+  registerRun?: (run: (() => Promise<void>) | null) => void;
   copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
   showToast: (message: string) => void;
   onCustomerUpdated: () => void;
+  onExtractComplete?: (extract: CustomerAiExtractPayload | null) => void;
 };
 
 const shell = {
@@ -59,52 +67,80 @@ export function CustomerAiFollowUpSection({
   customer,
   conversationSourceText,
   isMobile,
-  refreshSignal = 0,
+  registerRun,
   copyWithFallback,
   showToast,
   onCustomerUpdated,
+  onExtractComplete,
 }: Props) {
   const [followUp, setFollowUp] = useState<CustomerAiFollowUp | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const onExtractRef = useRef(onExtractComplete);
+  onExtractRef.current = onExtractComplete;
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const conversationTextRef = useRef(conversationSourceText);
+  conversationTextRef.current = conversationSourceText;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const loadFollowUp = useCallback(async () => {
     if (!customerId || !companyId) return;
+    if (shouldSkipDuplicateAiRequest(inFlightRef.current, "follow-up")) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    inFlightRef.current = true;
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch("/api/customers/ai-follow-up", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...companyIdHeader(),
-        },
-        body: JSON.stringify({
-          customer_id: customerId,
-          conversation_text: conversationSourceText || undefined,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
+      const result = await postAiCustomerEndpoint<{
         followUp?: CustomerAiFollowUp;
-      };
-      if (!res.ok || !data.ok || !data.followUp) {
-        throw new Error(data.error || "無法取得 AI 跟進建議");
+        extract?: CustomerAiExtractPayload | null;
+      }>({
+        kind: "follow-up",
+        endpoint: "/api/customers/ai-follow-up",
+        signal: controller.signal,
+        body: {
+          customer_id: customerId,
+          conversation_text: conversationTextRef.current || undefined,
+        },
+      });
+
+      if (!mountedRef.current) return;
+      if (result.ok === false) {
+        if (result.aborted || result.error === "aborted") return;
+        setError(result.error);
+        setFollowUp(null);
+        return;
+      }
+
+      const data = result.data;
+      if (!data.followUp) {
+        setError("無法取得 AI 跟進建議");
+        setFollowUp(null);
+        return;
       }
       setFollowUp(data.followUp);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "AI 跟進分析失敗");
-      setFollowUp(null);
+      onExtractRef.current?.(data.extract ?? null);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
+      inFlightRef.current = false;
     }
-  }, [customerId, companyId, conversationSourceText]);
+  }, [customerId, companyId]);
 
-  useEffect(() => {
-    void loadFollowUp();
-  }, [loadFollowUp, refreshSignal]);
+  useRegisterAiRun(registerRun, loadFollowUp);
 
   const urgency: FollowUpUrgencyLevel = followUp?.urgencyLevel ?? "medium";
   const urgencyTheme = FOLLOW_UP_URGENCY_THEME[urgency];
@@ -220,7 +256,7 @@ export function CustomerAiFollowUpSection({
             />
             <span
               style={{
-                fontSize: 11,
+                fontSize: dt.small,
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
                 color: "#6ee7b7",
@@ -233,7 +269,7 @@ export function CustomerAiFollowUpSection({
           <h2
             style={{
               margin: 0,
-              fontSize: isMobile ? 18 : 20,
+              fontSize: isMobile ? dt.cardTitleMobile : dt.cardTitle,
               fontWeight: 600,
               color: shell.text,
               letterSpacing: "-0.02em",
@@ -241,7 +277,14 @@ export function CustomerAiFollowUpSection({
           >
             AI 跟進建議
           </h2>
-          <p style={{ margin: "6px 0 0", fontSize: 13, color: shell.muted, lineHeight: 1.5 }}>
+          <p
+            style={{
+              margin: "6px 0 0",
+              fontSize: dt.meta,
+              color: shell.muted,
+              lineHeight: dt.lineHeight,
+            }}
+          >
             依對話、情緒、成交機率與客戶狀態自動產出跟進方案
           </p>
         </div>
@@ -295,7 +338,8 @@ export function CustomerAiFollowUpSection({
             background: "rgba(248,113,113,0.12)",
             border: "1px solid rgba(248,113,113,0.35)",
             color: "#fecaca",
-            fontSize: 13,
+            fontSize: dt.meta,
+            lineHeight: dt.lineHeight,
           }}
         >
           {error}
@@ -310,7 +354,9 @@ export function CustomerAiFollowUpSection({
         }}
       >
         {FIELD_CARDS.map((item) => {
-          const value = followUp?.[item.key] ?? (loading ? "…" : "—");
+          const rawValue = followUp?.[item.key] ?? (loading ? "…" : "—");
+          const value =
+            typeof rawValue === "string" ? localizeCrmDisplayText(rawValue) : rawValue;
           const isMessage = item.key === "suggestedMessage";
           return (
             <article
@@ -330,7 +376,7 @@ export function CustomerAiFollowUpSection({
             >
               <span
                 style={{
-                  fontSize: 12,
+                  fontSize: dt.label,
                   fontWeight: 600,
                   color: item.highlight ? "#6ee7b7" : "#cbd5e1",
                 }}
@@ -340,8 +386,8 @@ export function CustomerAiFollowUpSection({
               <p
                 style={{
                   margin: 0,
-                  fontSize: isMessage ? 14 : 13,
-                  lineHeight: 1.6,
+                  fontSize: dt.paragraph,
+                  lineHeight: dt.lineHeightBody,
                   color: loading && !followUp ? shell.faint : "#e2e8f0",
                   whiteSpace: "pre-wrap",
                 }}
@@ -397,7 +443,7 @@ export function CustomerAiFollowUpSection({
           borderTop: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        <span style={{ fontSize: 12, color: shell.faint }}>
+        <span style={{ fontSize: dt.meta, color: shell.faint }}>
           AI 分析更新時間
           {followUp?.updatedAt ? (
             <strong style={{ color: shell.muted, fontWeight: 500, marginLeft: 6 }}>
@@ -409,7 +455,7 @@ export function CustomerAiFollowUpSection({
             <span style={{ marginLeft: 6 }}>—</span>
           )}
         </span>
-        <span style={{ fontSize: 11, color: shell.faint }}>
+        <span style={{ fontSize: dt.small, color: shell.faint }}>
           快捷操作會更新 CRM 備註或跟進狀態
         </span>
       </footer>

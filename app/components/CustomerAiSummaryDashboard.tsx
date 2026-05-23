@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { companyIdHeader } from "../lib/clientCompany";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRegisterAiRun } from "../hooks/useRegisterAiRun";
+import {
+  postAiCustomerEndpoint,
+  shouldSkipDuplicateAiRequest,
+} from "../lib/aiCustomerFetchClient";
 import {
   DEAL_PRIORITY_THEME,
   RISK_PRIORITY_THEME,
@@ -10,13 +14,26 @@ import {
   type DealPriorityLevel,
   type RiskPriorityLevel,
 } from "../lib/customerAiSummary";
+import { localizeCrmDisplayText } from "../lib/crmAiDisplayLabels";
+import { dt } from "../lib/customerDetailTypography";
+
+export type CustomerAiExtractPayload = {
+  updatedColumns?: string[];
+  extractedAt?: string | null;
+  extractedSocial?: Record<string, string>;
+  savedFields?: string[];
+  skippedFields?: { column: string; reason: string }[];
+  ok?: boolean;
+};
 
 type Props = {
   customerId: string;
   companyId: number;
   conversationSourceText: string;
   isMobile: boolean;
-  refreshSignal?: number;
+  /** Parent stores runner — only invoked on user refresh or explicit parent trigger. */
+  registerRun?: (run: (() => Promise<void>) | null) => void;
+  onExtractComplete?: (extract: CustomerAiExtractPayload | null) => void;
 };
 
 const CARD_ITEMS: {
@@ -85,48 +102,76 @@ export function CustomerAiSummaryDashboard({
   companyId,
   conversationSourceText,
   isMobile,
-  refreshSignal = 0,
+  registerRun,
+  onExtractComplete,
 }: Props) {
   const [summary, setSummary] = useState<CustomerAiSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const onExtractRef = useRef(onExtractComplete);
+  onExtractRef.current = onExtractComplete;
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const conversationTextRef = useRef(conversationSourceText);
+  conversationTextRef.current = conversationSourceText;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const loadSummary = useCallback(async () => {
     if (!customerId || !companyId) return;
+    if (shouldSkipDuplicateAiRequest(inFlightRef.current, "summary")) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    inFlightRef.current = true;
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch("/api/customers/ai-summary", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...companyIdHeader(),
-        },
-        body: JSON.stringify({
-          customer_id: customerId,
-          conversation_text: conversationSourceText || undefined,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
+      const result = await postAiCustomerEndpoint<{
         summary?: CustomerAiSummary;
-      };
-      if (!res.ok || !data.ok || !data.summary) {
-        throw new Error(data.error || "無法取得 AI 分析");
+        extract?: CustomerAiExtractPayload | null;
+      }>({
+        kind: "summary",
+        endpoint: "/api/customers/ai-summary",
+        signal: controller.signal,
+        body: {
+          customer_id: customerId,
+          conversation_text: conversationTextRef.current || undefined,
+        },
+      });
+
+      if (!mountedRef.current) return;
+      if (result.ok === false) {
+        if (result.aborted || result.error === "aborted") return;
+        setError(result.error);
+        setSummary(null);
+        return;
+      }
+
+      const data = result.data;
+      if (!data.summary) {
+        setError("無法取得 AI 分析");
+        setSummary(null);
+        return;
       }
       setSummary(data.summary);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "AI 分析失敗");
-      setSummary(null);
+      onExtractRef.current?.(data.extract ?? null);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
+      inFlightRef.current = false;
     }
-  }, [customerId, companyId, conversationSourceText]);
+  }, [customerId, companyId]);
 
-  useEffect(() => {
-    void loadSummary();
-  }, [loadSummary, refreshSignal]);
+  useRegisterAiRun(registerRun, loadSummary);
 
   const dealLevel = summary?.dealLevel ?? "medium";
   const riskLevel = summary?.riskLevel ?? "normal";
@@ -174,7 +219,7 @@ export function CustomerAiSummaryDashboard({
             />
             <span
               style={{
-                fontSize: 11,
+                fontSize: dt.small,
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
                 color: "#a5b4fc",
@@ -187,7 +232,7 @@ export function CustomerAiSummaryDashboard({
           <h2
             style={{
               margin: 0,
-              fontSize: isMobile ? 18 : 20,
+              fontSize: isMobile ? dt.cardTitleMobile : dt.cardTitle,
               fontWeight: 600,
               color: shell.text,
               letterSpacing: "-0.02em",
@@ -198,9 +243,9 @@ export function CustomerAiSummaryDashboard({
           <p
             style={{
               margin: "6px 0 0",
-              fontSize: 13,
+              fontSize: dt.meta,
               color: shell.muted,
-              lineHeight: 1.5,
+              lineHeight: dt.lineHeight,
             }}
           >
             綜合 LINE 對話、備註與 CRM 資料
@@ -254,7 +299,8 @@ export function CustomerAiSummaryDashboard({
             background: "rgba(248,113,113,0.12)",
             border: "1px solid rgba(248,113,113,0.35)",
             color: "#fecaca",
-            fontSize: 13,
+            fontSize: dt.meta,
+            lineHeight: dt.lineHeight,
           }}
         >
           {error}
@@ -272,7 +318,9 @@ export function CustomerAiSummaryDashboard({
       >
         {CARD_ITEMS.map((item) => {
           const accent = cardAccent(item.priority, dealLevel, riskLevel);
-          const body = summary?.[item.key] ?? (loading ? "…" : "—");
+          const rawBody = summary?.[item.key] ?? (loading ? "…" : "—");
+          const body =
+            typeof rawBody === "string" ? localizeCrmDisplayText(rawBody) : rawBody;
           return (
             <article
               key={item.key}
@@ -297,7 +345,7 @@ export function CustomerAiSummaryDashboard({
               >
                 <span
                   style={{
-                    fontSize: 12,
+                    fontSize: dt.label,
                     fontWeight: 600,
                     color: "#c7d2fe",
                     letterSpacing: "0.04em",
@@ -326,8 +374,8 @@ export function CustomerAiSummaryDashboard({
               <p
                 style={{
                   margin: 0,
-                  fontSize: 13,
-                  lineHeight: 1.55,
+                  fontSize: dt.paragraph,
+                  lineHeight: dt.lineHeightBody,
                   color: loading && !summary ? shell.faint : "#e2e8f0",
                   whiteSpace: "pre-wrap",
                 }}
@@ -350,7 +398,7 @@ export function CustomerAiSummaryDashboard({
           borderTop: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        <span style={{ fontSize: 12, color: shell.faint }}>
+        <span style={{ fontSize: dt.meta, color: shell.faint }}>
           AI 分析更新時間
           {summary?.updatedAt ? (
             <strong style={{ color: shell.muted, fontWeight: 500, marginLeft: 6 }}>
@@ -362,7 +410,7 @@ export function CustomerAiSummaryDashboard({
             <span style={{ marginLeft: 6 }}>—</span>
           )}
         </span>
-        <span style={{ fontSize: 11, color: shell.faint }}>
+        <span style={{ fontSize: dt.small, color: shell.faint }}>
           僅供決策參考 · 不修改 CRM 資料
         </span>
       </footer>

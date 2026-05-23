@@ -1754,6 +1754,16 @@ export function sanitizeCustomerNameValue(value: string): string {
   return trimmed;
 }
 
+function readAiPayloadString(ai: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const v = ai[key];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
+
 /** Sanitize raw AI CRM fields before merge (never trusted over regex). */
 export function sanitizeAiCustomerFields(
   ai: AiAnalyzeCustomerPayload | null | undefined,
@@ -1761,36 +1771,54 @@ export function sanitizeAiCustomerFields(
 ): ExtractedCustomerProfile {
   if (!ai) return { ...EMPTY };
 
-  let company_name = normalizeCompanyName(String(ai.company ?? ai.companyName ?? ""));
+  const raw = ai as Record<string, unknown>;
+
+  let company_name = normalizeCompanyName(
+    readAiPayloadString(raw, ["company", "companyName", "company_name"]),
+  );
   if (company_name && !isValidCompanyName(company_name)) {
     const rescued = extractCompanyStep2(company_name, splitChatLines(company_name));
     company_name = rescued || "";
   }
 
-  const rawPhone = String(ai.phone ?? "");
+  const rawPhone = readAiPayloadString(raw, ["phone", "phoneNumber", "mobile", "tel"]);
   const phone = rawPhone ? normalizePhone(rawPhone) || rawPhone.trim() : "";
 
-  let line_id = normalizeLineIdForDisplay(String(ai.lineId ?? ""));
+  let line_id = normalizeLineIdForDisplay(
+    readAiPayloadString(raw, ["lineId", "line_id", "lineAccount", "lineUserId", "line"]),
+  );
   if (line_id && /^09\d{8}$/.test(line_id.replace(/\D/g, ""))) {
     line_id = "";
   }
+
+  const email = readAiPayloadString(raw, ["email", "mail"]);
+
+  const needRaw = readAiPayloadString(raw, [
+    "customerNeed",
+    "customer_need",
+    "customerNeeds",
+    "notes",
+    "note",
+  ]);
 
   const aiProfile: ExtractedCustomerProfile = {
     customer_name: "",
     company_name,
     phone,
     line_id,
-    email: String(ai.email ?? "").trim(),
+    email,
     customer_need: "",
   };
 
   return {
-    customer_name: sanitizeCustomerNameValue(String(ai.customerName ?? "")),
+    customer_name: sanitizeCustomerNameValue(
+      readAiPayloadString(raw, ["customerName", "name", "customer_name"]),
+    ),
     company_name,
     phone,
     line_id,
-    email: aiProfile.email,
-    customer_need: cleanCustomerNeedText(String(ai.customerNeed ?? ""), aiProfile, lang),
+    email,
+    customer_need: cleanCustomerNeedText(needRaw, aiProfile, lang),
   };
 }
 

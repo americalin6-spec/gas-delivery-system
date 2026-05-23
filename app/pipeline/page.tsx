@@ -28,6 +28,7 @@ import {
   buildConversationSourceMap,
   resolveDisplayImportantDate,
 } from "../lib/crmCustomerDisplay";
+import { localizeCrmDisplayText } from "../lib/crmAiDisplayLabels";
 import {
   boardColumnToCustomerStatus,
   customerStatusToBoardColumn,
@@ -1015,7 +1016,7 @@ function PipelineCardView({
               border: "1px solid rgba(129,140,248,0.4)",
             }}
           >
-            {t.aiScore} {score}
+            {t.aiScore} {localizeCrmDisplayText(score)}
           </span>
         ) : null}
         {customer.urgent ? (

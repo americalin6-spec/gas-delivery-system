@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 import { formatCustomerCreatedAtDisplay } from "../lib/customerSoftDelete";
@@ -8,6 +8,7 @@ import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
 import { buildLineChatUrl, openLineChat } from "../lib/openLineApp";
 import type { LineUserBindingRow } from "../lib/lineUsersServer";
 import { useActiveCompany } from "./ActiveCompanyProvider";
+import { dt } from "../lib/customerDetailTypography";
 
 export type BoundLineAccount = {
   line_user_id: string;
@@ -100,7 +101,7 @@ function EmbeddedAccountCard({
           marginBottom: 6,
         }}
       >
-        <span style={{ fontWeight: 700, fontSize: 14, color: ui.text }}>{label}</span>
+        <span style={{ fontWeight: 700, fontSize: dt.paragraph, color: ui.text }}>{label}</span>
         {account.isPrimary ? (
           <span
             style={{
@@ -115,11 +116,11 @@ function EmbeddedAccountCard({
             主要 LINE
           </span>
         ) : null}
-        <span style={{ fontSize: 11, color: ui.faint }}>點選以篩選對話</span>
+        <span style={{ fontSize: dt.small, color: ui.faint }}>點選以篩選對話</span>
       </div>
       <div
         style={{
-          fontSize: 12,
+          fontSize: dt.meta,
           fontFamily: "ui-monospace, monospace",
           color: "#86efac",
           wordBreak: "break-all",
@@ -190,7 +191,7 @@ function FullAccountCard({
           marginBottom: 12,
         }}
       >
-        <span style={{ fontWeight: 800, fontSize: 16, color: ui.text }}>{label}</span>
+        <span style={{ fontWeight: 800, fontSize: dt.paragraph, color: ui.text }}>{label}</span>
         {account.isPrimary ? (
           <span
             style={{
@@ -214,25 +215,26 @@ function FullAccountCard({
           display: "grid",
           gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
           gap: isMobile ? 10 : 14,
-          fontSize: 14,
+          fontSize: dt.paragraph,
           color: ui.muted,
+          lineHeight: dt.lineHeight,
         }}
       >
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+          <div style={{ fontSize: dt.labelUpper, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
             {t.lineDisplayNameLabel}
           </div>
           <div style={{ color: ui.text, wordBreak: "break-word" }}>{account.display_name || "—"}</div>
         </div>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+          <div style={{ fontSize: dt.labelUpper, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
             {t.lineUserIdLabel}
           </div>
           <div
             style={{
               color: "#86efac",
               fontFamily: "ui-monospace, monospace",
-              fontSize: 13,
+              fontSize: dt.meta,
               wordBreak: "break-all",
             }}
           >
@@ -240,7 +242,7 @@ function FullAccountCard({
           </div>
         </div>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+          <div style={{ fontSize: dt.labelUpper, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
             {t.lineBoundAtLabel}
           </div>
           <div style={{ color: ui.text }}>{formatBoundAt(account.created_at, lang)}</div>
@@ -271,7 +273,7 @@ function FullAccountCard({
           {canOpenLine ? t.openLineAddFriend : t.lineIdRequiredForChat}
         </button>
         {canOpenLine ? (
-          <p style={{ margin: "8px 0 0", fontSize: 12, color: ui.faint, lineHeight: 1.45 }}>
+          <p style={{ margin: "8px 0 0", fontSize: dt.meta, color: ui.faint, lineHeight: dt.lineHeight }}>
             {t.openLineAddFriendQrHint}
           </p>
         ) : null}
@@ -305,18 +307,22 @@ export function BoundLineAccountsSection({
   const [rowCount, setRowCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const primaryLineRef = useRef(primaryLineUserId);
+  primaryLineRef.current = primaryLineUserId;
+  const loadInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     const id = customerId?.trim();
-    if (!id || !companyReady || companyId <= 0) return;
+    if (!id || !companyReady || companyId <= 0 || loadInFlightRef.current) return;
 
+    loadInFlightRef.current = true;
     setLoading(true);
     setError(null);
     logActiveCompany("boundLineAccounts.load", { customerId: id, companyId });
 
     try {
       const query = new URLSearchParams({ customer_id: id });
-      const primary = primaryLineUserId?.trim();
+      const primary = primaryLineRef.current?.trim();
       if (primary) query.set("primary_line_user_id", primary);
 
       const res = await fetch(`/api/line-users?${query.toString()}`, {
@@ -339,19 +345,20 @@ export function BoundLineAccountsSection({
 
       const rows = Array.isArray(body.rows) ? body.rows : [];
       setRowCount(typeof body.count === "number" ? body.count : rows.length);
-      setAccounts(toBoundAccounts(rows, primaryLineUserId));
+      setAccounts(toBoundAccounts(rows, primaryLineRef.current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setAccounts([]);
       setRowCount(0);
     } finally {
       setLoading(false);
+      loadInFlightRef.current = false;
     }
-  }, [customerId, companyId, companyReady, primaryLineUserId]);
+  }, [customerId, companyId, companyReady]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [customerId, companyId, companyReady]);
 
   const canOpenLine = Boolean(buildLineChatUrl(customerLineId));
 
@@ -373,7 +380,7 @@ export function BoundLineAccountsSection({
 
   const headingStyle: CSSProperties = {
     margin: "0 0 6px",
-    fontSize: embedded ? 14 : isMobile ? 20 : 22,
+    fontSize: embedded ? dt.compactSection : isMobile ? 20 : 22,
     fontWeight: 800,
     color: ui.text,
     letterSpacing: "-0.02em",
@@ -416,15 +423,33 @@ export function BoundLineAccountsSection({
         <h3 id="bound-line-accounts-heading" style={headingStyle}>
           {embedded ? "已綁定 LINE 帳號" : t.boundLineAccountsTitle}
         </h3>
-        <p style={{ margin: 0, fontSize: embedded ? 12 : 14, color: ui.muted, lineHeight: 1.5 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: embedded ? dt.meta : 14,
+            color: ui.muted,
+            lineHeight: embedded ? dt.lineHeight : 1.5,
+          }}
+        >
           {loading ? "載入中…" : embedded ? `已綁定 ${rowCount} 個帳號` : t.boundLineCount(rowCount)}
         </p>
       </div>
 
-      {error ? <p style={{ margin: "0 0 10px", color: "#fca5a5", fontSize: 14 }}>{error}</p> : null}
+      {error ? (
+        <p style={{ margin: "0 0 10px", color: "#fca5a5", fontSize: dt.paragraph, lineHeight: dt.lineHeight }}>
+          {error}
+        </p>
+      ) : null}
 
       {!loading && !error && rowCount === 0 ? (
-        <p style={{ margin: "0 0 10px", fontSize: embedded ? 13 : 15, color: ui.muted, lineHeight: 1.55 }}>
+        <p
+          style={{
+            margin: "0 0 10px",
+            fontSize: embedded ? dt.meta : 15,
+            color: ui.muted,
+            lineHeight: embedded ? dt.lineHeightBody : 1.55,
+          }}
+        >
           {t.noBoundLineAccounts}
         </p>
       ) : null}

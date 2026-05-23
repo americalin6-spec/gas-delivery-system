@@ -44,6 +44,11 @@ import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { supabase } from "../../supabase";
 import { showInternalCrmNav } from "../lib/crmNavVisibility";
 import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
+import {
+  CUSTOMER_SOCIAL_FIELD_KEYS,
+  CUSTOMER_SOCIAL_LABELS_ZH,
+  type CustomerSocialFieldKey,
+} from "../lib/customerSocialMedia";
 
 type StatusFilter = "all" | PipelineStatus;
 type FollowFilter = "all" | "has_date" | "no_date" | "overdue" | "today" | "next7";
@@ -133,6 +138,12 @@ export default function CustomersPage() {
   const [customerName, setCustomerName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [phone, setPhone] = useState("");
+  const [socialDraft, setSocialDraft] = useState<Record<CustomerSocialFieldKey, string>>(() =>
+    Object.fromEntries(CUSTOMER_SOCIAL_FIELD_KEYS.map((k) => [k, ""])) as Record<
+      CustomerSocialFieldKey,
+      string
+    >,
+  );
   const [newStatus, setNewStatus] = useState<PipelineStatus>("new_lead");
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -159,6 +170,7 @@ export default function CustomersPage() {
   >(new Map());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchTrashModal, setBatchTrashModal] = useState<"permanent" | null>(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [trashView, setTrashView] = useState(false);
@@ -318,6 +330,13 @@ export default function CustomersPage() {
           c.line_id,
           c.email,
           c.note,
+          c.instagram,
+          c.facebook,
+          c.tiktok,
+          c.xiaohongshu,
+          c.youtube,
+          c.website,
+          c.alternate_contact,
         ]
           .map((v) => (v || "").toString().toLowerCase())
           .join(" ");
@@ -429,6 +448,10 @@ export default function CustomersPage() {
     });
   }, [filteredIds]);
 
+  const deselectAll = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
   async function confirmBatchDelete() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0 || !companyReady || companyId <= 0) return;
@@ -454,15 +477,67 @@ export default function CustomersPage() {
     await loadCustomers();
   }
 
+  async function confirmBatchRestore() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+
+    setBatchDeleting(true);
+    const { error } = await supabase
+      .from("customers")
+      .update(restoreCustomerPayload())
+      .eq("company_id", companyId)
+      .in("id", ids);
+
+    setBatchDeleting(false);
+    setBatchTrashModal(null);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const n = ids.length;
+    setSelectedIds(new Set());
+    setToast(t.batchRestoreSuccess(n));
+    await loadCustomers();
+  }
+
+  async function confirmBatchPermanentDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+
+    setBatchDeleting(true);
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", ids);
+
+    setBatchDeleting(false);
+    setBatchTrashModal(null);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    const n = ids.length;
+    setSelectedIds(new Set());
+    setToast(t.batchPermanentDeleteSuccess(n));
+    await loadCustomers();
+  }
+
   function exitTrashView() {
     setTrashView(false);
     setSelectedIds(new Set());
+    setBatchTrashModal(null);
     setSearch("");
   }
 
   function enterTrashView() {
     setTrashView(true);
     setSelectedIds(new Set());
+    setBatchTrashModal(null);
     setSearch("");
     setStatusFilter("all");
     setFollowFilter("all");
@@ -639,7 +714,7 @@ export default function CustomersPage() {
             onUrgencyFilterChange={setUrgencyFilter}
           />
 
-          {!trashView && selectedCount > 0 ? (
+          {selectedCount > 0 ? (
             <div
               style={{
                 display: "flex",
@@ -650,37 +725,99 @@ export default function CustomersPage() {
                 marginBottom: 20,
                 padding: isMobile ? "14px 16px" : "16px 20px",
                 borderRadius: 14,
-                background: "rgba(99,102,241,0.18)",
-                border: "1px solid rgba(129,140,248,0.45)",
+                background: trashView
+                  ? "rgba(34,197,94,0.12)"
+                  : "rgba(99,102,241,0.18)",
+                border: trashView
+                  ? "1px solid rgba(74,222,128,0.45)"
+                  : "1px solid rgba(129,140,248,0.45)",
               }}
             >
               <span style={{ fontSize: 16, fontWeight: 700 }}>{t.selectedCount(selectedCount)}</span>
-              <button
-                type="button"
-                onClick={() => setBatchDeleteOpen(true)}
-                disabled={batchDeleting}
+              <div
                 style={{
-                  background: "#ef4444",
-                  color: "white",
-                  border: "none",
-                  padding: "12px 22px",
-                  borderRadius: 12,
-                  cursor: batchDeleting ? "wait" : "pointer",
-                  fontWeight: 700,
-                  fontSize: 16,
-                  opacity: batchDeleting ? 0.75 : 1,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  width: isMobile ? "100%" : "auto",
                 }}
               >
-                {t.batchDelete}
-              </button>
+                {trashView ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(t.batchRestoreConfirm(selectedCount))) {
+                          void confirmBatchRestore();
+                        }
+                      }}
+                      disabled={batchDeleting}
+                      style={{
+                        background: "#22c55e",
+                        color: "white",
+                        border: "none",
+                        padding: "12px 22px",
+                        borderRadius: 12,
+                        cursor: batchDeleting ? "wait" : "pointer",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        opacity: batchDeleting ? 0.75 : 1,
+                        flex: isMobile ? "1 1 auto" : undefined,
+                      }}
+                    >
+                      {batchDeleting ? t.batchProcessing : t.batchRestore}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBatchTrashModal("permanent")}
+                      disabled={batchDeleting}
+                      style={{
+                        background: "#ef4444",
+                        color: "white",
+                        border: "none",
+                        padding: "12px 22px",
+                        borderRadius: 12,
+                        cursor: batchDeleting ? "wait" : "pointer",
+                        fontWeight: 700,
+                        fontSize: 16,
+                        opacity: batchDeleting ? 0.75 : 1,
+                        flex: isMobile ? "1 1 auto" : undefined,
+                      }}
+                    >
+                      {t.batchPermanentDelete}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setBatchDeleteOpen(true)}
+                    disabled={batchDeleting}
+                    style={{
+                      background: "#ef4444",
+                      color: "white",
+                      border: "none",
+                      padding: "12px 22px",
+                      borderRadius: 12,
+                      cursor: batchDeleting ? "wait" : "pointer",
+                      fontWeight: 700,
+                      fontSize: 16,
+                      opacity: batchDeleting ? 0.75 : 1,
+                      width: isMobile ? "100%" : "auto",
+                    }}
+                  >
+                    {t.batchDelete}
+                  </button>
+                )}
+              </div>
             </div>
           ) : null}
 
-          {!trashView ? (
           <div
             style={{
               display: "flex",
+              flexWrap: "wrap",
               alignItems: "center",
+              justifyContent: "space-between",
               gap: 12,
               marginBottom: 18,
               padding: "12px 14px",
@@ -712,8 +849,26 @@ export default function CustomersPage() {
               />
               {t.selectAllShown(filteredIds.length)}
             </label>
+            {someFilteredSelected ? (
+              <button
+                type="button"
+                onClick={deselectAll}
+                disabled={batchDeleting}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(148,163,184,0.35)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#e2e8f0",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                }}
+              >
+                {t.deselectAll}
+              </button>
+            ) : null}
           </div>
-          ) : null}
 
           <div
             style={{
@@ -811,10 +966,9 @@ export default function CustomersPage() {
                       alignItems: "flex-start",
                       minWidth: 0,
                       paddingRight: !trashView ? (isMobile ? 0 : 168) : 0,
-                      paddingTop: !trashView && isMobile ? 52 : 0,
+                      paddingTop: isMobile && !trashView ? 52 : 0,
                     }}
                   >
-                    {!trashView ? (
                     <label
                       style={{
                         display: "flex",
@@ -833,7 +987,6 @@ export default function CustomersPage() {
                         style={{ width: 20, height: 20, accentColor: "#6366f1" }}
                       />
                     </label>
-                    ) : null}
                     <div style={{ minWidth: 0 }}>
                     <h2
                       style={{
@@ -1175,6 +1328,52 @@ export default function CustomersPage() {
             }}
           />
 
+          <p
+            style={{
+              margin: "8px 0 10px",
+              fontSize: 13,
+              fontWeight: 700,
+              color: "rgba(226,232,240,0.85)",
+              letterSpacing: "0.04em",
+            }}
+          >
+            社群媒體
+          </p>
+
+          {CUSTOMER_SOCIAL_FIELD_KEYS.map((key) => {
+            const placeholderMap: Record<CustomerSocialFieldKey, string> = {
+              instagram: t.instagramPlaceholder,
+              facebook: t.facebookPlaceholder,
+              tiktok: t.tiktokPlaceholder,
+              xiaohongshu: t.xiaohongshuPlaceholder,
+              youtube: t.youtubePlaceholder,
+              website: t.websitePlaceholder,
+              alternate_contact: t.alternateContactPlaceholder,
+            };
+            return (
+              <input
+                key={key}
+                aria-label={CUSTOMER_SOCIAL_LABELS_ZH[key]}
+                placeholder={placeholderMap[key]}
+                value={socialDraft[key]}
+                onChange={(e) =>
+                  setSocialDraft((prev) => ({ ...prev, [key]: e.target.value }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "13px 16px",
+                  marginBottom: 10,
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#102742",
+                  color: "white",
+                  boxSizing: "border-box",
+                  fontSize: 15,
+                }}
+              />
+            );
+          })}
+
           <label
             style={{
               display: "flex",
@@ -1236,6 +1435,93 @@ export default function CustomersPage() {
         </div>
         ) : null}
       </div>
+
+      {batchTrashModal === "permanent" ? (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10000,
+            background: "rgba(2,8,23,0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            boxSizing: "border-box",
+          }}
+          onClick={() => !batchDeleting && setBatchTrashModal(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-permanent-delete-title"
+            style={{
+              width: "min(440px, 100%)",
+              background: "#102742",
+              borderRadius: 16,
+              border: "1px solid rgba(148,163,184,0.35)",
+              padding: isMobile ? 22 : 28,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="batch-permanent-delete-title"
+              style={{ margin: "0 0 12px", fontSize: 22, fontWeight: 700, lineHeight: 1.35 }}
+            >
+              {t.batchPermanentDeleteConfirmTitle}
+            </h2>
+            <p style={{ margin: "0 0 24px", fontSize: 15, lineHeight: 1.55, opacity: 0.88 }}>
+              {t.batchPermanentDeleteConfirmBody}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                flexDirection: isMobile ? "column-reverse" : "row",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                disabled={batchDeleting}
+                onClick={() => setBatchTrashModal(null)}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(148,163,184,0.4)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: 16,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                }}
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={batchDeleting}
+                onClick={() => void confirmBatchPermanentDelete()}
+                style={{
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "#ef4444",
+                  color: "white",
+                  fontWeight: 700,
+                  fontSize: 16,
+                  cursor: batchDeleting ? "wait" : "pointer",
+                  opacity: batchDeleting ? 0.8 : 1,
+                }}
+              >
+                {batchDeleting ? t.batchProcessing : t.confirmBatchPermanentDelete}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {batchDeleteOpen ? (
         <div

@@ -1,4 +1,5 @@
 import type { AppLang } from "./appLang";
+import { localizeCrmDisplayText } from "./crmAiDisplayLabels";
 import { customerStatusLabel, normalizeCustomerStatus } from "./customerStatus";
 
 /** Parse estimated_amount text into a number (TWD-style 萬/万 supported). */
@@ -35,13 +36,13 @@ export function buildPipelineCardTags(row: {
 }): string[] {
   const tags: string[] = [];
   const rate = row.success_rate?.trim();
-  if (rate) tags.push(rate);
+  if (rate) tags.push(localizeCrmDisplayText(rate));
 
   if (row.urgent) tags.push("緊急");
   else if (row.priority === "high") tags.push("高優先");
 
   const level = row.customer_level?.trim();
-  if (level) tags.push(level);
+  if (level) tags.push(localizeCrmDisplayText(level));
 
   if (tags.length === 0) {
     tags.push(customerStatusLabel(normalizeCustomerStatus(row.customer_status ?? row.status), "zh"));

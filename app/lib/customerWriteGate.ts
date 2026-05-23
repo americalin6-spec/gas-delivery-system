@@ -1,5 +1,11 @@
-/** Only homepage saveToCrm may create/update customers while isolating the duplicate-save bug. */
+/** Homepage CRM writes (manual save or post-analyze persist). */
 export const HOMEPAGE_SAVE_SOURCE = "homepage.saveToCrm";
+export const HOMEPAGE_ANALYZE_SAVE_SOURCE = "homepage.analyzeComplete";
+
+const ALLOWED_HOMEPAGE_WRITE_SOURCES = new Set([
+  HOMEPAGE_SAVE_SOURCE,
+  HOMEPAGE_ANALYZE_SAVE_SOURCE,
+]);
 
 let activeSaveRequestId: string | null = null;
 let writesThisSaveClick = 0;
@@ -22,10 +28,10 @@ export function assertCustomerWriteAllowed(
   source: string,
   requestId: string,
 ): { allowed: boolean; reason?: string } {
-  if (source !== HOMEPAGE_SAVE_SOURCE) {
+  if (!ALLOWED_HOMEPAGE_WRITE_SOURCES.has(source)) {
     return {
       allowed: false,
-      reason: `customer writes disabled (only ${HOMEPAGE_SAVE_SOURCE}); attempted: ${source}`,
+      reason: `customer writes disabled (only homepage save); attempted: ${source}`,
     };
   }
 

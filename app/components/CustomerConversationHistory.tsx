@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 import { companyIdHeader } from "../lib/clientCompany";
+import { dt } from "../lib/customerDetailTypography";
 
 type ConversationRow = {
   id: string | number;
@@ -66,11 +67,15 @@ export function CustomerConversationHistory({
   const [error, setError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [clearingAll, setClearingAll] = useState(false);
+  const lineUserIdRef = useRef(lineUserId);
+  lineUserIdRef.current = lineUserId;
+  const loadInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     const id = customerId?.trim();
-    if (!id) return;
+    if (!id || loadInFlightRef.current) return;
 
+    loadInFlightRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -110,19 +115,13 @@ export function CustomerConversationHistory({
       setMessages([]);
     } finally {
       setLoading(false);
+      loadInFlightRef.current = false;
     }
-  }, [customerId, lineUserId]);
+  }, [customerId]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (cancelled) return;
-      await load();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [load, refreshSignal]);
+    void load();
+  }, [customerId, refreshSignal, load]);
 
   async function handleDeleteMessage(messageId: string | number) {
     if (typeof window === "undefined") return;
@@ -261,7 +260,7 @@ export function CustomerConversationHistory({
       >
         <h2
           style={{
-            fontSize: compact ? 16 : 18,
+            fontSize: compact ? dt.compactSection : 18,
             margin: 0,
             color: TEXT,
             fontWeight: 700,
@@ -293,11 +292,17 @@ export function CustomerConversationHistory({
       </div>
 
       {loading ? (
-        <div style={{ color: MUTED, fontSize: compact ? 13 : 15 }}>載入中…</div>
+        <div style={{ color: MUTED, fontSize: compact ? dt.meta : 15, lineHeight: dt.lineHeight }}>
+          載入中…
+        </div>
       ) : error ? (
-        <div style={{ color: DANGER, fontSize: compact ? 13 : 15 }}>{error}</div>
+        <div style={{ color: DANGER, fontSize: compact ? dt.meta : 15, lineHeight: dt.lineHeight }}>
+          {error}
+        </div>
       ) : !hasMessages ? (
-        <div style={{ color: MUTED, fontSize: compact ? 13 : 15 }}>尚無對話紀錄</div>
+        <div style={{ color: MUTED, fontSize: compact ? dt.meta : 15, lineHeight: dt.lineHeight }}>
+          尚無對話紀錄
+        </div>
       ) : (
         <div
           style={{
@@ -347,8 +352,8 @@ export function CustomerConversationHistory({
                     style={{
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                      fontSize: compact ? 13 : 15,
-                      lineHeight: 1.45,
+                      fontSize: compact ? dt.paragraph : 15,
+                      lineHeight: compact ? dt.lineHeightBody : 1.45,
                     }}
                   >
                     {msg.message_text}
@@ -356,7 +361,7 @@ export function CustomerConversationHistory({
                   <div
                     style={{
                       marginTop: compact ? 4 : 6,
-                      fontSize: compact ? 11 : 12,
+                      fontSize: compact ? dt.small : 12,
                       color: MUTED,
                       textAlign: isOutbound ? "right" : "left",
                     }}

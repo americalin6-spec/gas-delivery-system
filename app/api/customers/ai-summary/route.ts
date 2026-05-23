@@ -8,6 +8,7 @@ import {
 import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { getServerCompanyId } from "../../../lib/companyContext";
+import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 const CONVERSATIONS_SELECT =
@@ -72,9 +73,23 @@ export async function POST(req: Request) {
     const context = buildCustomerAiSummaryContext(customer, conversationText);
     const apiKey = process.env.OPENAI_API_KEY?.trim();
 
+    let extract = null;
+    const runExtract = async () => {
+      try {
+        return await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
+          conversationText,
+          trigger: "ai-summary",
+        });
+      } catch (extractErr) {
+        console.error("[ai-summary] extract failed:", extractErr);
+        return null;
+      }
+    };
+
     if (!apiKey) {
       const summary = buildFallbackCustomerAiSummary(customer);
-      return NextResponse.json({ ok: true, summary, source: "crm_fallback" });
+      extract = await runExtract();
+      return NextResponse.json({ ok: true, summary, source: "crm_fallback", extract });
     }
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -99,11 +114,13 @@ export async function POST(req: Request) {
         preview: typeof content === "string" ? content.slice(0, 300) : content,
       });
       const summary = buildFallbackCustomerAiSummary(customer);
-      return NextResponse.json({ ok: true, summary, source: "crm_fallback" });
+      extract = await runExtract();
+      return NextResponse.json({ ok: true, summary, source: "crm_fallback", extract });
     }
 
     const summary = parseCustomerAiSummary(parsed, customer);
-    return NextResponse.json({ ok: true, summary, source: "ai" });
+    extract = await runExtract();
+    return NextResponse.json({ ok: true, summary, source: "ai", extract });
   } catch (err) {
     console.error("[ai-summary]", err);
     return NextResponse.json(

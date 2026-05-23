@@ -34,6 +34,10 @@ import { LineReplySection } from "../../components/LineReplySection";
 import { CustomerInsightSections } from "../../components/CustomerInsightSections";
 import { CustomerAiSummaryDashboard } from "../../components/CustomerAiSummaryDashboard";
 import { CustomerAiFollowUpSection } from "../../components/CustomerAiFollowUpSection";
+import { CustomerSocialMediaSection } from "../../components/CustomerSocialMediaSection";
+import { CustomerAiExtractNotice } from "../../components/CustomerAiExtractNotice";
+import type { CustomerAiExtractPayload } from "../../components/CustomerAiSummaryDashboard";
+import { CUSTOMER_SOCIAL_FIELD_KEYS } from "../../lib/customerSocialMedia";
 import {
   buildSanitizedCrmDatePayload,
   sanitizeImportantDateFields,
@@ -53,6 +57,8 @@ import {
 import { companyIdHeader, logActiveCompany } from "../../lib/clientCompany";
 import { useActiveCompany } from "../../components/ActiveCompanyProvider";
 import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
+import { localizeCrmDisplayText } from "../../lib/crmAiDisplayLabels";
+import { dt } from "../../lib/customerDetailTypography";
 import { supabase } from "../../../supabase";
 
 const MOBILE_MAX = 768;
@@ -85,6 +91,13 @@ interface Customer {
   phone?: string | null;
   line_id?: string | null;
   email?: string | null;
+  instagram?: string | null;
+  facebook?: string | null;
+  tiktok?: string | null;
+  xiaohongshu?: string | null;
+  youtube?: string | null;
+  website?: string | null;
+  alternate_contact?: string | null;
   customer_need?: string | null;
   customer_emotion?: string | null;
   important_date?: string | null;
@@ -108,6 +121,7 @@ interface Customer {
   line_user_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  ai_extracted_at?: string | null;
 }
 
 type Draft = Record<string, string>;
@@ -118,6 +132,7 @@ const EDIT_FIELD_KEYS: (keyof Customer)[] = [
   "phone",
   "line_id",
   "email",
+  ...CUSTOMER_SOCIAL_FIELD_KEYS,
   "customer_status",
   "note",
   "customer_need",
@@ -194,6 +209,7 @@ export default function CustomerDetailPage() {
   const [modeSaving, setModeSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [conversationRefresh, setConversationRefresh] = useState(0);
+  const [lastExtractColumns, setLastExtractColumns] = useState<string[]>([]);
   const [conversationSourceText, setConversationSourceText] = useState("");
   const [selectedLineUserId, setSelectedLineUserId] = useState<string | null>(null);
   const [selectedLineLabel, setSelectedLineLabel] = useState<string | null>(null);
@@ -248,12 +264,15 @@ export default function CustomerDetailPage() {
     };
   }, [id, companyReady, conversationRefresh]);
 
-  const fetchCustomer = useCallback(async () => {
+  const fetchCustomer = useCallback(async (opts?: { silent?: boolean }) => {
     if (!id || !companyReady || companyId <= 0) return;
 
-    setLoading(true);
-    setNotFound(false);
-    logActiveCompany("customerDetail.fetch", { customerId: id, companyId });
+    const silent = opts?.silent === true;
+    if (!silent) {
+      setLoading(true);
+      setNotFound(false);
+    }
+    logActiveCompany("customerDetail.fetch", { customerId: id, companyId, silent });
 
     const { customer: data, error } = await fetchCustomerByIdForActiveCompany<Customer>(
       supabase,
@@ -275,12 +294,43 @@ export default function CustomerDetailPage() {
       setSelectedLineUserId((prev) => prev ?? primary);
     }
 
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [id, companyId, companyReady]);
 
   const selectLineUserForTimeline = useCallback((lineUserId: string, displayLabel: string) => {
     setSelectedLineUserId(lineUserId);
     setSelectedLineLabel(displayLabel);
+  }, []);
+
+  const fetchCustomerRef = useRef(fetchCustomer);
+  fetchCustomerRef.current = fetchCustomer;
+
+  const handleAiExtractComplete = useCallback((extract: CustomerAiExtractPayload | null) => {
+    if (!extract) return;
+    const saved = extract.savedFields ?? extract.updatedColumns ?? [];
+    if (saved.length === 0) return;
+    setLastExtractColumns(saved);
+    void fetchCustomerRef.current({ silent: true });
+  }, []);
+
+  const runAiSummaryRef = useRef<(() => Promise<void>) | null>(null);
+  const runAiFollowUpRef = useRef<(() => Promise<void>) | null>(null);
+
+  const registerAiSummaryRun = useCallback((run: (() => Promise<void>) | null) => {
+    runAiSummaryRef.current = run;
+  }, []);
+
+  const registerAiFollowUpRun = useCallback((run: (() => Promise<void>) | null) => {
+    runAiFollowUpRef.current = run;
+  }, []);
+
+  const triggerAiAnalysis = useCallback(() => {
+    void runAiSummaryRef.current?.();
+    void runAiFollowUpRef.current?.();
+  }, []);
+
+  const refreshCustomerSilent = useCallback(() => {
+    void fetchCustomerRef.current({ silent: true });
   }, []);
 
   useEffect(() => {
@@ -406,13 +456,20 @@ export default function CustomerDetailPage() {
     label: string;
     multiline?: boolean;
     inputKind?: "date" | "follow_up_mode" | "pipeline_status";
-    section: "basic" | "ai" | "follow";
+    section: "basic" | "social" | "ai" | "follow";
   }[] = [
     { key: "customer_name", label: fl.customer_name, section: "basic" },
     { key: "company_name", label: fl.company_name, section: "basic" },
     { key: "phone", label: fl.phone, section: "basic" },
     { key: "line_id", label: fl.line_id, section: "basic" },
     { key: "email", label: fl.email, section: "basic" },
+    { key: "instagram", label: fl.instagram, section: "social" },
+    { key: "facebook", label: fl.facebook, section: "social" },
+    { key: "tiktok", label: fl.tiktok, section: "social" },
+    { key: "xiaohongshu", label: fl.xiaohongshu, section: "social" },
+    { key: "youtube", label: fl.youtube, section: "social" },
+    { key: "website", label: fl.website, section: "social" },
+    { key: "alternate_contact", label: fl.alternate_contact, section: "social" },
     { key: "customer_status", label: fl.customer_status, inputKind: "pipeline_status", section: "basic" },
     { key: "note", label: fl.note, multiline: true, section: "basic" },
     { key: "customer_need", label: fl.customer_need, multiline: true, section: "ai" },
@@ -540,7 +597,7 @@ export default function CustomerDetailPage() {
                   <p
                     style={{
                       margin: "0 0 8px",
-                      fontSize: 14,
+                      fontSize: dt.pageEyebrow,
                       fontWeight: 600,
                       letterSpacing: "0.06em",
                       textTransform: "uppercase",
@@ -552,7 +609,7 @@ export default function CustomerDetailPage() {
                   <h1
                     style={{
                       margin: "0 0 10px",
-                      fontSize: isMobile ? 28 : 38,
+                      fontSize: isMobile ? dt.pageH1Mobile : dt.pageH1,
                       fontWeight: 700,
                       letterSpacing: "-0.02em",
                       lineHeight: 1.2,
@@ -674,7 +731,8 @@ export default function CustomerDetailPage() {
                   companyId={companyId}
                   conversationSourceText={conversationSourceText}
                   isMobile={isMobile}
-                  refreshSignal={conversationRefresh}
+                  registerRun={registerAiSummaryRun}
+                  onExtractComplete={handleAiExtractComplete}
                 />
 
                 <CustomerAiFollowUpSection
@@ -683,10 +741,17 @@ export default function CustomerDetailPage() {
                   customer={customer}
                   conversationSourceText={conversationSourceText}
                   isMobile={isMobile}
-                  refreshSignal={conversationRefresh}
+                  registerRun={registerAiFollowUpRun}
                   copyWithFallback={copyWithFallback}
                   showToast={setToast}
-                  onCustomerUpdated={() => void fetchCustomer()}
+                  onCustomerUpdated={refreshCustomerSilent}
+                  onExtractComplete={handleAiExtractComplete}
+                />
+
+                <CustomerAiExtractNotice
+                  extractedAt={customer.ai_extracted_at}
+                  isMobile={isMobile}
+                  lastUpdatedColumns={lastExtractColumns}
                 />
 
                 <LineCustomerContactSection
@@ -699,7 +764,7 @@ export default function CustomerDetailPage() {
                   isMobile={isMobile}
                   showToast={setToast}
                   copyWithFallback={copyWithFallback}
-                  onLineIdSaved={() => void fetchCustomer()}
+                  onLineIdSaved={refreshCustomerSilent}
                   onSelectLineUser={selectLineUserForTimeline}
                   cardStyle={{
                     ...compactCard(isMobile),
@@ -718,7 +783,8 @@ export default function CustomerDetailPage() {
                   copyWithFallback={copyWithFallback}
                   onAfterLineSend={() => {
                     setConversationRefresh((n) => n + 1);
-                    void fetchCustomer();
+                    triggerAiAnalysis();
+                    refreshCustomerSilent();
                   }}
                   cardStyle={{
                     ...compactCard(isMobile),
@@ -751,6 +817,20 @@ export default function CustomerDetailPage() {
 <EditSection title={t.sectionBasic} isMobile={isMobile}>
                   {fieldConfigs
                     .filter((f) => f.section === "basic")
+                    .map((f) => (
+                      <FieldInput
+                        key={f.key}
+                        cfg={f}
+                        draft={draft}
+                        onChange={updateDraft}
+                        isMobile={isMobile}
+                        lang={lang}
+                      />
+                    ))}
+                </EditSection>
+                <EditSection title={t.sectionSocial} isMobile={isMobile}>
+                  {fieldConfigs
+                    .filter((f) => f.section === "social")
                     .map((f) => (
                       <FieldInput
                         key={f.key}
@@ -807,7 +887,14 @@ export default function CustomerDetailPage() {
                     <CompactDetailRow label="電話" value={customer.phone} />
                     <CompactDetailRow label="電子郵件" value={customer.email} />
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+                      <div
+                        style={{
+                          fontSize: dt.labelUpper,
+                          fontWeight: 700,
+                          color: ui.faint,
+                          marginBottom: 4,
+                        }}
+                      >
                         客戶狀態
                       </div>
                       <PipelineStatusBadge status={getRawCustomerStatus(customer)} lang="zh" />
@@ -818,6 +905,8 @@ export default function CustomerDetailPage() {
                     />
                   </div>
                 </section>
+
+                <CustomerSocialMediaSection customer={customer} isMobile={isMobile} />
 
                 <AdvancedAnalysisSection
                   customer={customer}
@@ -867,7 +956,7 @@ export default function CustomerDetailPage() {
 
 const compactSectionHeading: CSSProperties = {
   margin: "0 0 12px",
-  fontSize: 14,
+  fontSize: dt.compactSection,
   fontWeight: 700,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
@@ -890,19 +979,22 @@ function compactCard(isMobile: boolean): CSSProperties {
 
 function CompactDetailRow({ label, value }: { label: string; value?: string | null }) {
   const text = value?.trim();
+  const display = text ? localizeCrmDisplayText(text) : "尚無資料";
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: dt.labelUpper, fontWeight: 700, color: ui.faint, marginBottom: 4 }}>
+        {label}
+      </div>
       <div
         style={{
-          fontSize: 14,
+          fontSize: dt.paragraph,
           color: text ? ui.text : ui.muted,
-          lineHeight: 1.5,
+          lineHeight: dt.lineHeightBody,
           wordBreak: "break-word",
-          whiteSpace: text && text.length > 80 ? "pre-wrap" : "normal",
+          whiteSpace: display.length > 80 ? "pre-wrap" : "normal",
         }}
       >
-        {text || "尚無資料"}
+        {display}
       </div>
     </div>
   );
@@ -945,13 +1037,24 @@ function AdvancedAnalysisSection({
         }}
       >
         <h2 style={{ ...compactSectionHeading, margin: 0 }}>進階分析</h2>
-        <span style={{ fontSize: 13, color: ui.muted, fontWeight: 600 }}>{open ? "收起" : "展開"}</span>
+        <span style={{ fontSize: dt.meta, color: ui.muted, fontWeight: 600 }}>
+          {open ? "收起" : "展開"}
+        </span>
       </button>
 
       {open ? (
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>AI 追蹤發送模式</h3>
+            <h3
+              style={{
+                margin: "0 0 10px",
+                fontSize: dt.label,
+                fontWeight: 700,
+                color: ui.faint,
+              }}
+            >
+              AI 追蹤發送模式
+            </h3>
             <FollowUpModeSegmented
               value={normalizeFollowUpMode(customer.follow_up_mode)}
               onChange={onPersistFollowUpMode}
@@ -961,7 +1064,16 @@ function AdvancedAnalysisSection({
           </div>
 
           <div>
-            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>指標與分析</h3>
+            <h3
+              style={{
+                margin: "0 0 10px",
+                fontSize: dt.label,
+                fontWeight: 700,
+                color: ui.faint,
+              }}
+            >
+              指標與分析
+            </h3>
             <div
               style={{
                 display: "grid",
@@ -991,11 +1103,21 @@ function AdvancedAnalysisSection({
           </div>
 
           <div>
-            <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: ui.faint }}>追蹤與回覆</h3>
+            <h3
+              style={{
+                margin: "0 0 10px",
+                fontSize: dt.label,
+                fontWeight: 700,
+                color: ui.faint,
+              }}
+            >
+              追蹤與回覆
+            </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <CompactDetailRow label="下一步" value={customer.next_step} />
               <CustomerInsightSections
                 lang="zh"
+                textScale="detail"
                 sourceText={conversationSourceText}
                 labels={{
                   todo: "待辦事項",
@@ -1018,7 +1140,7 @@ function AdvancedAnalysisSection({
           </div>
 
           {(customer.created_at || customer.updated_at) && (
-            <div style={{ fontSize: 12, color: ui.muted, lineHeight: 1.5 }}>
+            <div style={{ fontSize: dt.meta, color: ui.muted, lineHeight: dt.lineHeight }}>
               {customer.created_at ? (
                 <div>
                   建檔時間：
@@ -1122,7 +1244,7 @@ function formatTs(iso: string) {
 
 const sectionHeading: CSSProperties = {
   margin: "0 0 24px",
-  fontSize: 15,
+  fontSize: dt.compactSection,
   fontWeight: 700,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
@@ -1200,12 +1322,12 @@ function DetailRow({
   span2?: boolean;
 }) {
   const t = value?.trim();
-  const show = t ? t : "—";
+  const show = t ? localizeCrmDisplayText(t) : "—";
   return (
     <div style={{ gridColumn: span2 ? "1 / -1" : undefined, minWidth: 0 }}>
       <div
         style={{
-          fontSize: 13,
+          fontSize: dt.labelUpper,
           fontWeight: 700,
           letterSpacing: "0.06em",
           textTransform: "uppercase",
@@ -1217,9 +1339,9 @@ function DetailRow({
       </div>
       <div
         style={{
-          fontSize: 17,
+          fontSize: dt.detailValue,
           color: ui.text,
-          lineHeight: multiline ? 1.7 : 1.45,
+          lineHeight: multiline ? dt.lineHeightBody : dt.lineHeight,
           wordBreak: "break-word",
           whiteSpace: multiline ? "pre-wrap" : "normal",
         }}
@@ -1242,11 +1364,13 @@ function MetricCard({ label, value }: { label: string; value?: string | null }) 
         minWidth: 0,
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 700, color: ui.faint, marginBottom: 10 }}>
+      <div style={{ fontSize: dt.labelUpper, fontWeight: 700, color: ui.faint, marginBottom: 10 }}>
         {label}
       </div>
-      <div style={{ fontSize: 19, fontWeight: 700, color: ui.text, wordBreak: "break-word" }}>
-        {t ? t : "—"}
+      <div
+        style={{ fontSize: dt.metricValue, fontWeight: 700, color: ui.text, wordBreak: "break-word" }}
+      >
+        {t ? localizeCrmDisplayText(t) : "—"}
       </div>
     </div>
   );
@@ -1274,7 +1398,7 @@ function Panel({
     >
       <div
         style={{
-          fontSize: 13,
+          fontSize: dt.labelUpper,
           fontWeight: 700,
           letterSpacing: "0.05em",
           textTransform: "uppercase",
@@ -1287,14 +1411,14 @@ function Panel({
       <p
         style={{
           margin: 0,
-          fontSize: 17,
-          lineHeight: 1.7,
+          fontSize: dt.paragraph,
+          lineHeight: dt.lineHeightBody,
           color: ui.text,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}
       >
-        {t ? t : "—"}
+        {t ? localizeCrmDisplayText(t) : "—"}
       </p>
     </div>
   );
@@ -1360,7 +1484,7 @@ function FieldInput({
           minWidth: 0,
         }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
+        <span style={{ fontSize: dt.paragraph, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
         <FollowUpModeSegmented
           value={normalizeFollowUpMode(draft[cfg.key])}
           onChange={(m) => onChange(cfg.key as string, m)}
@@ -1382,7 +1506,7 @@ function FieldInput({
           minWidth: 0,
         }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
+        <span style={{ fontSize: dt.paragraph, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
         <PipelineStatusSelect
           value={draft[cfg.key]}
           onChange={(next) => onChange(cfg.key as string, next)}
@@ -1404,7 +1528,7 @@ function FieldInput({
         minWidth: 0,
       }}
     >
-      <span style={{ fontSize: 15, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
+      <span style={{ fontSize: dt.paragraph, fontWeight: 600, color: ui.muted }}>{cfg.label}</span>
       {cfg.multiline ? (
         <textarea
           value={draft[cfg.key] ?? ""}
@@ -1441,10 +1565,11 @@ function inputBase(multiline: boolean): CSSProperties {
     border: `1px solid ${ui.borderStrong}`,
     background: "rgba(15,23,42,0.85)",
     color: ui.text,
-    fontSize: 17,
+    fontSize: dt.paragraph,
     fontFamily: ui.font,
     outline: "none",
     minWidth: 0,
+    lineHeight: dt.lineHeight,
     resize: multiline ? ("vertical" as const) : undefined,
     minHeight: multiline ? 112 : undefined,
   };

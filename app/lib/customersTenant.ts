@@ -158,6 +158,7 @@ export type UpsertCustomerMeta = {
 export type UpsertCustomerResult = {
   customerId: string | null;
   action: "insert" | "update";
+  customer: Record<string, unknown> | null;
   error: { message: string } | null;
 };
 
@@ -202,6 +203,7 @@ export async function upsertCustomerForCompany(
     return {
       customerId: null,
       action: "insert",
+      customer: null,
       error: { message: gate.reason ?? "customer write blocked" },
     };
   }
@@ -220,16 +222,19 @@ export async function upsertCustomerForCompany(
   const { data, error } = await supabase
     .from("customers")
     .insert([payload])
-    .select("id")
+    .select("*")
     .maybeSingle();
 
   if (!error) {
     markCustomerWriteCompleted();
   }
 
+  const inserted = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+
   return {
-    customerId: data?.id != null ? String(data.id) : null,
+    customerId: inserted?.id != null ? String(inserted.id) : null,
     action: "insert",
+    customer: inserted,
     error: error ? { message: error.message } : null,
   };
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findLineUserIdForCustomer } from "../../lib/conversationsServer";
+import { runCustomerAiFieldExtraction } from "../../lib/customerAiExtractServer";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 import { getServerCompanyId } from "../../lib/companyContext";
 
@@ -93,7 +94,17 @@ export async function POST(req: Request) {
     message_length: messageText.length,
   });
 
-  return NextResponse.json({ ok: true, id: data?.id ?? null });
+  let extract = null;
+  try {
+    extract = await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
+      conversationText: messageText,
+      trigger: "conversations.post",
+    });
+  } catch (extractErr) {
+    console.error("[conversations] ai extract failed:", extractErr);
+  }
+
+  return NextResponse.json({ ok: true, id: data?.id ?? null, extract });
 }
 
 /** Fetch CRM conversation history for a customer. Server-side reads bypass anon RLS. */
