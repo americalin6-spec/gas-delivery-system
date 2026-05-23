@@ -32,6 +32,8 @@ import { CustomerConversationHistory } from "../../components/CustomerConversati
 import { LineCustomerContactSection } from "../../components/LineCustomerContactSection";
 import { LineReplySection } from "../../components/LineReplySection";
 import { CustomerInsightSections } from "../../components/CustomerInsightSections";
+import { CustomerAiSummaryDashboard } from "../../components/CustomerAiSummaryDashboard";
+import { CustomerAiFollowUpSection } from "../../components/CustomerAiFollowUpSection";
 import {
   buildSanitizedCrmDatePayload,
   sanitizeImportantDateFields,
@@ -667,6 +669,26 @@ export default function CustomerDetailPage() {
 
             {!isEditing && (
               <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
+                <CustomerAiSummaryDashboard
+                  customerId={id}
+                  companyId={companyId}
+                  conversationSourceText={conversationSourceText}
+                  isMobile={isMobile}
+                  refreshSignal={conversationRefresh}
+                />
+
+                <CustomerAiFollowUpSection
+                  customerId={id}
+                  companyId={companyId}
+                  customer={customer}
+                  conversationSourceText={conversationSourceText}
+                  isMobile={isMobile}
+                  refreshSignal={conversationRefresh}
+                  copyWithFallback={copyWithFallback}
+                  showToast={setToast}
+                  onCustomerUpdated={() => void fetchCustomer()}
+                />
+
                 <LineCustomerContactSection
                   customerId={id}
                   companyId={companyId}

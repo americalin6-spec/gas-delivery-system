@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppLang } from "./appLang";
-import { logActiveCompany } from "./clientCompany";
+import { logActiveCompany } from "./activeCompanyLog";
 import { logCustomerWrite } from "./customerWriteDebug";
 import {
   assertCustomerWriteAllowed,

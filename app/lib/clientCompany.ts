@@ -1,5 +1,6 @@
 "use client";
 
+import { logActiveCompany as logActiveCompanyBase } from "./activeCompanyLog";
 import { COMPANY_HEADER_NAME } from "./companyContext";
 
 /**
@@ -8,10 +9,6 @@ import { COMPANY_HEADER_NAME } from "./companyContext";
  */
 
 export const ACTIVE_COMPANY_STORAGE_KEY = "crm.companyId";
-
-const DEBUG =
-  typeof process !== "undefined" &&
-  process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1";
 
 function defaultClientCompanyId(): number {
   const env = process.env.NEXT_PUBLIC_DEFAULT_COMPANY_ID;
@@ -22,17 +19,12 @@ function defaultClientCompanyId(): number {
   return 1;
 }
 
-/** Console debug when NEXT_PUBLIC_DEBUG_COMPANY=1 or always for tenant ops in dev. */
+/** Client wrapper — injects persisted active company id into tenant logs. */
 export function logActiveCompany(
   tag: string,
   payload?: Record<string, unknown>,
 ): void {
-  const line = { tag, activeCompanyId: getClientCompanyId(), ...payload };
-  if (DEBUG) {
-    console.log("[activeCompany]", line);
-  } else if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
-    console.log("[activeCompany]", line);
-  }
+  logActiveCompanyBase(tag, { ...payload, companyId: getClientCompanyId() });
 }
 
 export function getClientCompanyId(): number {
