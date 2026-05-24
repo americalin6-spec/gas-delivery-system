@@ -272,6 +272,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/ecpay/callback/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/ecpay/callback">> = Specific
+  const handler = {} as typeof import("../../app/api/ecpay/callback/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/ecpay/checkout/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/ecpay/checkout">> = Specific
+  const handler = {} as typeof import("../../app/api/ecpay/checkout/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../app/api/ecpay/period-callback/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/ecpay/period-callback">> = Specific
+  const handler = {} as typeof import("../../app/api/ecpay/period-callback/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../app/api/line-push-test/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/line-push-test">> = Specific

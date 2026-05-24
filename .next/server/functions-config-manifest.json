@@ -1,6 +1,8 @@
 {
   "version": 1,
   "functions": {
+    "/api/ecpay/callback": {},
+    "/api/ecpay/period-callback": {},
     "/api/stripe/webhook": {}
   }
 }

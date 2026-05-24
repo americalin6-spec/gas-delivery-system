@@ -139,6 +139,24 @@
       "namedRegex": "^/api/customers/ai\\-summary(?:/)?$"
     },
     {
+      "page": "/api/ecpay/callback",
+      "regex": "^/api/ecpay/callback(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ecpay/callback(?:/)?$"
+    },
+    {
+      "page": "/api/ecpay/checkout",
+      "regex": "^/api/ecpay/checkout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ecpay/checkout(?:/)?$"
+    },
+    {
+      "page": "/api/ecpay/period-callback",
+      "regex": "^/api/ecpay/period\\-callback(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ecpay/period\\-callback(?:/)?$"
+    },
+    {
       "page": "/api/line/send-message",
       "regex": "^/api/line/send\\-message(?:/)?$",
       "routeKeys": {},

@@ -22,6 +22,8 @@ export const PUBLIC_API_PATH_PREFIXES = [
   "/api/line-webhook",
   "/api/reminder-check",
   "/api/stripe/webhook",
+  "/api/ecpay/callback",
+  "/api/ecpay/period-callback",
 ] as const;
 
 function normalizePathname(pathname: string): string {
