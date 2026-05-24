@@ -26,6 +26,7 @@ import {
   type ExtractedCustomerProfile,
 } from "../lib/extractCustomerFromLineChat";
 import { AiAnalyzingIndicator } from "../components/AiAnalyzingIndicator";
+import { CompanyAiUsagePanel } from "../components/CompanyAiUsagePanel";
 import { TodayFollowUpWorkspace } from "../components/TodayFollowUpWorkspace";
 import { HomeLandingHero } from "../components/HomeLandingHero";
 import {
@@ -720,6 +721,10 @@ export default function Home() {
           body: JSON.stringify({ text: lineText, lang }),
         });
         const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
+        if (!aiRes.ok && aiBody.error) {
+          alert(aiBody.error);
+          return;
+        }
         if (aiRes.ok && aiBody && !aiBody.error) {
           aiResult = sanitizeImportantDateFields(
             aiBody as unknown as Record<string, unknown>,
@@ -901,6 +906,12 @@ export default function Home() {
               {ui.tagline}
             </p>
           </header>
+
+          <CompanyAiUsagePanel
+            tenantReady={tenantReady}
+            activeCompanyId={activeCompanyId}
+            isMobile
+          />
 
           <TodayFollowUpWorkspace
             rows={workspaceRows}
@@ -1108,6 +1119,16 @@ export default function Home() {
 
       </div>
 
+      <CompanyAiUsagePanel
+        tenantReady={tenantReady}
+        activeCompanyId={activeCompanyId}
+        isMobile={false}
+        cardsGridStyle={s.cards}
+        cardStyle={s.card}
+        cardTitleStyle={s.cardTitle}
+        cardValueStyle={s.cardValue}
+      />
+
       <TodayFollowUpWorkspace
         rows={workspaceRows}
         lang={lang}
@@ -1116,7 +1137,7 @@ export default function Home() {
         loadError={workspaceError}
       />
 
-      <div style={s.cards}>
+      <div style={{ ...s.cards, marginTop: 22 }}>
         <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
         <Card styles={s} title={ui.customerLevel} value={analysisStatValue(analysis.customerLevel)} />
         <Card styles={s} title={ui.leakRisk} value={analysisStatValue(analysis.leakRisk)} />

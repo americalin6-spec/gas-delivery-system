@@ -20,6 +20,7 @@ import {
   type ExtractFieldDecision,
 } from "./customerAiExtract";
 import { fetchCustomerByIdForActiveCompany } from "./customersTenant";
+import { openAiChatCompletion } from "./aiUsageServer";
 import { parseAiJsonObject } from "./parseAiJson";
 
 const CONVERSATIONS_SELECT =
@@ -198,34 +199,32 @@ async function loadConversationText(
 async function extractWithOpenAi(
   conversationText: string,
   customer: Record<string, unknown>,
+  companyId: number,
+  userId?: string | null,
 ): Promise<CustomerAiExtractFields> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey || !conversationText.trim()) return {};
+  if (!conversationText.trim()) return {};
 
   const engagement = analyzeConversationEngagement([]);
   const context = buildCustomerAiContextBlock(customer, conversationText, engagement);
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1-mini",
-      messages: [
-        {
-          role: "user",
-          content: buildCustomerAiExtractPrompt(context || conversationText),
-        },
-      ],
-      temperature: 0.2,
-    }),
+  const aiCall = await openAiChatCompletion({
+    companyId,
+    userId,
+    feature: "ai_extract",
+    messages: [
+      {
+        role: "user",
+        content: buildCustomerAiExtractPrompt(context || conversationText),
+      },
+    ],
+    temperature: 0.2,
   });
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  return mapAiExtractJsonToFields(parseAiJsonObject(content));
+  if (aiCall.ok === false) {
+    throw new Error(aiCall.error);
+  }
+
+  return mapAiExtractJsonToFields(parseAiJsonObject(aiCall.result.content));
 }
 
 /**
@@ -235,7 +234,7 @@ export async function runCustomerAiFieldExtraction(
   supabase: SupabaseClient,
   companyId: number,
   customerId: string,
-  options?: { conversationText?: string; trigger?: string },
+  options?: { conversationText?: string; trigger?: string; userId?: string | null },
 ): Promise<CustomerAiExtractOutcome> {
   const trigger = options?.trigger ?? "unknown";
 
@@ -276,9 +275,26 @@ export async function runCustomerAiFieldExtraction(
     let mergedFields = baseline;
 
     try {
-      const aiFields = await extractWithOpenAi(conversationText, customer);
+      const aiFields = await extractWithOpenAi(
+        conversationText,
+        customer,
+        companyId,
+        options?.userId,
+      );
       mergedFields = mergeFieldMaps(baseline, aiFields);
     } catch (aiErr) {
+      const message = aiErr instanceof Error ? aiErr.message : String(aiErr);
+      if (
+        message.includes("免費試用已結束") ||
+        message.includes("本月 AI 使用次數已達上限")
+      ) {
+        return {
+          ok: false,
+          updatedColumns: [],
+          extractedAt: null,
+          error: message,
+        };
+      }
       console.error("[ai-extract] OpenAI failed, using regex baseline:", aiErr);
     }
 

@@ -14,6 +14,7 @@ import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { requireApiAuth } from "../../../lib/apiAuth";
 import { API_ACCESS_DENIED } from "../../../lib/apiTenant";
+import { openAiChatCompletion } from "../../../lib/aiUsageServer";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 
 const CONVERSATIONS_SELECT =
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
     if (auth instanceof NextResponse) {
       return auth;
     }
-    const { supabase, companyId } = auth;
+    const { supabase, companyId, user } = auth;
     let body: { customer_id?: string; conversation_text?: string } = {};
     try {
       body = (await req.json()) as typeof body;
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
         return await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
           conversationText,
           trigger: "ai-follow-up",
+          userId: user.id,
         });
       } catch (extractErr) {
         console.error("[ai-follow-up] extract failed:", extractErr);
@@ -96,23 +98,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, followUp, source: "crm_fallback", extract });
     }
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        messages: [
-          { role: "user", content: buildCustomerAiFollowUpPrompt(context, engagement) },
-        ],
-        temperature: 0.4,
-      }),
+    const aiCall = await openAiChatCompletion({
+      companyId,
+      userId: user.id,
+      feature: "ai_follow_up",
+      messages: [
+        { role: "user", content: buildCustomerAiFollowUpPrompt(context, engagement) },
+      ],
+      temperature: 0.4,
     });
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    if (aiCall.ok === false) {
+      return NextResponse.json(
+        { ok: false, error: aiCall.error },
+        { status: aiCall.status },
+      );
+    }
+
+    const content = aiCall.result.content;
     const parsed = parseAiJsonObject(content);
 
     if (!parsed) {

@@ -91,6 +91,12 @@
       "namedRegex": "^/api/companies(?:/)?$"
     },
     {
+      "page": "/api/company/ai-usage",
+      "regex": "^/api/company/ai\\-usage(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/company/ai\\-usage(?:/)?$"
+    },
+    {
       "page": "/api/conversations",
       "regex": "^/api/conversations(?:/)?$",
       "routeKeys": {},

@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (auth instanceof NextResponse) {
     return auth;
   }
-  const { supabase, companyId } = auth;
+  const { supabase, companyId, user } = auth;
   let body: ConversationInsertBody = {};
   try {
     body = (await req.json()) as ConversationInsertBody;
@@ -107,6 +107,7 @@ export async function POST(req: Request) {
     extract = await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
       conversationText: messageText,
       trigger: "conversations.post",
+      userId: user.id,
     });
   } catch (extractErr) {
     console.error("[conversations] ai extract failed:", extractErr);

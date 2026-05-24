@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
+import { buildNewCompanyPlanFields } from "./aiUsageServer";
 import {
   getSupabaseServiceRole,
   isServiceRoleConfigured,
@@ -197,7 +198,11 @@ export async function ensureUserTenantBootstrap(
 
   const { data: company, error: companyErr } = await admin
     .from("companies")
-    .insert({ name, owner_user_id: user.id })
+    .insert({
+      name,
+      owner_user_id: user.id,
+      ...buildNewCompanyPlanFields(),
+    })
     .select("id")
     .maybeSingle();
 
@@ -242,7 +247,11 @@ export async function createCompanyForUser(
   const admin = getSupabaseServiceRole();
   const { data: company, error: companyErr } = await admin
     .from("companies")
-    .insert({ name, owner_user_id: user.id })
+    .insert({
+      name,
+      owner_user_id: user.id,
+      ...buildNewCompanyPlanFields(),
+    })
     .select("id, name")
     .maybeSingle();
 

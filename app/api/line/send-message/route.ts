@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   if (auth instanceof NextResponse) {
     return auth;
   }
-  const { supabase, companyId } = auth;
+  const { supabase, companyId, user } = auth;
 
   let body: SendMessageBody = {};
   try {
@@ -124,6 +124,7 @@ export async function POST(req: Request) {
     await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
       conversationText: message,
       trigger: "line.send-message",
+      userId: user.id,
     });
   } catch (extractErr) {
     console.error("[line/send-message] ai extract failed:", extractErr);

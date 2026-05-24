@@ -464,6 +464,7 @@ async function logInboundEvents(
             await runCustomerAiFieldExtraction(supabase, companyId, resolved.customerId, {
               conversationText: messageText,
               trigger: "line-webhook",
+              userId: null,
             });
           } catch (extractErr) {
             console.error("[line-webhook] ai extract failed:", extractErr);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { openAiChatCompletion } from "../../lib/aiUsageServer";
 import {
   extractCustomerFromLineChat,
   extractHonorificCustomerName,
@@ -17,6 +18,7 @@ export async function POST(req: Request) {
   if (auth instanceof NextResponse) {
     return auth;
   }
+  const { companyId, user } = auth;
 
   try {
     const { text, lang: rawLang } = await req.json();
@@ -75,26 +77,22 @@ ${inputText}
 }
 `;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1-mini",
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.3,
-      }),
+    const aiCall = await openAiChatCompletion({
+      companyId,
+      userId: user.id,
+      feature: "analyze",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
     });
 
-    const data = await response.json();
-    const result = data.choices?.[0]?.message?.content;
+    if (aiCall.ok === false) {
+      return NextResponse.json(
+        { error: aiCall.error },
+        { status: aiCall.status },
+      );
+    }
+
+    const result = aiCall.result.content;
     const aiParsed = parseAiJsonObject(result);
     if (!aiParsed) {
       console.error("[analyze] invalid AI JSON", {

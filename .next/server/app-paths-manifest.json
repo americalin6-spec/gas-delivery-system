@@ -5,6 +5,7 @@
   "/alerts/page": "app/alerts/page.js",
   "/api/analyze/route": "app/api/analyze/route.js",
   "/api/companies/route": "app/api/companies/route.js",
+  "/api/company/ai-usage/route": "app/api/company/ai-usage/route.js",
   "/api/conversations/route": "app/api/conversations/route.js",
   "/api/customers/[id]/route": "app/api/customers/[id]/route.js",
   "/api/customers/ai-extract/route": "app/api/customers/ai-extract/route.js",
