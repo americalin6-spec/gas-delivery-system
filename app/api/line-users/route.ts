@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { requireCustomerInCompany } from "../../lib/apiTenant";
 import { syncCustomerPrimaryLineUserId } from "../../lib/lineCustomerBinding";
 import {
   fetchLineUsersForCustomer,
@@ -32,6 +33,11 @@ export async function GET(req: Request) {
       { ok: false, error: "customer_id is required", rows: [], count: 0 },
       { status: 400 },
     );
+  }
+
+  const denied = await requireCustomerInCompany(supabase, customerId, companyId);
+  if (denied) {
+    return denied;
   }
 
   const debug: FetchLineUsersDebug = {

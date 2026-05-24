@@ -12,6 +12,7 @@ import {
 } from "../../lib/crmNotifications";
 import { COMPANY_HEADER_NAME } from "../../lib/companyContext";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { requireCustomerInCompany } from "../../lib/apiTenant";
 
 const LIST_LIMIT = 50;
 
@@ -86,6 +87,12 @@ export async function POST(req: Request) {
 
   const lang = body.lang === "en" ? "en" : "zh";
   const customerId = body.customer_id?.toString().trim() || null;
+  if (customerId) {
+    const denied = await requireCustomerInCompany(supabase, customerId, companyId);
+    if (denied) {
+      return denied;
+    }
+  }
   const customerName = body.customer_name?.trim() || (lang === "zh" ? "客戶" : "Customer");
 
   let title = "";

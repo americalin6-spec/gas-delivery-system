@@ -174,6 +174,7 @@ async function persistCustomerExtractPatch(
 async function loadConversationText(
   supabase: SupabaseClient,
   customerId: string,
+  companyId: number,
   override?: string,
 ): Promise<string> {
   const trimmed = override?.trim() ?? "";
@@ -183,6 +184,7 @@ async function loadConversationText(
     .from("conversations")
     .select(CONVERSATIONS_SELECT)
     .eq("customer_id", customerId)
+    .eq("company_id", companyId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -246,12 +248,18 @@ export async function runCustomerAiFieldExtraction(
       return { ok: false, updatedColumns: [], extractedAt: null, error: fetchError.message };
     }
     if (!customer) {
-      return { ok: false, updatedColumns: [], extractedAt: null, error: "找不到客戶" };
+      return {
+        ok: false,
+        updatedColumns: [],
+        extractedAt: null,
+        error: "無法存取此資料",
+      };
     }
 
     const conversationText = await loadConversationText(
       supabase,
       customerId,
+      companyId,
       options?.conversationText,
     );
 

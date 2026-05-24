@@ -3,11 +3,16 @@ import { sendLinePushMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { formatLineReminderMessage } from "../../lib/reminderCheck";
 import { fetchDueReminderCustomers } from "../../lib/runReminderCheck";
-import { getServerCompanyId } from "../../lib/companyContext";
+import { requireApiAuth } from "../../lib/apiAuth";
 
 /** Send a test LINE Messaging API push to the configured personal User ID. */
 export async function POST(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { companyId } = auth;
+
   try {
     const body = (await req.json()) as {
       channel_access_token?: string;
@@ -40,10 +45,13 @@ export async function POST(req: Request) {
 
     const result = await sendLinePushMessage(message, channelAccessToken, userId);
     if (!result.ok) {
-      return NextResponse.json({ ok: false, error: result.error, preview: message }, { status: 502 });
+      return NextResponse.json(
+        { ok: false, error: result.error, preview: message },
+        { status: 502 },
+      );
     }
 
-    return NextResponse.json({ ok: true, preview: message });
+    return NextResponse.json({ ok: true, preview: message, companyId });
   } catch (err) {
     console.error("line-push-test", err);
     return NextResponse.json({ ok: false, error: "Test push failed" }, { status: 500 });

@@ -54,9 +54,8 @@ import {
   formatCustomerCreatedAtDisplay,
   softDeleteCustomerPayload,
 } from "../../lib/customerSoftDelete";
-import { companyIdHeader, logActiveCompany } from "../../lib/clientCompany";
-import { useActiveCompany } from "../../components/ActiveCompanyProvider";
-import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
+import { useServerTenant } from "../../hooks/useServerTenant";
+import { DASHBOARD_PATH } from "../../lib/authRoutes";
 import { localizeCrmDisplayText } from "../../lib/crmAiDisplayLabels";
 import { dt } from "../../lib/customerDetailTypography";
 import { supabase } from "../../../supabase";
@@ -86,6 +85,7 @@ const ui = {
 
 interface Customer {
   id: string | number;
+  company_id?: number | null;
   customer_name?: string | null;
   company_name?: string | null;
   industry?: string | null;
@@ -217,7 +217,12 @@ export default function CustomerDetailPage() {
   const [selectedLineLabel, setSelectedLineLabel] = useState<string | null>(null);
   const conversationSectionRef = useRef<HTMLElement | null>(null);
   const [manualFollowUpYmd, setManualFollowUpYmd] = useState<string | null>(null);
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const {
+    activeCompanyId,
+    ready: tenantReady,
+    authUserId,
+    error: tenantError,
+  } = useServerTenant();
 
   const isMobile = useIsViewportBelow(MOBILE_MAX);
   const { lang } = useAppLang();
@@ -235,7 +240,7 @@ export default function CustomerDetailPage() {
   }, [toast]);
 
   useEffect(() => {
-    if (!id?.trim() || !companyReady) return;
+    if (!id?.trim() || !tenantReady || !customer || activeCompanyId <= 0) return;
 
     let cancelled = false;
     void (async () => {
@@ -243,7 +248,7 @@ export default function CustomerDetailPage() {
         const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
         const res = await fetch(url, {
           cache: "no-store",
-          headers: companyIdHeader(companyId),
+          credentials: "include",
         });
         const body = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
@@ -267,40 +272,73 @@ export default function CustomerDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, companyReady, conversationRefresh]);
+  }, [id, tenantReady, customer, activeCompanyId, conversationRefresh]);
 
   const fetchCustomer = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!id || !companyReady || companyId <= 0) return;
+    if (!id || !tenantReady || activeCompanyId <= 0 || !authUserId) return;
 
     const silent = opts?.silent === true;
     if (!silent) {
       setLoading(true);
       setNotFound(false);
     }
-    logActiveCompany("customerDetail.fetch", { customerId: id, companyId, silent });
 
-    const { customer: data, error } = await fetchCustomerByIdForActiveCompany<Customer>(
-      supabase,
-      id,
-      companyId,
-    );
+    try {
+      const res = await fetch(`/api/customers/${encodeURIComponent(id)}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        customer?: Customer;
+        error?: string;
+        companyId?: number;
+      };
 
-    if (error) {
-      console.error(error);
+      if (!res.ok || !body.ok || !body.customer) {
+        console.warn("[customerDetail] customer not accessible:", {
+          authUserId,
+          activeCompanyId,
+          customerId: id,
+          status: res.status,
+          error: body.error ?? null,
+        });
+        setCustomer(null);
+        setNotFound(true);
+      } else {
+        const data = body.customer;
+        const rowCompanyId = Number(data.company_id);
+        if (!Number.isFinite(rowCompanyId) || rowCompanyId !== activeCompanyId) {
+          console.warn("[customerDetail] company_id mismatch:", {
+            authUserId,
+            activeCompanyId,
+            customerId: id,
+            rowCompanyId: data.company_id ?? null,
+          });
+          setCustomer(null);
+          setNotFound(true);
+        } else {
+          console.log("[customerDetail] customer loaded:", {
+            authUserId,
+            activeCompanyId,
+            customerId: id,
+            customerCompanyId: rowCompanyId,
+          });
+          setCustomer(data);
+          setNotFound(false);
+          setManualFollowUpYmd(null);
+          const primary = data.line_user_id?.trim() || null;
+          setSelectedLineUserId((prev) => prev ?? primary);
+        }
+      }
+    } catch (err) {
+      console.error("[customerDetail] fetch failed:", err);
       setCustomer(null);
       setNotFound(true);
-    } else if (!data) {
-      setCustomer(null);
-      setNotFound(true);
-    } else {
-      setCustomer(data);
-      setManualFollowUpYmd(null);
-      const primary = (data as Customer).line_user_id?.trim() || null;
-      setSelectedLineUserId((prev) => prev ?? primary);
     }
 
     if (!silent) setLoading(false);
-  }, [id, companyId, companyReady]);
+  }, [id, activeCompanyId, authUserId, tenantReady]);
 
   const selectLineUserForTimeline = useCallback((lineUserId: string, displayLabel: string) => {
     setSelectedLineUserId(lineUserId);
@@ -373,7 +411,7 @@ export default function CustomerDetailPage() {
     const { data, error } = await supabase
       .from("customers")
       .update(payload)
-      .eq("company_id", companyId)
+      .eq("company_id", activeCompanyId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -404,7 +442,7 @@ export default function CustomerDetailPage() {
     const { error } = await supabase
       .from("customers")
       .update(softDeleteCustomerPayload())
-      .eq("company_id", companyId)
+      .eq("company_id", activeCompanyId)
       .eq("id", id);
     setDeleting(false);
 
@@ -426,7 +464,7 @@ export default function CustomerDetailPage() {
     const { data, error } = await supabase
       .from("customers")
       .update({ follow_up_mode: mode })
-      .eq("company_id", companyId)
+      .eq("company_id", activeCompanyId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -534,7 +572,7 @@ export default function CustomerDetailPage() {
           </Link>
         </nav>
 
-        {loading ? (
+        {!tenantReady || loading ? (
           <div
             style={{
               padding: 52,
@@ -563,9 +601,27 @@ export default function CustomerDetailPage() {
             <h1 style={{ margin: "0 0 10px", fontSize: isMobile ? 26 : 30 }}>
               {t.notFoundTitle}
             </h1>
-            <p style={{ margin: 0, color: ui.muted, fontSize: 17, lineHeight: 1.55 }}>
-              {t.notFoundBody}
+            <p style={{ margin: "0 0 20px", color: ui.muted, fontSize: 17, lineHeight: 1.55 }}>
+              {tenantError ?? t.notFoundBody}
             </p>
+            <Link
+              href={DASHBOARD_PATH}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 15,
+                fontWeight: 600,
+                color: ui.muted,
+                textDecoration: "none",
+                padding: "11px 17px",
+                borderRadius: ui.radiusMd,
+                border: `1px solid ${ui.border}`,
+                background: ui.surface,
+              }}
+            >
+              {t.backDashboard}
+            </Link>
           </div>
         ) : (
           <>
@@ -734,7 +790,7 @@ export default function CustomerDetailPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 16 }}>
                 <CustomerAiSummaryDashboard
                   customerId={id}
-                  companyId={companyId}
+                  companyId={activeCompanyId}
                   conversationSourceText={conversationSourceText}
                   isMobile={isMobile}
                   registerRun={registerAiSummaryRun}
@@ -743,7 +799,7 @@ export default function CustomerDetailPage() {
 
                 <CustomerAiFollowUpSection
                   customerId={id}
-                  companyId={companyId}
+                  companyId={activeCompanyId}
                   customer={customer}
                   conversationSourceText={conversationSourceText}
                   isMobile={isMobile}
@@ -762,7 +818,7 @@ export default function CustomerDetailPage() {
 
                 <LineCustomerContactSection
                   customerId={id}
-                  companyId={companyId}
+                  companyId={activeCompanyId}
                   lineId={customer.line_id}
                   lastContactedAt={customer.last_contacted_at}
                   primaryLineUserId={customer.line_user_id}

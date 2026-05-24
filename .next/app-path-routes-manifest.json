@@ -6,6 +6,7 @@
   "/api/analyze/route": "/api/analyze",
   "/api/companies/route": "/api/companies",
   "/api/conversations/route": "/api/conversations",
+  "/api/customers/[id]/route": "/api/customers/[id]",
   "/api/customers/ai-extract/route": "/api/customers/ai-extract",
   "/api/customers/ai-follow-up/route": "/api/customers/ai-follow-up",
   "/api/customers/ai-summary/route": "/api/customers/ai-summary",

@@ -187,8 +187,11 @@ export function customerDetailCopy(lang: AppLang) {
     customerList: zh ? "返回客戶列表" : "Back to Customers",
     sectionTimeline: zh ? "時間軸" : "Timeline",
     loading: zh ? "載入客戶資料中…" : "Loading customer…",
-    notFoundTitle: zh ? "找不到客戶" : "Customer not found",
-    notFoundBody: zh ? "此客戶不存在或已被刪除。" : "This customer does not exist or was deleted.",
+    notFoundTitle: zh ? "找不到此客戶資料" : "Customer not found",
+    notFoundBody: zh
+      ? "此客戶不屬於您的工作區，或已被刪除。"
+      : "This customer is not in your workspace or was deleted.",
+    backDashboard: zh ? "返回 LINE Work AI" : "Back to LINE Work AI",
     detailEyebrow: zh ? "客戶詳情" : "Customer detail",
     unnamed: zh ? "未命名客戶" : "Unnamed customer",
     dealProbability: zh ? "成交機率" : "Deal probability",

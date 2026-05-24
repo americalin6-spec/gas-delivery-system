@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "../../lib/apiAuth";
 import {
   extractCustomerFromLineChat,
   extractHonorificCustomerName,
@@ -12,6 +13,11 @@ import { parseAiJsonObject } from "../../lib/parseAiJson";
 import { sanitizeImportantDateFields } from "../../lib/sanitizeImportantDateFields";
 
 export async function POST(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+
   try {
     const { text, lang: rawLang } = await req.json();
     const lang = rawLang === "en" ? "en" : "zh";

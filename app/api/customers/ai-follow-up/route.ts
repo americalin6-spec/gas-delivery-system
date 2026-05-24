@@ -13,6 +13,7 @@ import {
 import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { requireApiAuth } from "../../../lib/apiAuth";
+import { API_ACCESS_DENIED } from "../../../lib/apiTenant";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 
 const CONVERSATIONS_SELECT =
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
       );
     }
     if (!customer) {
-      return NextResponse.json({ ok: false, error: "找不到客戶" }, { status: 404 });
+      return NextResponse.json({ ok: false, error: API_ACCESS_DENIED }, { status: 403 });
     }
 
     let conversationText = body.conversation_text?.trim() ?? "";
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       .from("conversations")
       .select(CONVERSATIONS_SELECT)
       .eq("customer_id", customerId)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: true });
 
     if (convError) {

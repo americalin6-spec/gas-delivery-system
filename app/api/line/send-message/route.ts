@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { findCustomerIdForLineUser } from "../../../lib/conversationsServer";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 import { requireApiAuth } from "../../../lib/apiAuth";
+import { requireCustomerInCompany } from "../../../lib/apiTenant";
 import { sendLinePushMessage } from "../../../lib/lineMessaging";
 
 type SendMessageBody = {
@@ -38,6 +39,11 @@ export async function POST(req: Request) {
   }
   if (!message) {
     return NextResponse.json({ ok: false, error: "message is required" }, { status: 400 });
+  }
+
+  const denied = await requireCustomerInCompany(supabase, customerId, companyId);
+  if (denied) {
+    return denied;
   }
 
   const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() ?? "";

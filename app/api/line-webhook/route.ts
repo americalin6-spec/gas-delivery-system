@@ -11,7 +11,6 @@ import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { persistCustomerLineUserId } from "../../lib/lineCustomerBinding";
 import { getSupabaseServer } from "../../lib/supabaseServer";
-import { DEFAULT_COMPANY_ID } from "../../lib/companyContext";
 
 type LineWebhookBody = {
   events?: LineWebhookEvent[];
@@ -380,17 +379,26 @@ async function resolveChannelAccessToken(): Promise<string> {
   }
 }
 
+/** Company for CRM writes — only when LINE user is already bound to a tenant. */
 async function resolveCompanyForLineUser(
   supabase: SupabaseClient,
   userId: string | null | undefined,
-): Promise<number> {
-  if (!userId) return DEFAULT_COMPANY_ID;
+): Promise<number | null> {
+  const lineUserId = userId?.trim();
+  if (!lineUserId) return null;
+
   try {
-    const bound = await findCompanyIdForLineUser(supabase, userId);
-    return bound ?? DEFAULT_COMPANY_ID;
+    const lineRow = await findLineUserRow(supabase, lineUserId);
+    if (lineRow?.company_id != null) {
+      const fromRow = Number(lineRow.company_id);
+      if (Number.isFinite(fromRow) && Number.isInteger(fromRow) && fromRow > 0) {
+        return fromRow;
+      }
+    }
+    return await findCompanyIdForLineUser(supabase, lineUserId);
   } catch (err) {
     console.error("[line-webhook] resolveCompanyForLineUser failed:", err);
-    return DEFAULT_COMPANY_ID;
+    return null;
   }
 }
 
@@ -417,6 +425,12 @@ async function logInboundEvents(
 
       try {
         const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
+        if (companyId == null) {
+          console.log("[line-webhook] skipping inbound CRM write: LINE user has no tenant", {
+            lineUserId,
+          });
+          return;
+        }
         const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
 
         const bindCmd = parseBindCommand(messageText);
@@ -508,6 +522,10 @@ async function handleTextMessage(
   }
 
   const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
+  if (companyId == null) {
+    await sendLineReplyMessage(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken);
+    return;
+  }
   const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
 
   console.log("[line-webhook] bind command:", {

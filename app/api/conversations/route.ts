@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { findLineUserIdForCustomer } from "../../lib/conversationsServer";
 import { runCustomerAiFieldExtraction } from "../../lib/customerAiExtractServer";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { API_ACCESS_DENIED, requireCustomerInCompany } from "../../lib/apiTenant";
 
 const CONVERSATIONS_SELECT =
   "id, customer_id, line_user_id, message_text, direction, created_at, company_id";
@@ -42,6 +43,11 @@ export async function POST(req: Request) {
       { ok: false, error: "message_text is required" },
       { status: 400 },
     );
+  }
+
+  const denied = await requireCustomerInCompany(supabase, customerId, companyId);
+  if (denied) {
+    return denied;
   }
 
   const direction = body.direction?.toString().trim() === "inbound" ? "inbound" : "outbound";
@@ -124,6 +130,14 @@ export async function GET(req: Request) {
     return NextResponse.json(
       { ok: false, error: "customer_id is required", rows: [] },
       { status: 400 },
+    );
+  }
+
+  const denied = await requireCustomerInCompany(supabase, customerId, companyId);
+  if (denied) {
+    return NextResponse.json(
+      { ok: false, error: API_ACCESS_DENIED, rows: [] },
+      { status: 403 },
     );
   }
 
@@ -219,7 +233,8 @@ export async function DELETE(req: Request) {
     const { error, count } = await supabase
       .from("conversations")
       .delete({ count: "exact" })
-      .in("id", ids);
+      .in("id", ids)
+      .eq("company_id", companyId);
 
     if (error) {
       console.error("[conversations] DELETE by ids error:", {
@@ -248,6 +263,14 @@ export async function DELETE(req: Request) {
   }
 
   if (customerId && all) {
+    const deniedAll = await requireCustomerInCompany(supabase, customerId, companyId);
+    if (deniedAll) {
+      return NextResponse.json(
+        { ok: false, error: API_ACCESS_DENIED, deletedCount: 0 },
+        { status: 403 },
+      );
+    }
+
     const { data: rows, error: listError } = await supabase
       .from("conversations")
       .select("id")
@@ -282,7 +305,8 @@ export async function DELETE(req: Request) {
       const { error, count } = await supabase
         .from("conversations")
         .delete({ count: "exact" })
-        .in("id", ids);
+        .in("id", ids)
+        .eq("company_id", companyId);
 
       if (error) {
         console.error("[conversations] DELETE error:", {
@@ -319,7 +343,8 @@ export async function DELETE(req: Request) {
   const { error, count } = await supabase
     .from("conversations")
     .delete({ count: "exact" })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("company_id", companyId);
 
   if (error) {
     console.error("[conversations] DELETE error:", {
