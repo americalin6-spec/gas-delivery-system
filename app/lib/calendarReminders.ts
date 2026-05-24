@@ -136,8 +136,8 @@ export function urgencyVisual(urgency: FollowUpUrgency): UrgencyVisual {
   return { urgency, diffDays: null, ...base };
 }
 
-export function urgencyLabel(visual: UrgencyVisual, lang: AppLang): string {
-  return lang === "zh" ? visual.labelZh : visual.labelEn;
+export function urgencyLabel(visual: UrgencyVisual, _lang?: AppLang): string {
+  return visual.labelZh;
 }
 
 export function getCustomerUrgencyVisual(row: ReminderCustomerRow): UrgencyVisual {

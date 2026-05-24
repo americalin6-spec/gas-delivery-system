@@ -5,6 +5,7 @@ import { normalizeLineIdForDisplay } from "./lineIdDisplay";
 export type CrmFormSnapshot = {
   customerName: string;
   companyName: string;
+  industry: string;
   phone: string;
   lineId: string;
   email: string;
@@ -26,6 +27,29 @@ export function mergeCrmFieldValue(incoming: string, existing: string): string {
   return String(incoming).trim();
 }
 
+/**
+ * Company name merge — never drop trailing brand words (e.g. Luxury Home Taiwan → Luxury Home).
+ * When one value is a strict prefix of the other, keep the longer full name.
+ */
+export function mergeCompanyNameField(incoming: string, existing: string): string {
+  const next = String(incoming ?? "").trim();
+  const prev = String(existing ?? "").trim();
+  if (isEmptyCrmFieldValue(next)) return prev;
+  if (isEmptyCrmFieldValue(prev)) return next;
+  if (next === prev) return next;
+
+  const nextLower = next.toLowerCase();
+  const prevLower = prev.toLowerCase();
+  if (nextLower.startsWith(`${prevLower} `) || (prevLower && nextLower.startsWith(prevLower) && next.length > prev.length)) {
+    return next;
+  }
+  if (prevLower.startsWith(`${nextLower} `) || (nextLower && prevLower.startsWith(nextLower) && prev.length > next.length)) {
+    return prev;
+  }
+
+  return next;
+}
+
 export function mergeCustomerNameField(incoming: string, existing: string): string {
   const next = String(incoming ?? "").trim();
   const prev = String(existing ?? "").trim();
@@ -41,7 +65,8 @@ export function mergeCrmFormSnapshot(
 ): CrmFormSnapshot {
   return {
     customerName: mergeCustomerNameField(incoming.customerName, existing.customerName),
-    companyName: mergeCrmFieldValue(incoming.companyName, existing.companyName),
+    companyName: mergeCompanyNameField(incoming.companyName, existing.companyName),
+    industry: mergeCrmFieldValue(incoming.industry, existing.industry),
     phone: mergeCrmFieldValue(incoming.phone, existing.phone),
     lineId: mergeCrmFieldValue(
       normalizeLineIdForDisplay(incoming.lineId),
@@ -60,6 +85,7 @@ export function buildExtractedPreviewDisplay(
   const merged = mergeCrmFormSnapshot(existing, {
     customerName: extracted.customer_name,
     companyName: extracted.company_name,
+    industry: extracted.industry,
     phone: extracted.phone,
     lineId: extracted.line_id,
     email: extracted.email,
@@ -68,6 +94,7 @@ export function buildExtractedPreviewDisplay(
   return {
     customer_name: merged.customerName,
     company_name: merged.companyName,
+    industry: merged.industry,
     phone: merged.phone,
     line_id: merged.lineId,
     email: merged.email,
@@ -83,6 +110,7 @@ export function mergeFormFromSavedCustomerRow(
   const incoming: CrmFormSnapshot = {
     customerName: String(row.customer_name ?? "").trim(),
     companyName: String(row.company_name ?? "").trim(),
+    industry: String(row.industry ?? "").trim(),
     phone: String(row.phone ?? "").trim(),
     lineId: normalizeLineIdForDisplay(String(row.line_id ?? "")),
     email: String(row.email ?? "").trim(),

@@ -7,38 +7,8 @@ export function translateDisplayValue(value: string | null | undefined, lang: Ap
   const raw = String(value).trim();
   if (!raw || raw === "--" || raw === "-") return raw || "—";
 
-  const localized = localizeCrmDisplayText(raw);
-  if (lang === "zh") return localized;
-
-  const map: Record<string, string> = {
-    未提供: "Not provided",
-    近期: "Soon",
-    高: "High",
-    中: "Medium",
-    低: "Low",
-    "A級客戶": "A-Level Client",
-    "B級客戶": "B-Level Client",
-    "C級客戶": "C-Level Client",
-    "積極、有興趣": "Interested and engaged",
-    "還在評估": "Still evaluating",
-    "立即提供提案與報價": "Send proposal and quotation now",
-    "持續追蹤": "Keep following up",
-    "安排會議": "Schedule a meeting",
-    "三天後追蹤": "Follow up in 3 days",
-    "明天追蹤": "Follow up tomorrow",
-    "下週聯絡": "Contact again next week",
-    "品牌影片、高級感、快速交付": "Brand video, premium look, fast delivery",
-    "您好，我們會先提供完整企劃與報價給您。": "We will prepare a full plan and quotation for you.",
-    未知: "Unknown",
-    手動: "Manual",
-    輔助發送: "Assisted",
-    自動發送: "Auto",
-    逾期: "Overdue",
-    即將到期: "Due soon",
-    已排程: "Scheduled",
-  };
-
-  return map[localized] ?? map[raw] ?? localized;
+  void lang;
+  return localizeCrmDisplayText(raw);
 }
 
 export function sharedUiCopy(lang: AppLang) {
@@ -87,24 +57,25 @@ export function homePageCopy(lang: AppLang) {
       ? "月曆排程追蹤日，重要提醒推送到瀏覽器（不會自動發 LINE）。"
       : "Monthly follow-up calendar plus browser reminders (no auto LINE).",
     landingCta: zh ? "免費試用" : "Try free",
+    landingGoogleSignIn: zh ? "使用 Google 登入" : "Sign in with Google",
     tagline: zh
       ? "把 LINE 對話變成成交率、待辦、漏單提醒與專業回覆。"
       : "Turn LINE conversations into sales probability, tasks, deal alerts, and professional replies.",
     workspace: zh ? "儀表板" : "Workspace",
     pasteLine: zh ? "貼上 LINE 對話" : "Paste LINE Conversation",
     pasteLead: zh
-      ? "貼上對話後開始分析：自動擷取客戶資料填入上方欄位（可手動修改），並產出成交洞察。"
+      ? "貼上對話後開始客戶分析：自動擷取客戶資料填入上方客戶資料表（可手動修改），並產出成交洞察。"
       : "After pasting, run analysis to extract CRM fields above (editable) plus deal insights.",
     linePlaceholder: zh
       ? "客戶：您好，我們想了解貴公司的方案與報價…"
       : "Client: We want a brand video...",
     clearText: zh ? "清除文字" : "Clear Text",
     analyzing: zh ? "分析中..." : "Analyzing...",
-    startAnalysis: zh ? "開始 AI 分析" : "Start AI Analysis",
-    saveToCrm: zh ? "存到 CRM" : "Save to CRM",
-    savedToCrm: zh ? "已存到 CRM" : "Saved to CRM",
+    startAnalysis: zh ? "開始客戶分析" : "Start AI Analysis",
+    saveToCrm: zh ? "儲存至客戶資料表" : "Save to CRM",
+    savedToCrm: zh ? "已儲存至客戶資料表" : "Saved to CRM",
     pasteRequired: zh ? "請貼上 LINE 對話" : "Please paste LINE conversation",
-    analysisResults: zh ? "分析結果" : "Analysis results",
+    analysisResults: zh ? "客戶分析結果" : "Analysis results",
     dealProbability: zh ? "成交機率" : "Deal Probability",
     customerLevel: zh ? "客戶等級" : "Customer Level",
     leakRisk: zh ? "漏單風險" : "Leak Risk",
@@ -116,7 +87,7 @@ export function homePageCopy(lang: AppLang) {
     todo: zh ? "待辦事項" : "Todo",
     replySuggestion: zh ? "專業回覆" : "Reply Suggestion",
     followUp: zh ? "客戶追蹤" : "Follow Up",
-    menuNew: zh ? "新分析" : "New Analysis",
+    menuNew: zh ? "新客戶分析" : "New Analysis",
     menuCustomers: zh ? "客戶列表" : "Customers",
     menuTasks: zh ? "待辦事項" : "Tasks",
     menuAlerts: zh ? "通知中心" : "Alerts",
@@ -138,18 +109,20 @@ export function homePageCopy(lang: AppLang) {
     copyFollowUpDesc: zh
       ? "若無法自動複製，請點下方按鈕或長按文字框選取複製。"
       : "Tap the button below or long-press the text to copy.",
-    extractedTitle: zh ? "擷取的客戶資料" : "Extracted customer profile",
+    extractedTitle: zh ? "擷取的客戶資料表" : "Extracted customer profile",
     extractedHint: zh
-      ? "已套用至上方的 CRM 表單；請確認後再存到 CRM。"
+      ? "已套用至上方的客戶資料表；請確認後再儲存至客戶資料表。"
       : "Applied to the CRM fields above; review before saving.",
     extractedName: zh ? "客戶姓名" : "Customer name",
     extractedCompany: zh ? "公司" : "Company",
+    extractedIndustry: zh ? "產業" : "Industry",
     extractedPhone: zh ? "電話" : "Phone",
     extractedNeeds: zh ? "客戶需求" : "Customer needs",
     notDetected: zh ? "— 未偵測" : "— Not detected",
     nameNotProvided: zh ? "未提供姓名" : "Name not provided",
     fieldCustomerName: zh ? "客戶姓名" : "Customer Name",
     fieldCompanyName: zh ? "公司名稱" : "Company Name",
+    fieldIndustry: zh ? "產業 / 業種" : "Industry",
     fieldPhone: zh ? "電話" : "Phone",
     fieldLineId: zh ? "LINE 帳號" : "LINE ID",
     fieldEmail: zh ? "電子郵件" : "Email",
@@ -168,7 +141,7 @@ export function tasksPageCopy(lang: AppLang) {
         ? `共 ${count} 筆待追蹤客戶${loading ? " · 載入中…" : ""}`
         : `${count} customers to follow up${loading ? " · Loading…" : ""}`,
     empty: zh
-      ? "目前沒有待辦客戶。請先在首頁分析並存到 CRM，或確認客戶有待辦、下一步或追蹤訊息。"
+      ? "目前沒有待辦客戶。請先在首頁完成客戶分析並儲存至客戶資料表，或確認客戶有待辦、下一步或客戶追蹤訊息。"
       : "No follow-up tasks yet. Analyze on the home page and save to CRM, or add todo / next step / follow-up on a customer.",
     company: zh ? "公司" : "Company",
     phone: zh ? "電話" : "Phone",

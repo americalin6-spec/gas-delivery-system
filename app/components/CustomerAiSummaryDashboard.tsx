@@ -248,7 +248,7 @@ export function CustomerAiSummaryDashboard({
               lineHeight: dt.lineHeight,
             }}
           >
-            綜合 LINE 對話、備註與 CRM 資料
+            綜合 LINE 對話、備註與客戶資料
           </p>
         </div>
 
@@ -411,7 +411,7 @@ export function CustomerAiSummaryDashboard({
           )}
         </span>
         <span style={{ fontSize: dt.small, color: shell.faint }}>
-          僅供決策參考 · 不修改 CRM 資料
+          僅供決策參考 · 不修改客戶資料表
         </span>
       </footer>
     </section>

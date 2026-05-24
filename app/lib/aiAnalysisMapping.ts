@@ -37,6 +37,7 @@ const GENERIC_INSIGHT_RE =
 export type ConfirmedCrmMapping = {
   customerName: string;
   companyName: string;
+  industry: string;
   phone: string;
   lineId: string;
   email: string;
@@ -64,6 +65,7 @@ export type HomeAnalysisMappingResult = {
   extractedPreview: {
     customer_name: string;
     company_name: string;
+    industry: string;
     phone: string;
     line_id: string;
     email: string;
@@ -356,6 +358,7 @@ export function buildHomeAnalysisMapping(
   const incomingForm: CrmFormSnapshot = {
     customerName: formName,
     companyName: mergedFields.companyName,
+    industry: mergedFields.industry,
     phone: mergedFields.phone,
     lineId,
     email: mergedFields.email,
@@ -369,6 +372,7 @@ export function buildHomeAnalysisMapping(
   const confirmed: ConfirmedCrmMapping = {
     customerName: mergedForm.customerName,
     companyName: mergedForm.companyName,
+    industry: mergedForm.industry,
     phone: mergedForm.phone,
     lineId: mergedForm.lineId,
     email: mergedForm.email,
@@ -426,7 +430,8 @@ export function buildHomeAnalysisMapping(
     extractedPreview: buildExtractedPreviewDisplay(
       {
         customer_name: formName || extracted.customer_name,
-        company_name: mergedFields.companyName,
+        company_name: mergedForm.companyName,
+        industry: mergedFields.industry,
         phone: mergedFields.phone,
         line_id: lineId,
         email: mergedFields.email,
@@ -435,6 +440,7 @@ export function buildHomeAnalysisMapping(
       existingForm ?? {
         customerName: "",
         companyName: "",
+        industry: "",
         phone: "",
         lineId: "",
         email: "",

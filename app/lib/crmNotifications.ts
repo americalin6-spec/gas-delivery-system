@@ -149,7 +149,7 @@ export function buildNewCustomerNotification(
 ): { title: string; body: string } {
   return {
     title: lang === "zh" ? `新客戶 · ${customerName}` : `New customer · ${customerName}`,
-    body: lang === "zh" ? "已加入 CRM" : "Added to CRM",
+    body: lang === "zh" ? "已新增至客戶資料表" : "Added to CRM",
   };
 }
 

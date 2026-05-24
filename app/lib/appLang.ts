@@ -2,8 +2,9 @@ export const APP_LANG_STORAGE_KEY = "appLang";
 
 export type AppLang = "zh" | "en";
 
-export function normalizeAppLang(value: string | null | undefined): AppLang {
-  return value === "en" ? "en" : "zh";
+/** UI is 繁體中文 only — persisted "en" is treated as zh. */
+export function normalizeAppLang(_value: string | null | undefined): AppLang {
+  return "zh";
 }
 
 export function readAppLangFromStorage(): AppLang {

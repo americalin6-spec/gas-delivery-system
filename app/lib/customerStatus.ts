@@ -142,29 +142,28 @@ export function normalizeCustomerStatus(value: unknown): CustomerStatus {
   return "new_lead";
 }
 
-export function customerStatusLabel(status: CustomerStatus, lang: AppLang): string {
-  const zh = lang === "zh";
+export function customerStatusLabel(status: CustomerStatus, _lang?: AppLang): string {
   switch (status) {
     case "new_lead":
-      return zh ? "新名單" : "New lead";
+      return "新名單";
     case "negotiating":
-      return zh ? "洽談中" : "In discussion";
+      return "洽談中";
     case "quoted":
-      return zh ? "已報價" : "Quoted";
+      return "已報價";
     case "waiting_reply":
-      return zh ? "等待回覆" : "Waiting reply";
+      return "等待回覆";
     case "scheduled":
-      return zh ? "已排程" : "Scheduled";
+      return "已排程";
     case "in_progress":
-      return zh ? "執行中" : "In progress";
+      return "執行中";
     case "won":
-      return zh ? "已成交" : "Won";
+      return "已成交";
     case "completed":
-      return zh ? "已完成" : "Completed";
+      return "已完成";
     case "cancelled":
-      return zh ? "取消" : "Cancelled";
+      return "取消";
     case "invalid":
-      return zh ? "無效客戶" : "Invalid";
+      return "無效客戶";
   }
 }
 

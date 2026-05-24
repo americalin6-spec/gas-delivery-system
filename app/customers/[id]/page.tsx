@@ -88,6 +88,7 @@ interface Customer {
   id: string | number;
   customer_name?: string | null;
   company_name?: string | null;
+  industry?: string | null;
   phone?: string | null;
   line_id?: string | null;
   email?: string | null;
@@ -129,6 +130,7 @@ type Draft = Record<string, string>;
 const EDIT_FIELD_KEYS: (keyof Customer)[] = [
   "customer_name",
   "company_name",
+  "industry",
   "phone",
   "line_id",
   "email",
@@ -460,6 +462,7 @@ export default function CustomerDetailPage() {
   }[] = [
     { key: "customer_name", label: fl.customer_name, section: "basic" },
     { key: "company_name", label: fl.company_name, section: "basic" },
+    { key: "industry", label: fl.industry, section: "basic" },
     { key: "phone", label: fl.phone, section: "basic" },
     { key: "line_id", label: fl.line_id, section: "basic" },
     { key: "email", label: fl.email, section: "basic" },
@@ -884,6 +887,7 @@ export default function CustomerDetailPage() {
                   >
                     <CompactDetailRow label="客戶姓名" value={customer.customer_name} />
                     <CompactDetailRow label="公司" value={customer.company_name} />
+                    <CompactDetailRow label="產業" value={customer.industry} />
                     <CompactDetailRow label="電話" value={customer.phone} />
                     <CompactDetailRow label="電子郵件" value={customer.email} />
                     <div style={{ minWidth: 0 }}>

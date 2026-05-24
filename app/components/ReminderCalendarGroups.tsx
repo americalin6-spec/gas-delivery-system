@@ -176,7 +176,7 @@ function GroupColumn({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {lang === "zh" ? urgency.labelZh : urgency.labelEn}
+                  {urgency.labelZh}
                 </span>
               </div>
               {customer.follow_up_date ? (

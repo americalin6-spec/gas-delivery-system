@@ -1,16 +1,7 @@
 import type { FollowUpBadge } from "./followUpReminders";
 import type { AppLang } from "./appLang";
 
-export function followUpBadgeLabelForLang(badge: FollowUpBadge, lang: AppLang): string {
-  if (lang === "en") {
-    const en: Record<FollowUpBadge, string> = {
-      none: "",
-      overdue: "Overdue",
-      soon: "Due soon",
-      upcoming: "Scheduled",
-    };
-    return en[badge];
-  }
+export function followUpBadgeLabelForLang(badge: FollowUpBadge, _lang?: AppLang): string {
   const zh: Record<FollowUpBadge, string> = {
     none: "",
     overdue: "逾期",
@@ -217,7 +208,7 @@ export function customerDetailCopy(lang: AppLang) {
     syncing: zh ? "同步中…" : "Syncing…",
     sectionBasic: zh ? "基本資料" : "Basic info",
     sectionSocial: zh ? "社群媒體" : "Social media",
-    sectionAi: zh ? "AI 分析" : "AI analysis",
+    sectionAi: zh ? "客戶分析" : "AI analysis",
     sectionFollow: zh ? "追蹤與回覆" : "Follow-up & replies",
     sectionMetrics: zh ? "指標與分析" : "Metrics & analysis",
     sectionFollowPanel: zh ? "追蹤與回覆" : "Follow-up & replies",
@@ -228,6 +219,7 @@ export function customerDetailCopy(lang: AppLang) {
     fieldLabels: {
       customer_name: zh ? "客戶姓名" : "Customer name",
       company_name: zh ? "公司" : "Company",
+      industry: zh ? "產業" : "Industry",
       phone: zh ? "電話" : "Phone",
       line_id: zh ? "LINE 帳號" : "LINE",
       email: zh ? "電子郵件" : "Email",

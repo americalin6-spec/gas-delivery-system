@@ -410,7 +410,7 @@ export default function PipelineBoardPage() {
           <Link href="/customers" style={{ width: isMobile ? "100%" : "auto" }}>
             <button style={navButton(isMobile)}>{t.backCustomers}</button>
           </Link>
-          <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>
+          <Link href="/dashboard" style={{ width: isMobile ? "100%" : "auto" }}>
             <button style={navButtonSecondary(isMobile)}>{t.backHome}</button>
           </Link>
         </div>

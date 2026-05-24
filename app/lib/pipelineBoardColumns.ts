@@ -98,9 +98,8 @@ export const BOARD_COLUMN_DEFAULT_STATUS: Record<PipelineBoardColumn, CustomerSt
   closed: "completed",
 };
 
-export function pipelineBoardColumnLabel(col: PipelineBoardColumn, lang: AppLang): string {
-  const v = COLUMN_VISUALS[col];
-  return lang === "zh" ? v.labelZh : v.labelEn;
+export function pipelineBoardColumnLabel(col: PipelineBoardColumn, _lang?: AppLang): string {
+  return COLUMN_VISUALS[col].labelZh;
 }
 
 export function pipelineBoardColumnVisual(col: PipelineBoardColumn): KanbanColumnVisual {

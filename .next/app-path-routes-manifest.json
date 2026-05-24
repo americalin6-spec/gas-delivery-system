@@ -18,12 +18,16 @@
   "/api/reminder-check/route": "/api/reminder-check",
   "/api/reminder-settings/route": "/api/reminder-settings",
   "/api/save/route": "/api/save",
+  "/auth/callback/route": "/auth/callback",
   "/calendar/page": "/calendar",
   "/customers/[id]/page": "/customers/[id]",
   "/customers/page": "/customers",
+  "/dashboard/page": "/dashboard",
+  "/login/page": "/login",
   "/page": "/",
   "/pipeline/page": "/pipeline",
   "/settings/page": "/settings",
+  "/signup/page": "/signup",
   "/tasks/page": "/tasks",
   "/workspace/[category]/page": "/workspace/[category]"
 }

@@ -103,7 +103,7 @@ export function NotificationCenter({
                         color: urgency.badgeColor,
                       }}
                     >
-                      {lang === "zh" ? urgency.labelZh : urgency.labelEn}
+                      {urgency.labelZh}
                     </span>
                   </div>
                   {customer.company_name?.trim() ? (

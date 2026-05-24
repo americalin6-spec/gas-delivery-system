@@ -40,7 +40,8 @@ function LoadingDots() {
 
 /** Small centered floating popup while AI analysis runs. */
 export function AiAnalyzingIndicator({ lang }: { lang: AppLang }) {
-  const label = lang === "zh" ? "AI 分析中..." : "AI analyzing...";
+  void lang;
+  const label = "客戶分析中…";
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

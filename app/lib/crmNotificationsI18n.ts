@@ -19,14 +19,13 @@ export function crmNotificationBellCopy(lang: AppLang) {
   };
 }
 
-export function crmNotificationTypeLabel(type: CrmNotificationType, lang: AppLang): string {
-  const zh = lang === "zh";
+export function crmNotificationTypeLabel(type: CrmNotificationType, _lang?: AppLang): string {
   const map: Record<CrmNotificationType, string> = {
-    line_message: zh ? "LINE 訊息" : "LINE message",
-    new_customer: zh ? "新客戶" : "New customer",
-    binding_success: zh ? "綁定成功" : "Binding",
-    follow_up_reminder: zh ? "追蹤提醒" : "Follow-up",
-    urgent_customer: zh ? "緊急客戶" : "Urgent",
+    line_message: "LINE 訊息",
+    new_customer: "新客戶",
+    binding_success: "綁定成功",
+    follow_up_reminder: "追蹤提醒",
+    urgent_customer: "緊急客戶",
   };
   return map[type] ?? type;
 }

@@ -137,7 +137,7 @@ export default function CalendarPage() {
           </p>
         </div>
         <Link
-          href="/"
+          href="/dashboard"
           style={{
             color: "#94a3b8",
             textDecoration: "none",

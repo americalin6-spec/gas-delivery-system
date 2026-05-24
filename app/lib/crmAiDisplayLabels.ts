@@ -80,6 +80,11 @@ export function localizeCrmDisplayText(value: string | null | undefined): string
 
   if (/^(高|中|低|一般)$/.test(raw)) return raw;
 
+  // Preserve full English brand / company names (do not run tier-token word swaps).
+  if (/^[A-Za-z][A-Za-z0-9&.'-]*(?:\s+[A-Za-z][A-Za-z0-9&.'-]*){1,6}$/u.test(raw)) {
+    return raw;
+  }
+
   let out = raw;
   for (const { pattern, replacement } of WORD_BOUNDARY_TIER) {
     out = out.replace(pattern, replacement);

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ActiveCompanyProvider } from "./components/ActiveCompanyProvider";
+import { AuthGate } from "./components/auth/AuthGate";
 import { CrmAppChrome } from "./components/CrmAppChrome";
 import "./globals.css";
 
@@ -36,7 +37,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ActiveCompanyProvider>
-          <CrmAppChrome>{children}</CrmAppChrome>
+          <AuthGate>
+            <CrmAppChrome>{children}</CrmAppChrome>
+          </AuthGate>
         </ActiveCompanyProvider>
       </body>
     </html>

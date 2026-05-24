@@ -124,7 +124,7 @@ export default function AlertsPage() {
             {t.viewAllCalendar}
           </Link>
           <Link
-            href="/"
+            href="/dashboard"
             style={{
               padding: isMobile ? "14px 18px" : "12px 16px",
               borderRadius: 12,

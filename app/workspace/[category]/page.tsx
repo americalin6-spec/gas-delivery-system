@@ -99,7 +99,7 @@ export default function WorkspaceCategoryPage() {
   return (
     <main style={page}>
       <div style={inner}>
-        <Link href="/" style={backBtn}>
+        <Link href="/dashboard" style={backBtn}>
           {labels.backHome}
         </Link>
 

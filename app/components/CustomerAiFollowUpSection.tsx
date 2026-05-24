@@ -456,7 +456,7 @@ export function CustomerAiFollowUpSection({
           )}
         </span>
         <span style={{ fontSize: dt.small, color: shell.faint }}>
-          快捷操作會更新 CRM 備註或跟進狀態
+          快捷操作會更新客戶備註或客戶狀態
         </span>
       </footer>
     </section>

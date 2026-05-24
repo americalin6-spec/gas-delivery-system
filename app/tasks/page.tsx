@@ -85,7 +85,7 @@ export default function TasksPage() {
           <h1 style={styles.title}>{t.title}</h1>
           <p style={styles.subtitle}>{t.subtitle(taskCustomers.length, loading)}</p>
         </div>
-        <Link href="/" style={styles.backLink}>
+        <Link href="/dashboard" style={styles.backLink}>
           {t.backHome}
         </Link>
       </header>

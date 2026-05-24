@@ -6,6 +6,25 @@
 
 import type { AppLang } from "./appLang";
 import {
+  CUSTOMER_SOCIAL_FIELD_KEYS,
+  type CustomerSocialFieldKey,
+} from "./customerSocialMedia";
+import {
+  classifyBusinessDescriptor,
+  demoteInferredCompanyToIndustry,
+  extractIndustryPhrasesFromText,
+  extractIndustrySuffixFromCompany,
+  isExplicitCompanyName,
+  isGenericIndustryOnly,
+  isIndustryDescriptor,
+  isLikelySocialAccountName,
+  isNamedBrandOrClinic,
+  normalizeIndustryValue,
+  pickSemanticCompanyName,
+  pickSemanticIndustry,
+  resolveCompanyAndIndustryFromDescriptor,
+} from "./customerIndustry";
+import {
   LINE_ID_FIELD_SPEAKER_RE,
   normalizeLineIdForDisplay,
 } from "./lineIdDisplay";
@@ -13,6 +32,7 @@ import {
 export type ExtractedCustomerProfile = {
   customer_name: string;
   company_name: string;
+  industry: string;
   phone: string;
   line_id: string;
   email: string;
@@ -35,6 +55,7 @@ export type ExtractionDebugPayload = {
 const EMPTY: ExtractedCustomerProfile = {
   customer_name: "",
   company_name: "",
+  industry: "",
   phone: "",
   line_id: "",
   email: "",
@@ -96,6 +117,13 @@ const NAME_BLACKLIST_EXACT = new Set([
   "公司叫",
   "未提供",
   "未提供姓名",
+  "客戶名稱",
+  "客戶姓名",
+  "客戶",
+  "聯絡人",
+  "姓名",
+  "公司名稱",
+  "公司",
 ]);
 
 const NAME_BLACKLIST_CONTAINS = ["叫晨光美", "晨光美", "我們公司", "我们公司", "我們是", "我们是", "有限公司", "工作室"];
@@ -330,7 +358,7 @@ export function isValidCompanyName(value: string): boolean {
   return /(有限公司|股份有限公司|工作室|Studio|Media)/i.test(n);
 }
 
-function cleanCompanyCandidate(raw: string): string {
+export function cleanCompanyCandidate(raw: string): string {
   let s = normalizeCompanyName(raw);
   s = s.replace(/\s*(?:好了|就可以了|就行|即可|謝謝|谢谢|謝了|谢了|喔|哦|噢|嗎|吗)\s*$/u, "");
   s = s.replace(/^(?:就寫|可以寫|寫成|改為|改成)\s*/u, "");
@@ -369,6 +397,10 @@ export function isValidNaturalCompanyName(
   }
   if (!opts?.fromContextualPattern && !hasBusinessHint && n.length < 3) {
     return false;
+  }
+
+  if (/[A-Za-z]/.test(n) && /^[\u4e00-\u9fffA-Za-z0-9&·・（）()\-\s.]+$/.test(n)) {
+    return n.length >= 3 && n.length <= 48;
   }
 
   return true;
@@ -420,6 +452,7 @@ function computeConfidence(fields: ExtractedCustomerProfile): number {
 export type LabeledCrmFields = {
   customer_name: string;
   company_name: string;
+  industry: string;
   phone: string;
   line_id: string;
   email: string;
@@ -427,20 +460,230 @@ export type LabeledCrmFields = {
   customer_need: string;
 };
 
+const LABELED_COLON = "[\\uFF1A:：]";
+
+/** Field labels that use「標籤：內容」— must not be treated as chat speakers. */
+const CRM_FIELD_LABEL_SPEAKER_RE =
+  /^(?:客戶姓名|客戶名稱|客戶|聯絡人|姓名|公司名稱|公司|店名|品牌名稱|品牌|診所名稱|诊所名称|產業|行業|業種|industry|business\s*type|business\s*category|電話|手機|聯絡電話|phone|tel|LINE\s*ID|LINE\s*帳號|LINE|line\s*id|email|e-mail|信箱|郵箱|預算|budget|需求|客戶需求|Instagram|IG|Insta|Facebook|FB|TikTok|tiktok|抖音|YouTube|YT|小紅書|小红书)$/iu;
+
 const LABELED_FIELD_PATTERNS: { key: keyof LabeledCrmFields; re: RegExp }[] = [
-  { key: "customer_name", re: /^(?:客戶姓名|客戶名稱|客戶|聯絡人|姓名)[：:\s]\s*(.+)$/iu },
-  { key: "company_name", re: /^(?:公司名稱|公司)[：:\s]\s*(.+)$/iu },
-  { key: "phone", re: /^(?:電話|手機|聯絡電話|phone|tel)[：:\s]\s*(.+)$/iu },
-  { key: "line_id", re: /^(?:LINE\s*ID|LINE\s*帳號|LINE|line\s*id)[：:\s]\s*(.+)$/iu },
-  { key: "email", re: /^(?:email|e-mail|信箱|郵箱)[：:\s]\s*(.+)$/iu },
-  { key: "budget", re: /^(?:預算|budget)[：:\s]\s*(.+)$/iu },
-  { key: "customer_need", re: /^(?:需求|客戶需求|customer\s*need)[：:\s]\s*(.+)$/iu },
+  {
+    key: "customer_name",
+    re: new RegExp(`^(?:客戶姓名|客戶名稱|客戶|聯絡人|姓名)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "company_name",
+    re: new RegExp(
+      `^(?:公司名稱|公司|店名|品牌名稱|品牌|診所名稱|诊所名称)${LABELED_COLON}\\s*(.+)$`,
+      "iu",
+    ),
+  },
+  {
+    key: "industry",
+    re: new RegExp(
+      `^(?:產業|行業|業種|industry|business\\s*type|business\\s*category)${LABELED_COLON}\\s*(.+)$`,
+      "iu",
+    ),
+  },
+  {
+    key: "phone",
+    re: new RegExp(`^(?:電話|手機|聯絡電話|phone|tel)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "line_id",
+    re: new RegExp(`^(?:LINE\\s*ID|LINE\\s*帳號|LINE|line\\s*id)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "email",
+    re: new RegExp(`^(?:email|e-mail|信箱|郵箱)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "budget",
+    re: new RegExp(`^(?:預算|budget)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "customer_need",
+    re: new RegExp(`^(?:需求|客戶需求|customer\\s*need)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
 ];
+
+const LABELED_SOCIAL_PATTERNS: { key: CustomerSocialFieldKey; re: RegExp }[] = [
+  {
+    key: "instagram",
+    re: new RegExp(`^(?:Instagram|IG|Insta)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "facebook",
+    re: new RegExp(`^(?:Facebook|FB)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "tiktok",
+    re: new RegExp(`^(?:TikTok|tiktok|抖音)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "xiaohongshu",
+    re: new RegExp(`^(?:小紅書|小红书|XHS|xhs)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+  {
+    key: "youtube",
+    re: new RegExp(`^(?:YouTube|Youtube|YT)${LABELED_COLON}\\s*(.+)$`, "iu"),
+  },
+];
+
+const LABELED_SOCIAL_LINE_RE = new RegExp(
+  `^(?:Instagram|IG|Insta|Facebook|FB|TikTok|tiktok|抖音|YouTube|Youtube|YT|小紅書|小红书)${LABELED_COLON}`,
+  "iu",
+);
+
+/** Label-only line (Facebook:) with value on the following line. */
+const SOCIAL_BLOCK_LABEL_PATTERNS: { key: CustomerSocialFieldKey; re: RegExp }[] = [
+  { key: "facebook", re: new RegExp(`^(?:Facebook|FB)${LABELED_COLON}?\\s*$`, "iu") },
+  { key: "youtube", re: new RegExp(`^(?:YouTube|Youtube|YT)${LABELED_COLON}?\\s*$`, "iu") },
+  { key: "instagram", re: new RegExp(`^(?:Instagram|IG|Insta)${LABELED_COLON}?\\s*$`, "iu") },
+  { key: "tiktok", re: new RegExp(`^(?:TikTok|tiktok|抖音)${LABELED_COLON}?\\s*$`, "iu") },
+  { key: "xiaohongshu", re: new RegExp(`^(?:小紅書|小红书|XHS|xhs)${LABELED_COLON}?\\s*$`, "iu") },
+];
+
+function socialBlockLabelKey(line: string): CustomerSocialFieldKey | null {
+  const t = line.trim();
+  if (!t) return null;
+  for (const { key, re } of SOCIAL_BLOCK_LABEL_PATTERNS) {
+    if (re.test(t)) return key;
+  }
+  return null;
+}
+
+function isBlockValueLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (isLabeledCrmOrSocialFieldLine(t)) return false;
+  if (socialBlockLabelKey(t)) return false;
+  return true;
+}
+
+function expandLabeledSegments(lines: string[]): string[] {
+  const segments: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    segments.push(t);
+    for (const part of t.split(/[；;]/u)) {
+      const p = part.trim();
+      if (p && p !== t) segments.push(p);
+    }
+  }
+  return segments;
+}
+
+function cleanLabeledSocialValue(raw: string): string {
+  let v = raw.trim().replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
+  v = v.replace(/^@+/, "").trim();
+  v = v.replace(/[，,;；\s]+$/u, "").trim();
+  if (!v || isNotProvidedLabel(v)) return "";
+  if (v.length > 500) v = v.slice(0, 500);
+  return v;
+}
+
+function parseLabeledCustomerNameValue(raw: string): {
+  name: string;
+  companyFromParen: string;
+  industryFromParen: string;
+} {
+  const value = raw.trim().replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
+  if (!value) return { name: "", companyFromParen: "", industryFromParen: "" };
+
+  const paren = value.match(
+    /^([\u4e00-\u9fff]{1,3}(?:先生|小姐|經理|经理)?)\s*[（(]([^）)]+)[）)]\s*$/u,
+  );
+  if (paren?.[1]) {
+    const name = sanitizeCustomerNameValue(paren[1]);
+    const resolved = resolveCompanyAndIndustryFromDescriptor(paren[2]);
+    return {
+      name,
+      companyFromParen: resolved.company_name,
+      industryFromParen: resolved.industry,
+    };
+  }
+
+  return { name: sanitizeCustomerNameValue(value), companyFromParen: "", industryFromParen: "" };
+}
+
+function pickConfirmedIndustry(
+  labeledIndustry: string,
+  regexIndustry: string,
+  aiIndustry: string,
+  fullText: string,
+): string {
+  const fromLabel = normalizeIndustryValue(labeledIndustry);
+  if (fromLabel) return fromLabel;
+  const fromRegex = normalizeIndustryValue(regexIndustry);
+  if (fromRegex && isIndustryDescriptor(fromRegex)) return fromRegex;
+  const fromAi = normalizeIndustryValue(aiIndustry);
+  if (fromAi && !isNotProvidedLabel(fromAi)) return fromAi;
+  return extractIndustryPhrasesFromText(fullText);
+}
+
+export function extractLabeledSocialFields(lines: string[]): Partial<Record<CustomerSocialFieldKey, string>> {
+  const out: Partial<Record<CustomerSocialFieldKey, string>> = {};
+  const segments = expandLabeledSegments(lines);
+  for (let i = 0; i < segments.length; i++) {
+    const line = segments[i];
+    for (const { key, re } of LABELED_SOCIAL_PATTERNS) {
+      if (out[key]) continue;
+      const m = line.match(re);
+      if (!m?.[1]) continue;
+      const cleaned = cleanLabeledSocialValue(m[1]);
+      if (cleaned) out[key] = cleaned;
+    }
+
+    const blockKey = socialBlockLabelKey(line);
+    if (blockKey && !out[blockKey]) {
+      const next = segments[i + 1]?.trim() ?? "";
+      if (next && isBlockValueLine(next)) {
+        const cleaned = cleanLabeledSocialValue(next);
+        if (cleaned) out[blockKey] = cleaned;
+      }
+    }
+  }
+  return out;
+}
+
+/** Labeled social lines + simple URL handles from pasted chat. */
+export function extractSocialFieldsFromLineChat(raw: string): Partial<Record<CustomerSocialFieldKey, string>> {
+  if (!raw?.trim()) return {};
+  const lines = splitChatLines(raw);
+  const out = extractLabeledSocialFields(lines);
+
+  const urlPatterns: { key: CustomerSocialFieldKey; re: RegExp }[] = [
+    { key: "instagram", re: /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([A-Za-z0-9._]+)/i },
+    { key: "facebook", re: /(?:https?:\/\/)?(?:www\.)?facebook\.com\/([A-Za-z0-9.]+)/i },
+    { key: "tiktok", re: /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@?([A-Za-z0-9._]+)/i },
+    { key: "youtube", re: /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:@|channel\/)?([A-Za-z0-9._-]+)/i },
+  ];
+
+  for (const { key, re } of urlPatterns) {
+    if (out[key]) continue;
+    const m = raw.match(re);
+    if (!m?.[1]) continue;
+    const cleaned = cleanLabeledSocialValue(m[1]);
+    if (cleaned) out[key] = cleaned;
+  }
+
+  return out;
+}
+
+export function isLabeledCrmOrSocialFieldLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  if (LABELED_SOCIAL_LINE_RE.test(t)) return true;
+  return LABELED_FIELD_PATTERNS.some(({ re }) => re.test(t));
+}
 
 export function extractLabeledCrmFields(lines: string[]): LabeledCrmFields {
   const out: LabeledCrmFields = {
     customer_name: "",
     company_name: "",
+    industry: "",
     phone: "",
     line_id: "",
     email: "",
@@ -448,21 +691,35 @@ export function extractLabeledCrmFields(lines: string[]): LabeledCrmFields {
     customer_need: "",
   };
 
-  for (const line of lines) {
+  for (const line of expandLabeledSegments(lines)) {
     for (const { key, re } of LABELED_FIELD_PATTERNS) {
       if (out[key]) continue;
       const m = line.match(re);
       if (!m?.[1]) continue;
-      const value = m[1].trim().replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "");
+      const value = m[1].trim();
       if (!value) continue;
       if (key === "customer_name") {
-        const name = sanitizeCustomerNameValue(value);
-        if (name) out[key] = name;
+        const parsed = parseLabeledCustomerNameValue(value);
+        if (parsed.name) out[key] = parsed.name;
+        if (parsed.companyFromParen && !out.company_name) {
+          out.company_name = parsed.companyFromParen;
+        }
+        if (parsed.industryFromParen && !out.industry) {
+          out.industry = parsed.industryFromParen;
+        }
+      } else if (key === "industry") {
+        const ind = normalizeIndustryValue(value);
+        if (ind) out.industry = ind;
+      } else if (key === "company_name") {
+        const co = cleanCompanyCandidate(value);
+        if (co && (isValidLabeledCompanyName(co) || isValidNaturalCompanyName(co, { fromContextualPattern: true }))) {
+          out[key] = co;
+        }
       } else if (key === "line_id") {
         const lid = normalizeLineIdForDisplay(value);
         if (lid) out[key] = lid;
       } else {
-        out[key] = value;
+        out[key] = value.replace(/^[「『"'（(]+|[」』"'）)]+$/gu, "").trim();
       }
     }
   }
@@ -650,8 +907,11 @@ function extractEmailStep1(text: string): string {
 
 type ConversationalCompanyPattern = { re: RegExp; contextual: boolean };
 
-/** Company name token (no spaces — avoids swallowing trailing 好了 / filler). */
-const COMPANY_NAME_CORE = "[\\u4e00-\\u9fffA-Za-z0-9&·・（）()\\-]";
+/** Company name capture — Chinese compact token or English multi-word brand. */
+const COMPANY_NAME_ENGLISH =
+  "[A-Za-z][A-Za-z0-9&.'-]*(?:\\s+[A-Za-z][A-Za-z0-9&.'-]*){0,4}";
+const COMPANY_NAME_CORE =
+  `(?:${COMPANY_NAME_ENGLISH}|[\\u4e00-\\u9fffA-Za-z0-9&·・（）()\\-]{2,28})`;
 const COMPANY_NAME_END =
   "(?=\\s*(?:好了|就可以了|就行|即可|喔|哦|噢|嗎|吗)|[」』\"'）)\\s，,。.!？?]|$)";
 
@@ -662,7 +922,7 @@ const BIZ_ENTITY =
 function conversationalCompanyRe(prefix: string, contextual: boolean): ConversationalCompanyPattern {
   return {
     re: new RegExp(
-      `${prefix}\\s*[「『"'（(]?(${COMPANY_NAME_CORE}{2,28})${COMPANY_NAME_END}`,
+      `${prefix}\\s*[「『"'（(]?(${COMPANY_NAME_CORE})${COMPANY_NAME_END}`,
       "u",
     ),
     contextual,
@@ -691,6 +951,7 @@ const CONVERSATIONAL_COMPANY_PATTERNS: ConversationalCompanyPattern[] = [
 
 function acceptCompanyCandidate(raw: string, contextual: boolean): string {
   const normalized = cleanCompanyCandidate(raw);
+  if (isNamedBrandOrClinic(normalized)) return normalized;
   if (isValidNaturalCompanyName(normalized, { fromContextualPattern: contextual })) {
     return normalized;
   }
@@ -735,7 +996,7 @@ function extractCompanyFromLine(line: string): string {
 
   const labeled = trimmed.match(
     new RegExp(
-      `(?:公司|店名|品牌|診所|诊所)(?:名稱|名称)?(?:[：:]|是|為|为|叫做|名为|名為|叫)\\s*[「『"'（(]?(${COMPANY_NAME_CORE}{2,28})${COMPANY_NAME_END}`,
+      `(?:公司|店名|品牌|診所|诊所)(?:名稱|名称)?(?:[：:]|是|為|为|叫做|名为|名為|叫)\\s*[「『"'（(]?(${COMPANY_NAME_CORE})${COMPANY_NAME_END}`,
       "u",
     ),
   );
@@ -904,6 +1165,7 @@ function formatSpeakerLabelName(speaker: string): string {
 function isPlausibleChatSpeakerLabel(speaker: string): boolean {
   const t = speaker.trim();
   if (!t || t.length > 12) return false;
+  if (CRM_FIELD_LABEL_SPEAKER_RE.test(t)) return false;
   if (BUSINESS_SIDE_SPEAKER_RE.test(t)) return false;
   if (LINE_ID_FIELD_SPEAKER_RE.test(t)) return false;
   if (/^(?:客戶|客户|customer|client|對方|对方)$/iu.test(t)) return false;
@@ -919,6 +1181,7 @@ function isPlausibleChatSpeakerLabel(speaker: string): boolean {
 /** Prefer「王小姐：」style speaker labels before colon. */
 function extractNameFromSpeakerLabels(lines: string[]): string {
   for (const line of lines) {
+    if (isLabeledCrmOrSocialFieldLine(line)) continue;
     const { speaker } = parseChatSpeakerLine(line);
     if (!speaker || !isPlausibleChatSpeakerLabel(speaker)) continue;
     const candidate = formatSpeakerLabelName(speaker);
@@ -1035,6 +1298,7 @@ function stripConversationSpeakerLabel(line: string): string {
 function isIdentityOrContactLine(content: string, profile: ExtractedCustomerProfile): boolean {
   const t = content.trim();
   if (!t || t.length < 2) return true;
+  if (isLabeledCrmOrSocialFieldLine(t)) return true;
   if (isCompanyOnlyLine(t) && !CUSTOMER_NEED_CONTENT_RE.test(t)) return true;
   if (/^[\d\s\-:+().]+$/.test(t)) return true;
   if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(t)) return true;
@@ -1044,6 +1308,7 @@ function isIdentityOrContactLine(content: string, profile: ExtractedCustomerProf
   if (/^(?:我叫|我是)/u.test(t) && !CUSTOMER_NEED_CONTENT_RE.test(t)) return true;
   if (profile.customer_name && t.includes(profile.customer_name)) return true;
   if (profile.company_name && t.includes(profile.company_name)) return true;
+  if (profile.industry && t.includes(profile.industry)) return true;
   if (profile.phone && t.replace(/\D/g, "").includes(profile.phone.replace(/\D/g, ""))) return true;
   if (profile.line_id && t.toLowerCase().includes(profile.line_id.toLowerCase())) return true;
   if (profile.email && t.toLowerCase().includes(profile.email.toLowerCase())) return true;
@@ -1056,6 +1321,7 @@ function redactProfileFromSnippet(text: string, profile: ExtractedCustomerProfil
   const replacements = [
     profile.customer_name,
     profile.company_name,
+    profile.industry,
     profile.phone,
     profile.line_id,
     profile.email,
@@ -1328,15 +1594,6 @@ function extractZhRequirementChips(text: string): string[] {
     }
   }
 
-  const platforms: string[] = [];
-  if (/\bIG\b|Instagram|insta/i.test(t)) platforms.push("IG");
-  if (/官網|官网|website/i.test(t)) platforms.push("官網");
-  if (/Facebook|\bFB\b/i.test(t)) platforms.push("Facebook");
-  if (/小紅書|小红书/i.test(t)) platforms.push("小紅書");
-  if (/YouTube|油管/i.test(t)) platforms.push("YouTube");
-  if (/抖音|TikTok/i.test(t)) platforms.push("抖音");
-  if (platforms.length > 0) pushUniqueNeedChip(chips, `${platforms.join("與")}使用`);
-
   if (mentionsPhotography) {
     if (/LED/.test(t) && /(?:棚|背景|拍)/.test(t)) {
       pushUniqueNeedChip(chips, /科技感/.test(t) ? "LED科技感背景" : "LED棚拍");
@@ -1404,11 +1661,6 @@ function extractEnRequirementChips(text: string): string[] {
 
   const dur = t.match(/(\d+)\s*(?:sec(?:ond)?s?)\s*(?:to|-)\s*(\d+)\s*(?:min(?:ute)?s?)/i);
   if (dur) pushUniqueNeedChip(chips, `${dur[1]}s to ${dur[2]} min`);
-
-  const platforms: string[] = [];
-  if (/\bIG\b|Instagram/i.test(t)) platforms.push("IG");
-  if (/website/i.test(t)) platforms.push("website");
-  if (platforms.length) pushUniqueNeedChip(chips, `${platforms.join(" & ")} usage`);
 
   if (/LED/i.test(t)) pushUniqueNeedChip(chips, "LED studio background");
   if (/model/i.test(t) && /makeup/i.test(t)) pushUniqueNeedChip(chips, "Model & makeup");
@@ -1594,13 +1846,22 @@ export function sanitizeCustomerData(
   }
 
   if (data.company_name) {
+    const before = data.company_name;
     data.company_name = cleanCompanyCandidate(data.company_name);
     if (
       !isValidCompanyName(data.company_name) &&
-      !isValidNaturalCompanyName(data.company_name, { fromContextualPattern: true })
+      !isValidNaturalCompanyName(data.company_name, { fromContextualPattern: true }) &&
+      !isValidInferredBrandCompanyName(data.company_name)
     ) {
+      if (!data.industry && isIndustryDescriptor(before)) {
+        data.industry = normalizeIndustryValue(before);
+      }
       data.company_name = "";
     }
+  }
+
+  if (data.industry) {
+    data.industry = normalizeIndustryValue(data.industry);
   }
 
   if (data.phone) {
@@ -1622,18 +1883,28 @@ export function validateCustomerData(
 
   let customer_name = input.customer_name.trim();
   let company_name = normalizeCompanyName(input.company_name);
+  let industry = normalizeIndustryValue(input.industry ?? "");
   let phone = input.phone.trim();
   let line_id = input.line_id.trim();
   const email = input.email.trim();
   let customer_need = input.customer_need.trim();
 
-  if (company_name && !isValidCompanyName(company_name) && !isValidLabeledCompanyName(company_name)) {
+  if (
+    company_name &&
+    !isValidCompanyName(company_name) &&
+    !isValidLabeledCompanyName(company_name) &&
+    !isValidInferredBrandCompanyName(company_name)
+  ) {
     const rescued = extractCompanyStep2(company_name, splitChatLines(company_name));
     if (rescued) {
       company_name = rescued;
       warnings.push(zh ? "已修正公司名稱" : "Company name corrected");
     } else {
+      const wasCompany = company_name || normalizeCompanyName(input.company_name);
       company_name = "";
+      if (wasCompany && isIndustryDescriptor(wasCompany) && !industry) {
+        industry = normalizeIndustryValue(wasCompany);
+      }
       warnings.push(zh ? "公司名稱不合法已清除" : "Invalid company name cleared");
     }
   }
@@ -1658,6 +1929,7 @@ export function validateCustomerData(
   const profileForClean: ExtractedCustomerProfile = {
     customer_name,
     company_name,
+    industry,
     phone,
     line_id,
     email,
@@ -1670,6 +1942,7 @@ export function validateCustomerData(
     data: {
       customer_name,
       company_name,
+      industry,
       phone,
       line_id,
       email,
@@ -1706,6 +1979,7 @@ export type AiAnalyzeCustomerPayload = {
 export type FinalMergedCustomerFields = {
   customerName: string;
   companyName: string;
+  industry: string;
   phone: string;
   lineId: string;
   email: string;
@@ -1730,14 +2004,232 @@ function pickMergedCustomerNeed(regexValue: string, aiValue: string): string {
   return "";
 }
 
+/** Single English token from regex (e.g. 我們是 Luxury … → Luxury) — not a full brand. */
+function isWeakEnglishCompanyToken(value: string): boolean {
+  const n = cleanCompanyCandidate(value).trim();
+  if (!n || /[\u4e00-\u9fff]/.test(n)) return false;
+  const words = n.split(/\s+/).filter(Boolean);
+  return words.length === 1 && /^[A-Za-z][A-Za-z0-9&.'-]*$/i.test(words[0]!);
+}
+
 function companyNameFromExtraction(labeled: string, inferred: string): string {
   const fromLabel = cleanCompanyCandidate(labeled);
   if (fromLabel && isValidLabeledCompanyName(fromLabel)) return fromLabel;
   const fromInferred = cleanCompanyCandidate(inferred);
+  if (fromInferred && isWeakEnglishCompanyToken(fromInferred)) {
+    return "";
+  }
+  if (fromInferred && isValidInferredBrandCompanyName(fromInferred)) {
+    return fromInferred;
+  }
   if (fromInferred && isValidNaturalCompanyName(fromInferred, { fromContextualPattern: true })) {
     return fromInferred;
   }
   if (fromInferred && isValidCompanyName(fromInferred)) return fromInferred;
+  return "";
+}
+
+function companyNameFromSocialRaw(raw: string): string {
+  const fromSocial = brandNameFromSocialDisplay(raw);
+  if (fromSocial) return fromSocial;
+  const normalized = normalizeInferredBrandDisplayName(raw);
+  if (normalized && isValidInferredBrandCompanyName(normalized)) {
+    return normalized;
+  }
+  return "";
+}
+
+function isEmailOrLineDerivedCompanyName(
+  value: string,
+  hints: { email: string; lineId: string },
+): boolean {
+  const n = value.trim().toLowerCase();
+  if (!n) return false;
+  const fromEmail = brandNameFromEmailDomain(hints.email);
+  if (fromEmail && fromEmail.toLowerCase() === n) return true;
+  const fromLine = brandNameFromLineId(hints.lineId);
+  if (fromLine && fromLine.toLowerCase() === n) return true;
+  return false;
+}
+
+function preferContactHintCompanyName(
+  current: string,
+  hints: {
+    social: Partial<Record<CustomerSocialFieldKey, string>>;
+    email: string;
+    lineId: string;
+  },
+): string {
+  const cur = current.trim();
+  const fromContact = inferCompanyNameFromContactHints(hints);
+  if (!fromContact) return cur;
+  if (!cur) return fromContact;
+  if (isWeakEnglishCompanyToken(cur)) return fromContact;
+  if (isEmailOrLineDerivedCompanyName(cur, hints)) return fromContact;
+  const curWords = cur.split(/\s+/).filter(Boolean).length;
+  const hintWords = fromContact.split(/\s+/).filter(Boolean).length;
+  if (hintWords > curWords && fromContact.toLowerCase().startsWith(cur.toLowerCase())) {
+    return fromContact;
+  }
+  return cur;
+}
+
+const GENERIC_EMAIL_DOMAIN_ROOTS = new Set([
+  "gmail",
+  "yahoo",
+  "hotmail",
+  "outlook",
+  "icloud",
+  "qq",
+  "163",
+  "foxmail",
+  "live",
+  "msn",
+  "me",
+  "mac",
+  "googlemail",
+]);
+
+const GENERIC_EMAIL_LOCAL_PARTS = new Set([
+  "service",
+  "info",
+  "contact",
+  "sales",
+  "support",
+  "admin",
+  "mail",
+  "hello",
+  "noreply",
+  "no-reply",
+]);
+
+const LINE_ID_BRAND_SUFFIX_RE = /(?:_|-)?(?:vip|official|line|id|tw|taiwan|hk|tw)$/iu;
+
+const ENGLISH_BRAND_TOKEN_SPLIT_RE =
+  /(luxury|home|space|taiwan|group|studio|clinic|design|furniture|life|style|beauty|medical|health|decor|living)/gi;
+
+/** Fallback brand names from social / email / LINE (spaced English, etc.). */
+export function isValidInferredBrandCompanyName(value: string): boolean {
+  const n = cleanCompanyCandidate(value).replace(/\s+/g, " ").trim();
+  if (!n || n.length < 2 || n.length > 48) return false;
+  if (isNotProvidedLabel(n)) return false;
+  if (isIndustryDescriptor(n) || isGenericIndustryOnly(n)) return false;
+  if (/^(?:公司|品牌|店名|診所|诊所|home|space|taiwan|official|page|channel)$/iu.test(n)) {
+    return false;
+  }
+
+  if (/^[A-Za-z][A-Za-z0-9&.'-]*(?:\s+[A-Za-z][A-Za-z0-9&.'-]*){0,4}$/.test(n)) {
+    return n.replace(/\s/g, "").length >= 4;
+  }
+
+  if (/[\u4e00-\u9fff]/.test(n) && isValidNaturalCompanyName(n, { fromContextualPattern: true })) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeInferredBrandDisplayName(raw: string): string {
+  return cleanCompanyCandidate(raw).replace(/\s+/g, " ").trim();
+}
+
+function titleCaseBrandFromSlug(slug: string): string {
+  const raw = slug.trim();
+  if (!raw) return "";
+  if (/\s/.test(raw) && /^[A-Za-z0-9&.'-\s-]+$/i.test(raw)) {
+    return raw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+  }
+
+  const compact = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!compact || compact.length < 3) return "";
+
+  const spaced = compact
+    .replace(ENGLISH_BRAND_TOKEN_SPLIT_RE, " $& ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const source = spaced.includes(" ") ? spaced : compact;
+  return source
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function brandNameFromSocialDisplay(raw: string): string {
+  const display = normalizeInferredBrandDisplayName(cleanLabeledSocialValue(raw));
+  if (!display) return "";
+  if (/^@?[a-z0-9._-]{3,40}$/i.test(display) && !/\s/.test(display) && !/[A-Z]/.test(display)) {
+    return "";
+  }
+  return isValidInferredBrandCompanyName(display) ? display : "";
+}
+
+function brandNameFromEmailDomain(email: string): string {
+  const m = String(email ?? "")
+    .trim()
+    .match(/@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i);
+  if (!m?.[1]) return "";
+
+  const host = m[1].toLowerCase();
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length < 2) return "";
+
+  const root = parts[0];
+  if (!root || GENERIC_EMAIL_DOMAIN_ROOTS.has(root)) return "";
+
+  const brand = titleCaseBrandFromSlug(root);
+  return isValidInferredBrandCompanyName(brand) ? brand : "";
+}
+
+function brandNameFromLineId(lineId: string): string {
+  const id = normalizeLineIdForDisplay(lineId).trim();
+  if (!id || id.length < 4) return "";
+  const digits = id.replace(/\D/g, "");
+  if (/^09\d{8}$/.test(digits)) return "";
+
+  if (!/^@?[a-z0-9._-]{3,40}$/i.test(id)) return "";
+
+  let slug = id.replace(/^@+/, "").toLowerCase();
+  slug = slug.replace(LINE_ID_BRAND_SUFFIX_RE, "");
+  slug = slug.replace(/[_-]+/g, "");
+  if (slug.length < 4) return "";
+
+  const brand = titleCaseBrandFromSlug(slug);
+  return isValidInferredBrandCompanyName(brand) ? brand : "";
+}
+
+/**
+ * Infer company when chat has no explicit 公司/品牌 line.
+ * Priority: Facebook > YouTube > Instagram > email domain > LINE ID.
+ */
+export function inferCompanyNameFromContactHints(input: {
+  social: Partial<Record<CustomerSocialFieldKey, string>>;
+  email: string;
+  lineId: string;
+}): string {
+  const socialOrder: (string | undefined)[] = [
+    input.social.facebook,
+    input.social.youtube,
+    input.social.instagram,
+    input.social.tiktok,
+    input.social.xiaohongshu,
+  ];
+
+  for (const raw of socialOrder) {
+    const co = companyNameFromSocialRaw(String(raw ?? "").trim());
+    if (co) return co;
+  }
+
+  const fromEmail = brandNameFromEmailDomain(input.email);
+  if (fromEmail) return fromEmail;
+
+  const fromLine = brandNameFromLineId(input.lineId);
+  if (fromLine) return fromLine;
+
   return "";
 }
 
@@ -1777,8 +2269,50 @@ export function sanitizeAiCustomerFields(
     readAiPayloadString(raw, ["company", "companyName", "company_name"]),
   );
   if (company_name && !isValidCompanyName(company_name)) {
-    const rescued = extractCompanyStep2(company_name, splitChatLines(company_name));
-    company_name = rescued || "";
+    if (
+      isValidLabeledCompanyName(company_name) ||
+      isNamedBrandOrClinic(company_name)
+    ) {
+      company_name = cleanCompanyCandidate(company_name);
+    } else {
+      const rescued = extractCompanyStep2(company_name, splitChatLines(company_name));
+      company_name = rescued || "";
+    }
+  }
+
+  let industry = normalizeIndustryValue(
+    readAiPayloadString(raw, [
+      "industry",
+      "businessType",
+      "business_type",
+      "businessCategory",
+      "business_category",
+    ]),
+  );
+
+  const aiSocial: Partial<Record<string, string>> = {
+    instagram: readAiPayloadString(raw, ["instagram", "ig"]),
+    facebook: readAiPayloadString(raw, ["facebook", "fb"]),
+    tiktok: readAiPayloadString(raw, ["tiktok"]),
+    youtube: readAiPayloadString(raw, ["youtube", "yt"]),
+  };
+
+  if (company_name) {
+    const kind = classifyBusinessDescriptor(company_name);
+    if (kind === "industry_only") {
+      if (!industry) industry = normalizeIndustryValue(company_name);
+      company_name = "";
+    } else if (kind === "company_and_industry" && !industry) {
+      industry = extractIndustrySuffixFromCompany(company_name) || industry;
+    }
+  }
+
+  if (
+    company_name &&
+    isLikelySocialAccountName(company_name, aiSocial) &&
+    !isNamedBrandOrClinic(company_name)
+  ) {
+    company_name = "";
   }
 
   const rawPhone = readAiPayloadString(raw, ["phone", "phoneNumber", "mobile", "tel"]);
@@ -1804,6 +2338,7 @@ export function sanitizeAiCustomerFields(
   const aiProfile: ExtractedCustomerProfile = {
     customer_name: "",
     company_name,
+    industry,
     phone,
     line_id,
     email,
@@ -1815,6 +2350,7 @@ export function sanitizeAiCustomerFields(
       readAiPayloadString(raw, ["customerName", "name", "customer_name"]),
     ),
     company_name,
+    industry,
     phone,
     line_id,
     email,
@@ -1878,19 +2414,63 @@ export function mergeConfirmedCrmExtraction(
     );
   }
 
-  const company_name =
-    companyNameFromExtraction(labeled.company_name, regexExtracted.company_name) ||
-    pickConfirmedField("", "", sanitizedAi.company_name);
+  const social = extractSocialFieldsFromLineChat(lineText);
 
-  const phone =
-    (labeled.phone ? normalizePhone(labeled.phone) : "") ||
-    pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone);
-  const line_id = pickConfirmedLineId(
+  let company_name = pickSemanticCompanyName(
+    labeled.company_name,
+    regexExtracted.company_name,
+    sanitizedAi.company_name,
+    social,
+  );
+  if (!company_name) {
+    company_name =
+      companyNameFromExtraction(labeled.company_name, regexExtracted.company_name) ||
+      pickConfirmedField("", "", sanitizedAi.company_name);
+  }
+
+  const emailForHints = pickConfirmedField(
+    labeled.email,
+    regexExtracted.email,
+    sanitizedAi.email,
+  );
+  const lineIdForHints = pickConfirmedLineId(
     labeled.line_id || regexExtracted.line_id,
     sanitizedAi.line_id,
     regexExtracted.email || sanitizedAi.email,
   );
-  const email = pickConfirmedField(labeled.email, regexExtracted.email, sanitizedAi.email);
+
+  const contactHints = {
+    social,
+    email: emailForHints,
+    lineId: lineIdForHints,
+  };
+  if (!company_name) {
+    company_name = inferCompanyNameFromContactHints(contactHints);
+  } else {
+    company_name = preferContactHintCompanyName(company_name, contactHints);
+  }
+
+  let industry = pickSemanticIndustry(
+    labeled.industry,
+    regexExtracted.industry,
+    sanitizedAi.industry,
+    company_name,
+    lineText,
+  );
+
+  const demoted = demoteInferredCompanyToIndustry(
+    company_name,
+    labeled.company_name,
+    industry,
+  );
+  company_name = demoted.company_name;
+  industry = demoted.industry;
+
+  const phone =
+    (labeled.phone ? normalizePhone(labeled.phone) : "") ||
+    pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone);
+  const line_id = lineIdForHints;
+  const email = emailForHints;
 
   const aiAmount = (aiExtras?.estimatedAmount ?? "").trim();
   const estimatedAmount =
@@ -1901,6 +2481,7 @@ export function mergeConfirmedCrmExtraction(
   const draftProfile: ExtractedCustomerProfile = {
     customer_name,
     company_name,
+    industry,
     phone,
     line_id,
     email,
@@ -1944,17 +2525,42 @@ export function mergeCustomerExtraction(
       .profile;
   }
 
+  const email = pickConfirmedField("", regexExtracted.email, sanitizedAi.email);
+  const line_id = pickConfirmedField("", regexExtracted.line_id, sanitizedAi.line_id);
+
+  let company_name =
+    companyNameFromExtraction("", regexExtracted.company_name) ||
+    pickConfirmedField("", "", sanitizedAi.company_name);
+  const contactHints = {
+    social: extractSocialFieldsFromLineChat(lineText),
+    email,
+    lineId: line_id,
+  };
+  if (!company_name) {
+    company_name = inferCompanyNameFromContactHints(contactHints);
+  } else {
+    company_name = preferContactHintCompanyName(company_name, contactHints);
+  }
+  let industry = pickConfirmedIndustry(
+    "",
+    regexExtracted.industry,
+    sanitizedAi.industry,
+    lineText,
+  );
+  const demoted = demoteInferredCompanyToIndustry(company_name, "", industry);
+  company_name = demoted.company_name;
+  industry = demoted.industry;
+
   const merged: ExtractedCustomerProfile = {
     customer_name: pickConfirmedCustomerName(
       regexExtracted.customer_name,
       sanitizedAi.customer_name,
     ),
-    company_name:
-      companyNameFromExtraction("", regexExtracted.company_name) ||
-      pickConfirmedField("", "", sanitizedAi.company_name),
+    company_name,
+    industry,
     phone: pickConfirmedField("", regexExtracted.phone, sanitizedAi.phone),
-    line_id: pickConfirmedField("", regexExtracted.line_id, sanitizedAi.line_id),
-    email: pickConfirmedField("", regexExtracted.email, sanitizedAi.email),
+    line_id,
+    email,
     customer_need: pickMergedCustomerNeed(regexExtracted.customer_need, sanitizedAi.customer_need),
   };
   merged.customer_name = sanitizeCustomerNameValue(merged.customer_name);
@@ -1965,6 +2571,7 @@ export function toFinalMergedCustomerFields(profile: ExtractedCustomerProfile): 
   return {
     customerName: profile.customer_name,
     companyName: profile.company_name,
+    industry: profile.industry,
     phone: profile.phone,
     lineId: profile.line_id,
     email: profile.email,
@@ -1988,11 +2595,33 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
     normalizeLineIdForDisplay(labeled.line_id);
   if (line_id && !isLikelyLineId(line_id, email)) line_id = "";
 
-  // STEP 2 — labeled 公司： wins over inferred company
-  const company_name = companyNameFromExtraction(
+  // STEP 2 — company vs industry (semantic)
+  const social = extractSocialFieldsFromLineChat(fullText);
+  const regexCompany = extractCompanyStep2(fullText, lines);
+
+  let company_name = pickSemanticCompanyName(labeled.company_name, regexCompany, "", social);
+  if (!company_name) {
+    company_name = companyNameFromExtraction(labeled.company_name, regexCompany);
+  }
+  const contactHints = {
+    social,
+    email: email || labeled.email,
+    lineId: line_id,
+  };
+  if (!company_name) {
+    company_name = inferCompanyNameFromContactHints(contactHints);
+  } else {
+    company_name = preferContactHintCompanyName(company_name, contactHints);
+  }
+
+  let industry = pickSemanticIndustry(labeled.industry, "", "", company_name, fullText);
+  const demoted = demoteInferredCompanyToIndustry(
+    company_name,
     labeled.company_name,
-    extractCompanyStep2(fullText, lines),
+    industry,
   );
+  company_name = demoted.company_name;
+  industry = demoted.industry;
 
   // STEP 3 — labeled 客戶： wins over inferred name
   let customer_name = "";
@@ -2009,6 +2638,7 @@ export function extractCustomerFromLineChat(raw: string, lang: string): Extracte
   const draftProfile: ExtractedCustomerProfile = {
     customer_name,
     company_name,
+    industry,
     phone,
     line_id,
     email,

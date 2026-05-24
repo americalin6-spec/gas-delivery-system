@@ -20,6 +20,7 @@ export type HomeFormDraft = {
   lineText: string;
   customerName: string;
   companyName: string;
+  industry: string;
   phone: string;
   lineId: string;
   email: string;
@@ -67,6 +68,7 @@ export const emptyHomeFormDraft = (): HomeFormDraft => ({
   lineText: "",
   customerName: "",
   companyName: "",
+  industry: "",
   phone: "",
   lineId: "",
   email: "",
@@ -104,6 +106,7 @@ function parseExtractedPreview(value: unknown): ExtractedCustomerProfile | null 
   const record = value as Record<string, unknown>;
   const customer_name = typeof record.customer_name === "string" ? record.customer_name : "";
   const company_name = typeof record.company_name === "string" ? record.company_name : "";
+  const industry = typeof record.industry === "string" ? record.industry : "";
   const phone = typeof record.phone === "string" ? record.phone : "";
   const line_id = typeof record.line_id === "string" ? record.line_id : "";
   const email = typeof record.email === "string" ? record.email : "";
@@ -111,12 +114,13 @@ function parseExtractedPreview(value: unknown): ExtractedCustomerProfile | null 
   const hasContent =
     customer_name.length > 0 ||
     company_name.length > 0 ||
+    industry.length > 0 ||
     phone.length > 0 ||
     line_id.length > 0 ||
     email.length > 0 ||
     customer_need.length > 0;
   return hasContent
-    ? { customer_name, company_name, phone, line_id, email, customer_need }
+    ? { customer_name, company_name, industry, phone, line_id, email, customer_need }
     : null;
 }
 
@@ -125,6 +129,7 @@ function parseHomeFormDraft(parsed: Record<string, unknown>): HomeFormDraft {
     lineText: parseLineText(parsed),
     customerName: typeof parsed.customerName === "string" ? parsed.customerName : "",
     companyName: typeof parsed.companyName === "string" ? parsed.companyName : "",
+    industry: typeof parsed.industry === "string" ? parsed.industry : "",
     phone: typeof parsed.phone === "string" ? parsed.phone : "",
     lineId: typeof parsed.lineId === "string" ? parsed.lineId : "",
     email: typeof parsed.email === "string" ? parsed.email : "",

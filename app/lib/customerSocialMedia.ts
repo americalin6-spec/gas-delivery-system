@@ -95,3 +95,24 @@ export function socialFieldHasValue(raw: string | null | undefined): boolean {
   const t = String(raw ?? "").trim();
   return Boolean(t && t !== "-" && t !== "—");
 }
+
+/** Social columns written from LINE chat extraction (homepage save). */
+export const CUSTOMER_SOCIAL_EXTRACT_SAVE_KEYS = [
+  "instagram",
+  "facebook",
+  "tiktok",
+  "xiaohongshu",
+  "youtube",
+] as const satisfies readonly CustomerSocialFieldKey[];
+
+/** Build `customers` insert/update payload for extracted social handles. */
+export function buildCustomerSocialInsertFromExtracted(
+  social: Partial<Record<CustomerSocialFieldKey, string>>,
+): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const key of CUSTOMER_SOCIAL_EXTRACT_SAVE_KEYS) {
+    const v = String(social[key] ?? "").trim();
+    out[key] = v || null;
+  }
+  return out;
+}

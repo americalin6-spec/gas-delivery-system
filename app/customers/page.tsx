@@ -256,11 +256,7 @@ export default function CustomersPage() {
   }
 
   async function handleAddCustomer() {
-    alert(
-      lang === "zh"
-        ? "客戶新增已暫停（除首頁「存到 CRM」外）。請使用首頁分析後儲存。"
-        : "Customer add is paused except homepage Save to CRM.",
-    );
+    alert("客戶新增已暫停（除首頁「儲存至客戶資料表」外）。請使用首頁客戶分析後儲存。");
   }
 
   async function moveCustomerToTrash(id: number | string) {
@@ -670,7 +666,7 @@ export default function CustomersPage() {
               ) : null}
             </>
           )}
-          <Link href="/" style={{ width: isMobile ? "100%" : "auto" }}>
+          <Link href="/dashboard" style={{ width: isMobile ? "100%" : "auto" }}>
             <button
               style={{
                 background: "#102742",

@@ -5,7 +5,7 @@ export function lineReminderSettingsCopy(lang: AppLang) {
   return {
     title: zh ? "LINE 通知設定" : "LINE notification settings",
     subtitle: zh
-      ? "每天早上 9:00（台北時間）檢查到期的 CRM 追蹤，透過 LINE Messaging API 推播到您自己的 LINE。不會自動發送給客戶。"
+      ? "每天早上 9:00（台北時間）檢查到期的客戶追蹤，透過 LINE Messaging API 推播到您自己的 LINE。不會自動發送給客戶。"
       : "Each day at 9:00 (Taipei), due CRM follow-ups are pushed to your own LINE via Messaging API. Customers are never messaged automatically.",
     backAlerts: zh ? "← 返回通知中心" : "← Back to alerts",
     backHome: zh ? "← 回到首頁" : "← Back to home",

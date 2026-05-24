@@ -15,7 +15,7 @@ function copy(lang: AppLang) {
   return {
     title: zh ? "公司切換（多租戶）" : "Company switcher (multi-tenant)",
     subtitle: zh
-      ? "選擇現在要操作的公司，所有 CRM 資料會自動只讀寫該公司。"
+      ? "選擇現在要操作的公司，所有客戶資料會自動只讀寫該公司。"
       : "Select the active company. All CRM reads and writes scope to it.",
     activeLabel: zh ? "目前公司" : "Active company",
     createLabel: zh ? "新增公司" : "Create a new company",

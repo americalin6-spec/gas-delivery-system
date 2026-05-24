@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { AppLang } from "../lib/appLang";
+import { authCopy } from "../lib/authI18n";
+import { authLinkStyle } from "../lib/authStyles";
 import { homePageCopy } from "../lib/uiI18n";
+import { GoogleSignInButton } from "./auth/GoogleSignInButton";
 
 export function HomeLandingHero({
   lang,
@@ -148,26 +152,52 @@ export function HomeLandingHero({
           ))}
         </div>
 
-        <button
-          type="button"
-          onClick={onStart}
+        <div
           style={{
             ...box,
             marginTop: isMobile ? 24 : 28,
-            padding: isMobile ? "16px 24px" : "16px 32px",
-            maxWidth: isMobile ? "100%" : 280,
-            borderRadius: 14,
-            border: "none",
-            background: "linear-gradient(90deg, #22c55e, #16a34a)",
-            color: "#fff",
-            fontSize: isMobile ? 18 : 19,
-            fontWeight: 800,
-            cursor: "pointer",
-            boxShadow: "0 8px 24px rgba(34,197,94,0.35)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            maxWidth: isMobile ? "100%" : 320,
           }}
         >
-          {t.landingCta}
-        </button>
+          <GoogleSignInButton />
+          <button
+            type="button"
+            onClick={onStart}
+            style={{
+              ...box,
+              padding: isMobile ? "16px 24px" : "16px 32px",
+              borderRadius: 14,
+              border: "none",
+              background: "linear-gradient(90deg, #22c55e, #16a34a)",
+              color: "#fff",
+              fontSize: isMobile ? 18 : 19,
+              fontWeight: 800,
+              cursor: "pointer",
+              boxShadow: "0 8px 24px rgba(34,197,94,0.35)",
+            }}
+          >
+            {t.landingCta}
+          </button>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 14,
+              color: "#94a3b8",
+              textAlign: "center",
+            }}
+          >
+            <Link href="/login" style={authLinkStyle}>
+              {authCopy.emailSignIn}
+            </Link>
+            <span style={{ margin: "0 10px", opacity: 0.5 }}>·</span>
+            <Link href="/signup" style={authLinkStyle}>
+              {authCopy.emailSignUp}
+            </Link>
+          </p>
+        </div>
       </div>
     </section>
   );

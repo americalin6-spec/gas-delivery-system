@@ -156,7 +156,7 @@ export default function LineReminderSettingsPage() {
         <Link href="/alerts" style={{ color: "#93c5fd", textDecoration: "none", fontSize: 15 }}>
           {t.backAlerts}
         </Link>
-        <Link href="/" style={{ color: "#93c5fd", textDecoration: "none", fontSize: 15 }}>
+        <Link href="/dashboard" style={{ color: "#93c5fd", textDecoration: "none", fontSize: 15 }}>
           {t.backHome}
         </Link>
       </header>

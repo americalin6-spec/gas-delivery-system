@@ -131,7 +131,7 @@ export function buildFallbackCustomerAiFollowUp(
   const reEngagement = engagement.noRecentReply;
 
   return {
-    suggestedFollowUpTime: reEngagement ? "建議 24–48 小時內主動聯絡" : "依 CRM 追蹤日期執行",
+    suggestedFollowUpTime: reEngagement ? "建議 24–48 小時內主動聯絡" : "依客戶追蹤日期執行",
     suggestedMessage: reEngagement
       ? buildReEngagementFallbackMessage(customer)
       : cleanField(customer.follow_up) ||

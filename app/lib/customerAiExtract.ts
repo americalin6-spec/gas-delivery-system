@@ -1,4 +1,8 @@
-import { extractCustomerFromLineChat, isValidExtractedCustomerName } from "./extractCustomerFromLineChat";
+import {
+  extractCustomerFromLineChat,
+  extractSocialFieldsFromLineChat,
+  isValidExtractedCustomerName,
+} from "./extractCustomerFromLineChat";
 import { normalizeLineIdForDisplay } from "./lineIdDisplay";
 import {
   CUSTOMER_SOCIAL_FIELD_KEYS,
@@ -10,6 +14,7 @@ export const AI_EXTRACT_LABEL_ZH = "AI 自動擷取";
 export const AI_EXTRACT_COLUMN_LABELS_ZH: Record<AiExtractCustomerColumn, string> = {
   customer_name: "客戶姓名",
   company_name: "公司",
+  industry: "產業",
   phone: "電話",
   email: "電子郵件",
   line_id: "LINE 帳號",
@@ -26,6 +31,7 @@ export const AI_EXTRACT_COLUMN_LABELS_ZH: Record<AiExtractCustomerColumn, string
 export const AI_EXTRACT_CUSTOMER_COLUMNS = [
   "customer_name",
   "company_name",
+  "industry",
   "phone",
   "email",
   "line_id",
@@ -38,6 +44,7 @@ export type AiExtractCustomerColumn = (typeof AI_EXTRACT_CUSTOMER_COLUMNS)[numbe
 export const AI_EXTRACT_API_KEYS = [
   "name",
   "company",
+  "industry",
   "phone",
   "email",
   "line_id",
@@ -55,6 +62,7 @@ export type AiExtractApiKey = (typeof AI_EXTRACT_API_KEYS)[number];
 const API_TO_COLUMN: Record<AiExtractApiKey, AiExtractCustomerColumn> = {
   name: "customer_name",
   company: "company_name",
+  industry: "industry",
   phone: "phone",
   email: "email",
   line_id: "line_id",
@@ -310,6 +318,7 @@ export function baselineExtractFromConversation(
   const map: { column: AiExtractCustomerColumn; value: string; conf: number }[] = [
     { column: "customer_name", value: regex.customer_name, conf: 0.86 },
     { column: "company_name", value: regex.company_name, conf: 0.84 },
+    { column: "industry", value: regex.industry, conf: 0.83 },
     { column: "phone", value: regex.phone, conf: 0.9 },
     { column: "email", value: regex.email, conf: 0.9 },
     { column: "line_id", value: regex.line_id, conf: 0.88 },
@@ -318,6 +327,14 @@ export function baselineExtractFromConversation(
   for (const { column, value, conf } of map) {
     const cleaned = cleanExtractedValue(column, value);
     if (cleaned) out[column] = { value: cleaned, confidence: conf };
+  }
+
+  const socialFromChat = extractSocialFieldsFromLineChat(conversationText);
+  for (const key of CUSTOMER_SOCIAL_FIELD_KEYS) {
+    const v = socialFromChat[key];
+    if (v) {
+      out[key] = { value: v, confidence: AI_EXTRACT_LABELED_CONFIDENCE };
+    }
   }
 
   const labeled = labeledSocialFromText(conversationText);
@@ -419,7 +436,7 @@ export function buildCustomerAiExtractPrompt(conversationText: string): string {
 1. 僅擷取對話中明確出現的資訊，勿猜測
 2. 每個欄位回傳 { "value": "字串", "confidence": 0.0-1.0 }
 3. 找不到的欄位可省略
-4. name=客戶姓名, company=公司, line_id=LINE 帳號
+4. name=客戶姓名, company=公司（正式公司名）, industry=產業/業種（如精品家具、醫美診所，非公司名時填此欄）, line_id=LINE 帳號
 5. 社群欄位可為帳號或完整網址；支援標籤如 Instagram/IG/Facebook/TikTok/小紅書/YouTube/官方網站/Website/備用聯絡方式
 6. confidence 0.95+ 僅用於對話中非常明確的資訊
 
@@ -428,6 +445,7 @@ export function buildCustomerAiExtractPrompt(conversationText: string): string {
   "fields": {
     "name": { "value": "", "confidence": 0 },
     "company": { "value": "", "confidence": 0 },
+    "industry": { "value": "", "confidence": 0 },
     "phone": { "value": "", "confidence": 0 },
     "email": { "value": "", "confidence": 0 },
     "line_id": { "value": "", "confidence": 0 },
