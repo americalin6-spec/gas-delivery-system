@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiAuth } from "../../lib/apiAuth";
 import {
   loadLineReminderSettings,
   saveLineReminderSettings,
@@ -25,7 +26,11 @@ function parseReminderTimeToHour(value: unknown): number | undefined {
   return undefined;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
   try {
     const settings = await loadLineReminderSettings();
     return NextResponse.json({
@@ -41,6 +46,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
   try {
     const body = (await req.json()) as {
       enabled?: boolean;

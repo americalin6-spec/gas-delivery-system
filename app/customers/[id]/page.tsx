@@ -241,7 +241,10 @@ export default function CustomerDetailPage() {
     void (async () => {
       try {
         const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
-        const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
+        const res = await fetch(url, {
+          cache: "no-store",
+          headers: companyIdHeader(companyId),
+        });
         const body = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           rows?: { message_text?: string | null }[];

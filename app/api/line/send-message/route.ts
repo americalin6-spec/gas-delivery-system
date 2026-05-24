@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { findCustomerIdForLineUser } from "../../../lib/conversationsServer";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
-import { getServerCompanyId } from "../../../lib/companyContext";
+import { requireApiAuth } from "../../../lib/apiAuth";
 import { sendLinePushMessage } from "../../../lib/lineMessaging";
-import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 type SendMessageBody = {
   customer_id?: string | null;
@@ -13,7 +12,11 @@ type SendMessageBody = {
 
 /** Push a text message to a bound LINE user via Messaging API, then log outbound conversation. */
 export async function POST(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
 
   let body: SendMessageBody = {};
   try {
@@ -44,8 +47,6 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-
-  const supabase = getSupabaseServer();
 
   const boundCustomerId = await findCustomerIdForLineUser(supabase, lineUserId, companyId);
   if (!boundCustomerId || boundCustomerId !== customerId) {

@@ -1,41 +1,31 @@
 import { NextResponse } from "next/server";
-import { getServerCompanyId } from "../../lib/companyContext";
-import { activeCustomersOnly } from "../../lib/customerSoftDelete";
+import { requireApiAuth } from "../../lib/apiAuth";
+import { customerInsertPayload, upsertCustomerForCompany } from "../../lib/customersTenant";
 import {
   fetchCustomersForCompanyList,
-  logCustomerListStats,
+  filterRowsForCompany,
 } from "../../lib/customersListServer";
-import { getSupabaseServer } from "../../lib/supabaseServer";
 
 /**
- * CRM customer list (service role when configured — bypasses restrictive RLS).
- * Tenant scope: company_id = active header OR NULL (orphans backfilled on read).
+ * CRM customer list — company_id from server-side membership only (never client header).
  */
 export async function GET(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+
+  const { supabase, user, companyId } = auth;
   const trash =
     new URL(req.url).searchParams.get("trash") === "1" ||
     new URL(req.url).searchParams.get("trash") === "true";
-
-  const supabase = getSupabaseServer();
-
-  const [{ count: tableTotal }, { count: tableActive }] = await Promise.all([
-    supabase.from("customers").select("id", { count: "exact", head: true }),
-    activeCustomersOnly(supabase.from("customers").select("id", { count: "exact", head: true })),
-  ]);
-
-  console.log("[api/customers] table diagnostics:", {
-    activeCompanyId: companyId,
-    trash,
-    customersTableTotal: tableTotal ?? null,
-    customersTableActiveNotDeleted: tableActive ?? null,
-  });
 
   const result = await fetchCustomersForCompanyList(supabase, companyId, { trash });
 
   if (result.error) {
     console.error("[api/customers] GET failed:", {
-      companyId,
+      authUserId: user.id,
+      activeCompanyId: companyId,
       trash,
       error: result.error,
     });
@@ -51,19 +41,80 @@ export async function GET(req: Request) {
     );
   }
 
-  logCustomerListStats("[api/customers] GET ok", result.stats, {
+  const rows = filterRowsForCompany(result.rows, companyId);
+  const customerIds = rows.map((r) => r.id);
+
+  console.log("[api/customers] GET ok:", {
+    authUserId: user.id,
     activeCompanyId: companyId,
-    apiCompanyId: companyId,
+    returnedCustomerIds: customerIds,
+    returnedCount: rows.length,
     trash,
-    backfilledOrphanCount: result.backfilledOrphanCount,
   });
 
   return NextResponse.json({
     ok: true,
-    rows: result.rows,
-    fetchedCount: result.fetchedCount,
+    rows,
+    fetchedCount: rows.length,
     companyId,
-    backfilledOrphanCount: result.backfilledOrphanCount,
     stats: result.stats,
+  });
+}
+
+/**
+ * Create customer — company_id and created_by_user_id forced on server.
+ */
+export async function POST(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+
+  const { supabase, user, companyId } = auth;
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const row = customerInsertPayload(
+    {
+      ...body,
+      created_by_user_id: user.id,
+    },
+    companyId,
+  );
+
+  const requestId = `api-customers-${Date.now()}`;
+  const result = await upsertCustomerForCompany(supabase, companyId, row, {
+    requestId,
+    source: "api.customers.POST",
+  });
+
+  if (result.error) {
+    console.error("[api/customers] POST failed:", {
+      authUserId: user.id,
+      activeCompanyId: companyId,
+      error: result.error.message,
+    });
+    return NextResponse.json(
+      { ok: false, error: result.error.message },
+      { status: 500 },
+    );
+  }
+
+  console.log("[api/customers] POST ok:", {
+    authUserId: user.id,
+    activeCompanyId: companyId,
+    customerId: result.customerId,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    customerId: result.customerId,
+    customer: result.customer,
+    companyId,
   });
 }

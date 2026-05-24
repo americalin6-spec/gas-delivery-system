@@ -7,16 +7,19 @@ import {
 } from "../../../lib/customerAiSummary";
 import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
-import { getServerCompanyId } from "../../../lib/companyContext";
+import { requireApiAuth } from "../../../lib/apiAuth";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
-import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 const CONVERSATIONS_SELECT =
   "id, customer_id, message_text, direction, created_at";
 
 export async function POST(req: Request) {
   try {
-    const companyId = getServerCompanyId(req);
+    const auth = await requireApiAuth(req);
+    if (auth instanceof NextResponse) {
+      return auth;
+    }
+    const { supabase, companyId } = auth;
     let body: { customer_id?: string; conversation_text?: string } = {};
     try {
       body = (await req.json()) as typeof body;
@@ -32,7 +35,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = getSupabaseServer();
     const { customer, error: fetchError } = await fetchCustomerByIdForActiveCompany<
       Record<string, unknown>
     >(supabase, customerId, companyId);

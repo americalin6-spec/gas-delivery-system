@@ -204,7 +204,7 @@ export default function CustomersPage() {
 
     const [customersRes, convosRes] = await Promise.all([
       fetch(`/api/customers?trash=${trashView ? "1" : "0"}`, {
-        headers: companyIdHeader(),
+        headers: companyIdHeader(companyId),
         cache: "no-store",
       }).then(async (res) => {
         const json = (await res.json()) as {

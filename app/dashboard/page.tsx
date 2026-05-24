@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { supabase } from "../../supabase";
+import { useServerTenant } from "../hooks/useServerTenant";
 import { formatLocalYmd } from "../lib/followUpReminders";
 import { useViewportWidth } from "../hooks/useViewportWidth";
 import { useAppLang } from "../hooks/useAppLang";
@@ -34,18 +35,12 @@ import {
   saveDraft,
   type HomeFormDraft,
 } from "../lib/homeFormDraft";
-import {
-  WORKSPACE_CUSTOMER_SELECT,
-  type WorkspaceCustomerRow,
-} from "../lib/followUpWorkspace";
+import { type WorkspaceCustomerRow } from "../lib/followUpWorkspace";
 import { buildHomeAnalysisMapping } from "../lib/aiAnalysisMapping";
 import {
   buildSanitizedCrmDatePayload,
   sanitizeImportantDateFields,
 } from "../lib/sanitizeImportantDateFields";
-import { activeCustomersOnly } from "../lib/customerSoftDelete";
-import { logActiveCompany } from "../lib/clientCompany";
-import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { upsertCustomerForCompany } from "../lib/customersTenant";
 import {
   getCustomerWriteEvents,
@@ -208,7 +203,12 @@ export default function Home() {
   const { lang, setLang } = useAppLang();
   const { fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile, lang);
   const ui = homePageCopy(lang);
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const {
+    activeCompanyId,
+    ready: tenantReady,
+    authUserId,
+    error: tenantError,
+  } = useServerTenant();
 
   const [loading, setLoading] = useState(false);
   const [savingCrm, setSavingCrm] = useState(false);
@@ -265,37 +265,63 @@ export default function Home() {
   }
 
   const loadWorkspaceRows = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
+    if (!tenantReady || activeCompanyId <= 0 || !authUserId) return;
     setWorkspaceLoading(true);
-    setWorkspaceError(null);
+    setWorkspaceError(tenantError);
     try {
-      logActiveCompany("homepage.loadWorkspaceRows", { companyId });
-      const { data, error } = await activeCustomersOnly(
-        supabase
-          .from("customers")
-          .select(WORKSPACE_CUSTOMER_SELECT)
-          .eq("company_id", companyId),
-      )
-        .order("created_at", { ascending: false, nullsFirst: false })
-        .limit(500);
+      const res = await fetch("/api/customers", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        rows?: WorkspaceCustomerRow[];
+        error?: string;
+        companyId?: number;
+      };
 
-      if (error) {
+      if (!res.ok || !json.ok || !Array.isArray(json.rows)) {
         setWorkspaceRows([]);
-        setWorkspaceError(error.message);
+        setWorkspaceError(json.error ?? `load failed (${res.status})`);
+        console.error("[dashboard] customers load failed:", {
+          authUserId,
+          activeCompanyId,
+          apiCompanyId: json.companyId ?? null,
+          error: json.error ?? res.status,
+        });
       } else {
-        setWorkspaceRows((data ?? []) as WorkspaceCustomerRow[]);
+        const rows = (json.rows as WorkspaceCustomerRow[]).filter(
+          (r) => Number(r.company_id) === activeCompanyId,
+        );
+        const returnedCustomerCompanyIds = [
+          ...new Set(rows.map((r) => Number(r.company_id))),
+        ];
+        console.log("[dashboard] customers loaded:", {
+          authUserId,
+          activeCompanyId,
+          apiCompanyId: json.companyId ?? null,
+          customerCount: rows.length,
+          returnedCustomerCompanyIds,
+        });
+        setWorkspaceRows(rows);
+        setWorkspaceError(null);
       }
-    } catch {
+    } catch (err) {
       setWorkspaceRows([]);
-      setWorkspaceError("load failed");
+      setWorkspaceError(err instanceof Error ? err.message : "load failed");
+      console.error("[dashboard] customers load exception:", {
+        authUserId,
+        activeCompanyId,
+        error: err,
+      });
     }
     setWorkspaceLoading(false);
-  }, [companyId, companyReady]);
+  }, [activeCompanyId, authUserId, tenantError, tenantReady]);
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (!tenantReady || activeCompanyId <= 0 || !authUserId) return;
     void loadWorkspaceRows();
-  }, [loadWorkspaceRows, companyReady, companyId]);
+  }, [loadWorkspaceRows, tenantReady, activeCompanyId, authUserId]);
 
   useEffect(() => {
     const sync = () => setCustomerWriteEvents(getCustomerWriteEvents());
@@ -452,7 +478,7 @@ export default function Home() {
         customer_name: customerName || null,
         phone: phone || null,
         line_id: lineId || null,
-        company_id: companyId,
+        company_id: activeCompanyId,
         timestamp: new Date().toISOString(),
       });
       return;
@@ -472,7 +498,7 @@ export default function Home() {
       return null;
     }
 
-    if (!companyReady || companyId <= 0) {
+    if (!tenantReady || activeCompanyId <= 0 || !authUserId) {
       return null;
     }
 
@@ -582,14 +608,14 @@ export default function Home() {
       console.log("[saveToCrm] upsert request", {
         requestId,
         requestNum,
-        companyId,
+        activeCompanyId,
+        authUserId,
         payload: baseInsert,
       });
-      logActiveCompany("saveToCrm.upsert", { requestId, requestNum, companyId, customer_name: savedName });
 
       const { customerId, action, error, customer: savedRow } = await upsertCustomerForCompany(
         supabase,
-        companyId,
+        activeCompanyId,
         baseInsert,
         { requestId, source, conversationText: lineText, lang },
       );
@@ -631,18 +657,18 @@ export default function Home() {
       }
 
       if (customerId && lineText.trim()) {
-        await saveManualPasteConversation(customerId, lineText, companyId);
+        await saveManualPasteConversation(customerId, lineText, activeCompanyId);
       }
 
       if (customerId) {
-        void postCrmNotification(companyId, {
+        void postCrmNotification(activeCompanyId, {
           type: "new_customer",
           customer_id: customerId,
           customer_name: savedName,
           lang,
         });
         if (urgencyFlags.urgent) {
-          void postCrmNotification(companyId, {
+          void postCrmNotification(activeCompanyId, {
             type: "urgent_customer",
             customer_id: customerId,
             customer_name: savedName,
@@ -759,7 +785,7 @@ export default function Home() {
         extractedPreview,
       });
 
-      if (companyReady && companyId > 0) {
+      if (tenantReady && activeCompanyId > 0 && authUserId) {
         await persistHomepageCrm({
           source: HOMEPAGE_ANALYZE_SAVE_SOURCE,
           silent: true,

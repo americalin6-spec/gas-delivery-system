@@ -1,6 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
+/**
+ * Browser Supabase client (authenticated session via cookies).
+ * Use this in client components so RLS applies per logged-in user.
+ */
+import { getSupabaseBrowser } from "./app/lib/supabaseBrowser";
 
-export const supabase = createClient(
-  "https://cblyiubhqejxlggrxvjo.supabase.co",
-  "sb_publishable_Iiu4tJ3QrNM3feM6pasj6Q_if6dWIKF"
-);
+export const supabase = getSupabaseBrowser();

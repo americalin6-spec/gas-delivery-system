@@ -4,9 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Multi-tenant context, server side.
  *
  * Single source of truth for resolving which company a server request acts on.
- * Tenant is selected via the `x-company-id` header (set by the client helpers),
- * with `DEFAULT_COMPANY_ID` (env or 1) as the fallback for cron jobs, the LINE
- * webhook, and any caller that doesn't set the header.
+ * `DEFAULT_COMPANY_ID` is for LINE webhook / cron only — never for authenticated CRM APIs.
+ * CRM routes resolve company via `requireApiAuth` (owned workspace + company_members).
  */
 
 export const COMPANY_HEADER_NAME = "x-company-id";

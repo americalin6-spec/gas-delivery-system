@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ActiveCompanyProvider } from "./components/ActiveCompanyProvider";
 import { AuthGate } from "./components/auth/AuthGate";
+import { TenantBootstrap } from "./components/auth/TenantBootstrap";
 import { CrmAppChrome } from "./components/CrmAppChrome";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
       >
         <ActiveCompanyProvider>
           <AuthGate>
+            <TenantBootstrap />
             <CrmAppChrome>{children}</CrmAppChrome>
           </AuthGate>
         </ActiveCompanyProvider>

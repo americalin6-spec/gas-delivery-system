@@ -1,5 +1,3 @@
-import { DEFAULT_COMPANY_ID } from "./companyContext";
-
 const DEBUG =
   typeof process !== "undefined" &&
   process.env.NEXT_PUBLIC_DEBUG_COMPANY === "1";
@@ -11,9 +9,9 @@ export function logActiveCompany(
 ): void {
   const fromPayload = payload?.companyId;
   const activeCompanyId =
-    typeof fromPayload === "number" && Number.isFinite(fromPayload)
+    typeof fromPayload === "number" && Number.isFinite(fromPayload) && fromPayload > 0
       ? fromPayload
-      : DEFAULT_COMPANY_ID;
+      : 0;
   const line = { tag, activeCompanyId, ...payload };
   if (DEBUG) {
     console.log("[activeCompany]", line);

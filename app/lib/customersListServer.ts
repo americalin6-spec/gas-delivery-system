@@ -14,15 +14,12 @@ export type CustomersListFetchStats = {
   rowsWithActiveCompanyId: number;
   rowsOtherCompanyId: number;
   rowsFilteredByCompanyId: number;
-  byCompanyIdQueryCount: number;
-  byNullCompanyIdQueryCount: number;
 };
 
 export type FetchCustomersListResult = {
   rows: CustomersListRow[];
   error: string | null;
   fetchedCount: number;
-  backfilledOrphanCount: number;
   stats: CustomersListFetchStats;
 };
 
@@ -54,8 +51,6 @@ export function summarizeCustomerListRows(
     rowsWithActiveCompanyId,
     rowsOtherCompanyId,
     rowsFilteredByCompanyId: rowsOtherCompanyId,
-    byCompanyIdQueryCount: 0,
-    byNullCompanyIdQueryCount: 0,
   };
 }
 
@@ -65,18 +60,6 @@ export function logCustomerListStats(
   extra?: Record<string, unknown>,
 ): void {
   console.log(tag, { ...stats, ...extra });
-}
-
-function mergeCustomersById(...lists: CustomersListRow[][]): CustomersListRow[] {
-  const map = new Map<string, CustomersListRow>();
-  for (const list of lists) {
-    for (const row of list) {
-      const id = row.id == null ? "" : String(row.id);
-      if (!id) continue;
-      map.set(id, row);
-    }
-  }
-  return [...map.values()];
 }
 
 function sortCustomerRows(rows: CustomersListRow[], trash: boolean): CustomersListRow[] {
@@ -90,42 +73,17 @@ function sortCustomerRows(rows: CustomersListRow[], trash: boolean): CustomersLi
   });
 }
 
-/** Assign active tenant to rows created without company_id (LINE webhook, legacy imports). */
-async function backfillOrphanCompanyIds(
-  supabase: SupabaseClient,
+/** Rows strictly belonging to this tenant (null/other company_id excluded). */
+export function filterRowsForCompany(
   rows: CustomersListRow[],
   companyId: number,
-): Promise<number> {
-  const orphanIds = rows
-    .filter((r) => parseRowCompanyId(r.company_id) === null)
-    .map((r) => r.id)
-    .filter((id) => id != null);
-
-  if (orphanIds.length === 0) return 0;
-
-  const { error } = await supabase
-    .from("customers")
-    .update({ company_id: companyId })
-    .in("id", orphanIds)
-    .is("company_id", null);
-
-  if (error) {
-    console.error("[customersList] backfillOrphanCompanyIds failed:", error.message);
-    return 0;
-  }
-
-  for (const row of rows) {
-    if (parseRowCompanyId(row.company_id) === null) {
-      row.company_id = companyId;
-    }
-  }
-
-  return orphanIds.length;
+): CustomersListRow[] {
+  return rows.filter((row) => parseRowCompanyId(row.company_id) === companyId);
 }
 
 /**
- * Load every CRM customer for the active company.
- * Two explicit queries (eq + is null) — avoids PostgREST .or() dropping rows with other filters.
+ * Load CRM customers for one company only.
+ * Never merges null company_id rows — orphans are invisible to normal users.
  */
 export async function fetchCustomersForCompanyList(
   supabase: SupabaseClient,
@@ -134,100 +92,50 @@ export async function fetchCustomersForCompanyList(
 ): Promise<FetchCustomersListResult> {
   const emptyStats = summarizeCustomerListRows([], companyId);
 
+  if (!Number.isFinite(companyId) || companyId <= 0) {
+    return {
+      rows: [],
+      error: "invalid company_id",
+      fetchedCount: 0,
+      stats: emptyStats,
+    };
+  }
+
   const baseSelect = () => supabase.from("customers").select("*");
 
-  const [byCompanyRes, byNullCompanyRes] = await Promise.all([
-    options.trash
-      ? trashCustomersOnly(baseSelect())
-          .eq("company_id", companyId)
-          .limit(CUSTOMERS_LIST_MAX_ROWS)
-      : activeCustomersOnly(baseSelect())
-          .eq("company_id", companyId)
-          .limit(CUSTOMERS_LIST_MAX_ROWS),
-    options.trash
-      ? trashCustomersOnly(baseSelect())
-          .is("company_id", null)
-          .limit(CUSTOMERS_LIST_MAX_ROWS)
-      : activeCustomersOnly(baseSelect())
-          .is("company_id", null)
-          .limit(CUSTOMERS_LIST_MAX_ROWS),
-  ]);
+  const query = options.trash
+    ? trashCustomersOnly(baseSelect())
+        .eq("company_id", companyId)
+        .limit(CUSTOMERS_LIST_MAX_ROWS)
+    : activeCustomersOnly(baseSelect())
+        .eq("company_id", companyId)
+        .limit(CUSTOMERS_LIST_MAX_ROWS);
 
-  if (byCompanyRes.error) {
-    console.error("[customersList] byCompanyId query failed:", byCompanyRes.error.message);
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[customersList] query failed:", error.message, { companyId });
     return {
       rows: [],
-      error: byCompanyRes.error.message,
+      error: error.message,
       fetchedCount: 0,
-      backfilledOrphanCount: 0,
       stats: emptyStats,
     };
   }
 
-  if (byNullCompanyRes.error) {
-    console.error("[customersList] byNullCompanyId query failed:", byNullCompanyRes.error.message);
-    return {
-      rows: [],
-      error: byNullCompanyRes.error.message,
-      fetchedCount: 0,
-      backfilledOrphanCount: 0,
-      stats: emptyStats,
-    };
-  }
+  const scoped = filterRowsForCompany((data ?? []) as CustomersListRow[], companyId);
+  const sorted = sortCustomerRows(scoped, options.trash);
+  const stats = summarizeCustomerListRows(sorted, companyId);
 
-  const byCompanyRows = (byCompanyRes.data ?? []) as CustomersListRow[];
-  const byNullRows = (byNullCompanyRes.data ?? []) as CustomersListRow[];
-
-  logCustomerListStats(
-    "[customersList] query byCompanyId",
-    {
-      ...summarizeCustomerListRows(byCompanyRows, companyId),
-      byCompanyIdQueryCount: byCompanyRows.length,
-      byNullCompanyIdQueryCount: 0,
-    },
-    { activeCompanyId: companyId, trash: options.trash },
-  );
-
-  logCustomerListStats(
-    "[customersList] query byNullCompanyId",
-    {
-      ...summarizeCustomerListRows(byNullRows, companyId),
-      byCompanyIdQueryCount: 0,
-      byNullCompanyIdQueryCount: byNullRows.length,
-    },
-    { activeCompanyId: companyId, trash: options.trash },
-  );
-
-  const merged = sortCustomerRows(
-    mergeCustomersById(byCompanyRows, byNullRows),
-    options.trash,
-  );
-
-  const stats = summarizeCustomerListRows(merged, companyId);
-  stats.byCompanyIdQueryCount = byCompanyRows.length;
-  stats.byNullCompanyIdQueryCount = byNullRows.length;
-
-  logCustomerListStats("[customersList] merged result", stats, {
+  logCustomerListStats("[customersList] result", stats, {
     activeCompanyId: companyId,
     trash: options.trash,
   });
 
-  const backfilledOrphanCount = await backfillOrphanCompanyIds(supabase, merged, companyId);
-
-  if (backfilledOrphanCount > 0) {
-    const afterBackfill = summarizeCustomerListRows(merged, companyId);
-    afterBackfill.byCompanyIdQueryCount = stats.byCompanyIdQueryCount;
-    afterBackfill.byNullCompanyIdQueryCount = stats.byNullCompanyIdQueryCount;
-    logCustomerListStats("[customersList] after backfill", afterBackfill, {
-      backfilledOrphanCount,
-    });
-  }
-
   return {
-    rows: merged,
+    rows: sorted,
     error: null,
-    fetchedCount: merged.length,
-    backfilledOrphanCount,
+    fetchedCount: sorted.length,
     stats,
   };
 }

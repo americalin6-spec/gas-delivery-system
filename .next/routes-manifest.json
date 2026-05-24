@@ -161,6 +161,12 @@
       "namedRegex": "^/api/save(?:/)?$"
     },
     {
+      "page": "/api/tenant/bootstrap",
+      "regex": "^/api/tenant/bootstrap(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/tenant/bootstrap(?:/)?$"
+    },
+    {
       "page": "/auth/callback",
       "regex": "^/auth/callback(?:/)?$",
       "routeKeys": {},

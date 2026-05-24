@@ -18,6 +18,7 @@
   "/api/reminder-check/route": "/api/reminder-check",
   "/api/reminder-settings/route": "/api/reminder-settings",
   "/api/save/route": "/api/save",
+  "/api/tenant/bootstrap/route": "/api/tenant/bootstrap",
   "/auth/callback/route": "/auth/callback",
   "/calendar/page": "/calendar",
   "/customers/[id]/page": "/customers/[id]",

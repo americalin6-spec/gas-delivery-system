@@ -10,6 +10,7 @@ import { urgentActionLabel } from "./customerUrgency";
 
 export type WorkspaceCustomerRow = {
   id: string | number;
+  company_id?: number | null;
   customer_name?: string | null;
   phone?: string | null;
   line_id?: string | null;

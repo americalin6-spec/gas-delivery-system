@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { findLineUserIdForCustomer } from "../../lib/conversationsServer";
 import { runCustomerAiFieldExtraction } from "../../lib/customerAiExtractServer";
-import { getSupabaseServer } from "../../lib/supabaseServer";
-import { getServerCompanyId } from "../../lib/companyContext";
+import { requireApiAuth } from "../../lib/apiAuth";
 
 const CONVERSATIONS_SELECT =
   "id, customer_id, line_user_id, message_text, direction, created_at, company_id";
@@ -16,7 +15,11 @@ type ConversationInsertBody = {
 
 /** Insert a conversation row (typically outbound messages sent/copied from CRM). */
 export async function POST(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
   let body: ConversationInsertBody = {};
   try {
     body = (await req.json()) as ConversationInsertBody;
@@ -41,7 +44,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const supabase = getSupabaseServer();
   const direction = body.direction?.toString().trim() === "inbound" ? "inbound" : "outbound";
 
   let lineUserId = body.line_user_id?.toString().trim() ?? "";
@@ -107,9 +109,13 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, id: data?.id ?? null, extract });
 }
 
-/** Fetch CRM conversation history for a customer. Server-side reads bypass anon RLS. */
+/** Fetch CRM conversation history for a customer (RLS-scoped). */
 export async function GET(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
   const url = new URL(req.url);
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
   const lineUserId = url.searchParams.get("line_user_id")?.trim() ?? "";
@@ -121,11 +127,11 @@ export async function GET(req: Request) {
     );
   }
 
-  const supabase = getSupabaseServer();
   let query = supabase
     .from("conversations")
     .select(CONVERSATIONS_SELECT)
-    .eq("customer_id", customerId);
+    .eq("customer_id", customerId)
+    .eq("company_id", companyId);
 
   if (lineUserId) {
     query = query.eq("line_user_id", lineUserId);
@@ -181,7 +187,11 @@ function parseDeleteIds(url: URL): string[] {
  * - `?customer_id=...&all=1` — fallback when ids not provided.
  */
 export async function DELETE(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
   const url = new URL(req.url);
   const id = url.searchParams.get("id")?.trim() ?? "";
   const customerId = url.searchParams.get("customer_id")?.trim() ?? "";
@@ -204,8 +214,6 @@ export async function DELETE(req: Request) {
       { status: 400 },
     );
   }
-
-  const supabase = getSupabaseServer();
 
   if (ids.length > 0) {
     const { error, count } = await supabase
@@ -243,7 +251,8 @@ export async function DELETE(req: Request) {
     const { data: rows, error: listError } = await supabase
       .from("conversations")
       .select("id")
-      .eq("customer_id", customerId);
+      .eq("customer_id", customerId)
+      .eq("company_id", companyId);
 
     if (listError) {
       console.error("[conversations] DELETE list error:", {

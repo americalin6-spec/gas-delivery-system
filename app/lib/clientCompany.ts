@@ -10,15 +10,6 @@ import { COMPANY_HEADER_NAME } from "./companyContext";
 
 export const ACTIVE_COMPANY_STORAGE_KEY = "crm.companyId";
 
-function defaultClientCompanyId(): number {
-  const env = process.env.NEXT_PUBLIC_DEFAULT_COMPANY_ID;
-  if (env) {
-    const n = Number(env);
-    if (Number.isFinite(n) && Number.isInteger(n) && n > 0) return n;
-  }
-  return 1;
-}
-
 /** Client wrapper — injects persisted active company id into tenant logs. */
 export function logActiveCompany(
   tag: string,
@@ -27,17 +18,20 @@ export function logActiveCompany(
   logActiveCompanyBase(tag, { ...payload, companyId: getClientCompanyId() });
 }
 
+/**
+ * Persisted tenant id. Returns 0 when unset — never defaults to shared company 1.
+ */
 export function getClientCompanyId(): number {
-  if (typeof window === "undefined") return defaultClientCompanyId();
+  if (typeof window === "undefined") return 0;
   try {
     const raw = window.localStorage.getItem(ACTIVE_COMPANY_STORAGE_KEY);
-    if (!raw) return defaultClientCompanyId();
+    if (!raw) return 0;
     const n = Number(raw);
     if (Number.isFinite(n) && Number.isInteger(n) && n > 0) return n;
   } catch {
     // localStorage may be disabled
   }
-  return defaultClientCompanyId();
+  return 0;
 }
 
 export function setClientCompanyId(id: number): void {
@@ -52,9 +46,10 @@ export function setClientCompanyId(id: number): void {
   }
 }
 
-/** Headers to forward the active tenant to API routes. */
-export function companyIdHeader(): Record<string, string> {
-  const id = getClientCompanyId();
+/** Headers to forward the active tenant to API routes (omitted until company is known). */
+export function companyIdHeader(companyId?: number): Record<string, string> {
+  const id = companyId ?? getClientCompanyId();
+  if (!Number.isFinite(id) || id <= 0) return {};
   return { [COMPANY_HEADER_NAME]: String(id) };
 }
 
@@ -64,6 +59,9 @@ export function withClientCompanyId<T extends Record<string, unknown>>(
   companyId?: number,
 ): T & { company_id: number } {
   const cid = companyId ?? getClientCompanyId();
+  if (!Number.isFinite(cid) || cid <= 0) {
+    throw new Error("withClientCompanyId: active company is not set");
+  }
   const payload = { ...row, company_id: cid };
   logActiveCompany("withClientCompanyId", {
     companyId: cid,

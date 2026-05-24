@@ -17,10 +17,18 @@ export function useAuthSession(): AuthSessionState {
   useEffect(() => {
     const supabase = getSupabaseBrowser();
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
+    void (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session ?? null);
+      } else {
+        setSession(null);
+      }
       setLoading(false);
-    });
+    })();
 
     const {
       data: { subscription },

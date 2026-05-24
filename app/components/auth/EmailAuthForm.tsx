@@ -11,7 +11,11 @@ import {
 import { getSupabaseBrowser } from "../../lib/supabaseBrowser";
 import { DASHBOARD_PATH } from "../../lib/supabaseConfig";
 
-export function EmailLoginForm() {
+export function EmailLoginForm({
+  redirectNext = DASHBOARD_PATH,
+}: {
+  redirectNext?: string;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,7 +44,7 @@ export function EmailLoginForm() {
       setError(signInError.message || authCopy.authError);
       return;
     }
-    router.push(DASHBOARD_PATH);
+    router.push(redirectNext);
     router.refresh();
   }
 

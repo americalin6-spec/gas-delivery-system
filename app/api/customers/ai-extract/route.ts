@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getServerCompanyId } from "../../../lib/companyContext";
+import { requireApiAuth } from "../../../lib/apiAuth";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
-import { getSupabaseServer } from "../../../lib/supabaseServer";
 
 export async function POST(req: Request) {
   try {
-    const companyId = getServerCompanyId(req);
+    const auth = await requireApiAuth(req);
+    if (auth instanceof NextResponse) {
+      return auth;
+    }
+    const { supabase, companyId } = auth;
     let body: { customer_id?: string; conversation_text?: string } = {};
     try {
       body = (await req.json()) as typeof body;
@@ -21,7 +24,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = getSupabaseServer();
     const extract = await runCustomerAiFieldExtraction(supabase, companyId, customerId, {
       conversationText: body.conversation_text,
       trigger: "api.ai-extract",

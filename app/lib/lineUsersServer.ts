@@ -22,7 +22,7 @@ export type FetchLineUsersDebug = {
   customerIdInput: string;
   companyId: number | null;
   matchCandidates: string[];
-  authKeyKind: "service_role" | "missing_service_role";
+  authKeyKind: "service_role" | "missing_service_role" | "authenticated";
   queries: LineUsersQueryLog[];
   tableProbeCount: number;
   finalReturnedRows: number;

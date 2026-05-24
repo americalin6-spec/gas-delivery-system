@@ -49,55 +49,16 @@ export async function fetchCustomerByIdForActiveCompany<T>(
     return { customer: scoped.data as T, error: null };
   }
 
-  const fallback = await supabase
-    .from("customers")
-    .select("*")
-    .eq("id", customerId)
-    .maybeSingle();
-
-  if (fallback.error) {
-    console.error("[customersTenant] fallback fetch error:", fallback.error);
-    return { customer: null, error: fallback.error };
-  }
-  if (!fallback.data) {
-    logActiveCompany("fetchCustomerById.missing", { customerId, companyId });
-    return { customer: null, error: null };
-  }
-
-  const row = fallback.data as Record<string, unknown>;
-  const existingCompanyId = parseRowCompanyId(row.company_id);
-
-  if (existingCompanyId === null) {
-    logActiveCompany("fetchCustomerById.backfillNull", { customerId, companyId });
-    const patched = await supabase
-      .from("customers")
-      .update({ company_id: companyId })
-      .eq("id", customerId)
-      .is("company_id", null)
-      .select("*")
-      .maybeSingle();
-
-    if (patched.error) {
-      console.error("[customersTenant] backfill error:", patched.error);
-      return { customer: null, error: patched.error };
-    }
-    return { customer: (patched.data as T) ?? null, error: null };
-  }
-
-  logActiveCompany("fetchCustomerById.wrongTenant", {
-    customerId,
-    activeCompanyId: companyId,
-    rowCompanyId: existingCompanyId,
-  });
+  logActiveCompany("fetchCustomerById.missing", { customerId, companyId });
   return { customer: null, error: null };
 }
 
-/** Build insert payload — always sets company_id to active tenant (overwrites body). */
+/** Build insert payload — always sets company_id to server tenant (strips client values). */
 export function customerInsertPayload<T extends Record<string, unknown>>(
   row: T,
   companyId: number,
 ): T & { company_id: number } {
-  const payload = { ...row, company_id: companyId };
+  const payload = { ...row, company_id: companyId } as T & { company_id: number };
   logActiveCompany("customerInsertPayload", {
     companyId,
     customer_name: row.customer_name,

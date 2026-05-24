@@ -1,31 +1,38 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "../../lib/supabaseServer";
+import { requireApiAuth } from "../../lib/apiAuth";
+import { listUserCompanies } from "../../lib/tenantAuth";
+import { createCompanyForUser } from "../../lib/tenantBootstrapServer";
 
 /**
- * Company directory (tenant root). Browser uses publishable/anon keys whose JWT
- * role may not match Postgres `anon`/`authenticated` in RLS policies — so
- * list/create go through the service-role server client (bypasses RLS).
- *
- * CRM tenant isolation stays on customers/conversations via company_id;
- * this endpoint only manages the global companies table.
+ * Company directory for the signed-in user only (RLS + membership).
  */
-
-export async function GET() {
-  const supabase = getSupabaseServer();
-  const { data, error } = await supabase
-    .from("companies")
-    .select("id, name")
-    .order("id", { ascending: true });
-
-  if (error) {
-    console.error("[api/companies] GET error:", error.message);
-    return NextResponse.json({ ok: false, error: error.message, rows: [] }, { status: 500 });
+export async function GET(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
   }
 
-  return NextResponse.json({ ok: true, rows: data ?? [] });
+  const { supabase, companyId, user } = auth;
+  const { companies, error } = await listUserCompanies(supabase);
+
+  if (error) {
+    console.error("[api/companies] GET error:", error);
+    return NextResponse.json({ ok: false, error, rows: [] }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    rows: companies,
+    activeCompanyId: companyId,
+  });
 }
 
 export async function POST(req: Request) {
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+
   let body: { name?: unknown } = {};
   try {
     body = (await req.json()) as { name?: unknown };
@@ -38,17 +45,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "name is required" }, { status: 400 });
   }
 
-  const supabase = getSupabaseServer();
-  const { data, error } = await supabase.from("companies").insert({ name }).select("id, name").maybeSingle();
+  const { user } = auth;
 
-  if (error) {
-    console.error("[api/companies] POST error:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  const { company, error } = await createCompanyForUser(user, name);
+  if (error || !company) {
+    console.error("[api/companies] POST error:", error);
+    return NextResponse.json(
+      { ok: false, error: error ?? "Insert failed" },
+      { status: 500 },
+    );
   }
 
-  if (!data) {
-    return NextResponse.json({ ok: false, error: "Insert returned no row" }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true, company: data });
+  return NextResponse.json({ ok: true, company });
 }

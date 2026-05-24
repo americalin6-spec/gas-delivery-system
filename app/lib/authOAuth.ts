@@ -27,7 +27,7 @@ export async function signInWithGoogle(
   const origin = window.location.origin;
   const redirectTo = buildOAuthRedirectUrl({
     origin,
-    next: opts.redirectNext ?? "/",
+    next: opts.redirectNext ?? "/dashboard",
     popup: true,
   });
 
@@ -68,7 +68,7 @@ export async function signInWithGoogle(
       options: {
         redirectTo: buildOAuthRedirectUrl({
           origin,
-          next: opts.redirectNext ?? "/",
+          next: opts.redirectNext ?? "/dashboard",
           popup: false,
         }),
       },

@@ -3,35 +3,47 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuthSession } from "../../hooks/useAuthSession";
-import { HOME_PATH, isProtectedPath } from "../../lib/authRoutes";
+import {
+  DASHBOARD_PATH,
+  isProtectedPath,
+  LOGIN_PATH,
+} from "../../lib/authRoutes";
+import { isInternalCrmRoute, showInternalCrmNav } from "../../lib/crmNavVisibility";
 import { AuthLoadingScreen } from "./AuthLoadingScreen";
 
 /**
- * Protects internal routes: unauthenticated users are sent to the public homepage.
+ * Client-side guard (middleware is the primary gate).
+ * Blocks protected UI until session is confirmed; redirects guests to /login.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, loading } = useAuthSession();
 
-  const protectedRoute = isProtectedPath(pathname ?? "");
+  const pathReady = pathname != null && pathname.length > 0;
+  const protectedRoute = pathReady ? isProtectedPath(pathname) : true;
 
   useEffect(() => {
-    if (loading || !protectedRoute) return;
+    if (!pathReady || loading || !protectedRoute) return;
     if (!session) {
-      router.replace(HOME_PATH);
+      const next = encodeURIComponent(pathname);
+      router.replace(`${LOGIN_PATH}?next=${next}`);
+      return;
     }
-  }, [loading, protectedRoute, session, router]);
+    if (isInternalCrmRoute(pathname) && !showInternalCrmNav()) {
+      router.replace(DASHBOARD_PATH);
+    }
+  }, [pathReady, loading, protectedRoute, session, router, pathname]);
+
+  if (!pathReady) {
+    return <AuthLoadingScreen />;
+  }
 
   if (!protectedRoute) {
     return <>{children}</>;
   }
 
-  if (loading) {
-    return <AuthLoadingScreen />;
-  }
-
-  if (!session) {
+  if (loading || !session) {
     return <AuthLoadingScreen />;
   }
 

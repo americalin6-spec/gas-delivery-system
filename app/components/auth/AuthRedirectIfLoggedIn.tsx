@@ -7,15 +7,21 @@ import { DASHBOARD_PATH } from "../../lib/authRoutes";
 import { AuthLoadingScreen } from "./AuthLoadingScreen";
 
 /** On login/signup pages — skip form when already authenticated. */
-export function AuthRedirectIfLoggedIn({ children }: { children: ReactNode }) {
+export function AuthRedirectIfLoggedIn({
+  children,
+  postLoginPath = DASHBOARD_PATH,
+}: {
+  children: ReactNode;
+  postLoginPath?: string;
+}) {
   const router = useRouter();
   const { session, loading } = useAuthSession();
 
   useEffect(() => {
     if (!loading && session) {
-      router.replace(DASHBOARD_PATH);
+      router.replace(postLoginPath);
     }
-  }, [loading, session, router]);
+  }, [loading, session, router, postLoginPath]);
 
   if (loading || session) {
     return <AuthLoadingScreen />;

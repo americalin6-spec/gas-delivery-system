@@ -18,6 +18,7 @@
   "/api/reminder-check/route": "app/api/reminder-check/route.js",
   "/api/reminder-settings/route": "app/api/reminder-settings/route.js",
   "/api/save/route": "app/api/save/route.js",
+  "/api/tenant/bootstrap/route": "app/api/tenant/bootstrap/route.js",
   "/auth/callback/route": "app/auth/callback/route.js",
   "/calendar/page": "app/calendar/page.js",
   "/customers/[id]/page": "app/customers/[id]/page.js",

@@ -20,4 +20,4 @@ export function resolveSupabaseAnonKey(): string {
 }
 
 export const AUTH_CALLBACK_PATH = "/auth/callback";
-export { DASHBOARD_PATH, HOME_PATH } from "./authRoutes";
+export { DASHBOARD_PATH, HOME_PATH, LOGIN_PATH } from "./authRoutes";

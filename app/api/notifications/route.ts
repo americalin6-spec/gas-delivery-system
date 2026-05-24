@@ -10,8 +10,8 @@ import {
   type CrmNotificationRow,
   type CrmNotificationType,
 } from "../../lib/crmNotifications";
-import { COMPANY_HEADER_NAME, getServerCompanyId } from "../../lib/companyContext";
-import { getSupabaseServer } from "../../lib/supabaseServer";
+import { COMPANY_HEADER_NAME } from "../../lib/companyContext";
+import { requireApiAuth } from "../../lib/apiAuth";
 
 const LIST_LIMIT = 50;
 
@@ -43,8 +43,11 @@ function rowFromDb(raw: Record<string, unknown>): CrmNotificationRow {
 }
 
 export async function GET(req: Request) {
-  const companyId = getServerCompanyId(req);
-  const supabase = getSupabaseServer();
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
 
   const { data, error } = await supabase
     .from("crm_notifications")
@@ -64,7 +67,11 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
   let body: PostBody = {};
   try {
     body = (await req.json()) as PostBody;
@@ -128,7 +135,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const supabase = getSupabaseServer();
   const id = await createCrmNotification(supabase, {
     companyId,
     type,
@@ -146,15 +152,17 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const companyId = getServerCompanyId(req);
+  const auth = await requireApiAuth(req);
+  if (auth instanceof NextResponse) {
+    return auth;
+  }
+  const { supabase, companyId } = auth;
   let body: PatchBody = {};
   try {
     body = (await req.json()) as PatchBody;
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
-
-  const supabase = getSupabaseServer();
   const nowIso = new Date().toISOString();
 
   if (body.all) {
