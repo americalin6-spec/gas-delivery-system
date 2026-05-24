@@ -7,17 +7,21 @@ export const LOGIN_PATH = "/login";
 /** Authenticated app home (LINE 分析 / 儀表板). */
 export const DASHBOARD_PATH = "/dashboard";
 
+export const PRICING_PATH = "/pricing";
+
 export const PUBLIC_PATH_PREFIXES = [
   HOME_PATH,
   LOGIN_PATH,
   "/signup",
   "/auth/callback",
+  PRICING_PATH,
 ] as const;
 
 /** Webhooks / cron — no Supabase session (each route validates its own secret). */
 export const PUBLIC_API_PATH_PREFIXES = [
   "/api/line-webhook",
   "/api/reminder-check",
+  "/api/stripe/webhook",
 ] as const;
 
 function normalizePathname(pathname: string): string {

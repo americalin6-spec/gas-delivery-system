@@ -85,6 +85,18 @@
       "namedRegex": "^/api/analyze(?:/)?$"
     },
     {
+      "page": "/api/billing",
+      "regex": "^/api/billing(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/billing(?:/)?$"
+    },
+    {
+      "page": "/api/checkout",
+      "regex": "^/api/checkout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/checkout(?:/)?$"
+    },
+    {
       "page": "/api/companies",
       "regex": "^/api/companies(?:/)?$",
       "routeKeys": {},
@@ -175,6 +187,18 @@
       "namedRegex": "^/api/save(?:/)?$"
     },
     {
+      "page": "/api/stripe/webhook",
+      "regex": "^/api/stripe/webhook(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/stripe/webhook(?:/)?$"
+    },
+    {
+      "page": "/api/subscription",
+      "regex": "^/api/subscription(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/subscription(?:/)?$"
+    },
+    {
       "page": "/api/tenant/bootstrap",
       "regex": "^/api/tenant/bootstrap(?:/)?$",
       "routeKeys": {},
@@ -215,6 +239,12 @@
       "regex": "^/pipeline(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/pipeline(?:/)?$"
+    },
+    {
+      "page": "/pricing",
+      "regex": "^/pricing(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/pricing(?:/)?$"
     },
     {
       "page": "/settings",

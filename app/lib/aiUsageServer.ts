@@ -1,16 +1,26 @@
 import "server-only";
 
+import {
+  companyRowToSubscriptionView,
+  isTrialPeriodExpired,
+  loadCompanySubscriptionRow,
+  type CompanySubscriptionRow,
+} from "./subscriptionServer";
+import {
+  AI_LIMIT_EXCEEDED_MESSAGE,
+  AI_TRIAL_EXPIRED_MESSAGE,
+  PLAN_DEFINITIONS,
+} from "./subscriptionPlans";
 import { getSupabaseServiceRole } from "./supabaseServer";
 
-export const TRIAL_MONTHLY_LIMIT = 90;
-export const PAID_MONTHLY_LIMIT = 1000;
+export {
+  AI_TRIAL_EXPIRED_MESSAGE,
+  AI_LIMIT_EXCEEDED_MESSAGE,
+} from "./subscriptionPlans";
+
+export const TRIAL_MONTHLY_LIMIT = PLAN_DEFINITIONS.trial.aiMonthlyLimit;
+export const PAID_MONTHLY_LIMIT = PLAN_DEFINITIONS.professional.aiMonthlyLimit;
 export const TRIAL_PERIOD_DAYS = 30;
-
-export const AI_TRIAL_EXPIRED_MESSAGE =
-  "免費試用已結束，請升級方案後繼續使用";
-
-export const AI_LIMIT_EXCEEDED_MESSAGE =
-  "本月 AI 使用次數已達上限，請升級方案或下個月再使用";
 
 export type AiFeature =
   | "analyze"
@@ -18,19 +28,15 @@ export type AiFeature =
   | "ai_follow_up"
   | "ai_extract";
 
-export type CompanyPlanRow = {
-  id: number;
-  plan_status: string;
-  trial_started_at: string | null;
-  trial_ends_at: string | null;
-  ai_monthly_limit: number;
-  ai_used_this_month: number;
-  ai_usage_month: string | null;
-};
+export type CompanyPlanRow = CompanySubscriptionRow;
 
 export type CompanyAiUsageStatus = {
   planStatus: string;
   planStatusLabel: string;
+  subscriptionPlan: string;
+  subscriptionPlanLabel: string;
+  subscriptionStatus: string;
+  subscriptionStatusLabel: string;
   trialDaysRemaining: number | null;
   monthlyLimit: number;
   usedThisMonth: number;
@@ -38,6 +44,8 @@ export type CompanyAiUsageStatus = {
   trialEndsAt: string | null;
   trialExpired: boolean;
   limitReached: boolean;
+  hasActivePaidSubscription: boolean;
+  billingReady: boolean;
 };
 
 function currentUsageMonth(now = new Date()): string {
@@ -46,158 +54,80 @@ function currentUsageMonth(now = new Date()): string {
   return `${y}-${m}`;
 }
 
-export function buildNewCompanyPlanFields(now = new Date()): Record<string, unknown> {
-  const trialEnds = new Date(now);
-  trialEnds.setUTCDate(trialEnds.getUTCDate() + TRIAL_PERIOD_DAYS);
-  return {
-    plan_status: "trial",
-    trial_started_at: now.toISOString(),
-    trial_ends_at: trialEnds.toISOString(),
-    ai_monthly_limit: TRIAL_MONTHLY_LIMIT,
-    ai_used_this_month: 0,
-    ai_usage_month: currentUsageMonth(now),
-  };
-}
-
-function parseLimit(value: unknown, fallback: number): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
+export { buildNewCompanySubscriptionFields as buildNewCompanyPlanFields } from "./subscriptionServer";
 
 function parseUsageCount(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
-function effectiveMonthlyLimit(row: CompanyPlanRow): number {
-  if (row.plan_status === "paid") {
-    return parseLimit(row.ai_monthly_limit, PAID_MONTHLY_LIMIT);
-  }
-  return parseLimit(row.ai_monthly_limit, TRIAL_MONTHLY_LIMIT);
-}
-
-function isTrialExpired(row: CompanyPlanRow, now = new Date()): boolean {
-  if (row.plan_status === "paid") return false;
-  if (row.plan_status === "expired") return true;
-  const ends = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
-  if (!ends || Number.isNaN(ends.getTime())) return false;
-  return now.getTime() >= ends.getTime();
-}
-
-function trialDaysRemaining(row: CompanyPlanRow, now = new Date()): number | null {
-  if (row.plan_status === "paid") return null;
-  const ends = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
-  if (!ends || Number.isNaN(ends.getTime())) return null;
-  const ms = ends.getTime() - now.getTime();
-  if (ms <= 0) return 0;
-  return Math.ceil(ms / (24 * 60 * 60 * 1000));
-}
-
-function planStatusLabel(row: CompanyPlanRow, now = new Date()): string {
-  if (row.plan_status === "paid") return "付費方案";
-  if (isTrialExpired(row, now)) return "試用已結束";
-  return "免費試用中";
-}
-
-export function companyRowToUsageStatus(row: CompanyPlanRow, now = new Date()): CompanyAiUsageStatus {
-  const month = currentUsageMonth(now);
-  const used =
-    row.ai_usage_month === month ? parseUsageCount(row.ai_used_this_month) : 0;
-  const limit = effectiveMonthlyLimit(row);
-  const remaining = Math.max(0, limit - used);
-  const trialExpired = isTrialExpired(row, now);
-
+export function companyRowToUsageStatus(
+  row: CompanySubscriptionRow,
+  now = new Date(),
+): CompanyAiUsageStatus {
+  const view = companyRowToSubscriptionView(row, now);
   return {
     planStatus: row.plan_status,
-    planStatusLabel: planStatusLabel(row, now),
-    trialDaysRemaining: trialDaysRemaining(row, now),
-    monthlyLimit: limit,
-    usedThisMonth: used,
-    remainingThisMonth: remaining,
+    planStatusLabel: view.subscriptionPlanLabel,
+    subscriptionPlan: view.subscriptionPlan,
+    subscriptionPlanLabel: view.subscriptionPlanLabel,
+    subscriptionStatus: view.subscriptionStatus,
+    subscriptionStatusLabel: view.subscriptionStatusLabel,
+    trialDaysRemaining: view.trialDaysRemaining,
+    monthlyLimit: view.monthlyAiLimit,
+    usedThisMonth: view.aiUsedThisMonth,
+    remainingThisMonth: view.aiRemainingThisMonth,
     trialEndsAt: row.trial_ends_at,
-    trialExpired,
-    limitReached: used >= limit,
-  };
-}
-
-async function loadCompanyPlan(companyId: number): Promise<CompanyPlanRow | null> {
-  const admin = getSupabaseServiceRole();
-  const { data, error } = await admin
-    .from("companies")
-    .select(
-      "id, plan_status, trial_started_at, trial_ends_at, ai_monthly_limit, ai_used_this_month, ai_usage_month",
-    )
-    .eq("id", companyId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[aiUsage] load company failed:", { companyId, message: error.message });
-    return null;
-  }
-  if (!data) return null;
-
-  return {
-    id: Number(data.id),
-    plan_status: String(data.plan_status ?? "trial"),
-    trial_started_at: data.trial_started_at != null ? String(data.trial_started_at) : null,
-    trial_ends_at: data.trial_ends_at != null ? String(data.trial_ends_at) : null,
-    ai_monthly_limit: parseLimit(data.ai_monthly_limit, TRIAL_MONTHLY_LIMIT),
-    ai_used_this_month: parseUsageCount(data.ai_used_this_month),
-    ai_usage_month: data.ai_usage_month != null ? String(data.ai_usage_month) : null,
+    trialExpired: view.trialExpired,
+    limitReached: view.aiRemainingThisMonth <= 0,
+    hasActivePaidSubscription: view.hasActivePaidSubscription,
+    billingReady: view.billingReady,
   };
 }
 
 async function ensureMonthlyCounterCurrent(
-  row: CompanyPlanRow,
-): Promise<CompanyPlanRow> {
+  row: CompanySubscriptionRow,
+): Promise<CompanySubscriptionRow> {
   const month = currentUsageMonth();
   if (row.ai_usage_month === month) return row;
 
   const admin = getSupabaseServiceRole();
-  const { data, error } = await admin
+  const { error } = await admin
     .from("companies")
     .update({
       ai_used_this_month: 0,
       ai_usage_month: month,
     })
-    .eq("id", row.id)
-    .select(
-      "id, plan_status, trial_started_at, trial_ends_at, ai_monthly_limit, ai_used_this_month, ai_usage_month",
-    )
-    .maybeSingle();
+    .eq("id", row.id);
 
-  if (error || !data) {
-    console.error("[aiUsage] month reset failed:", error?.message);
+  if (error) {
+    console.error("[aiUsage] month reset failed:", error.message);
     return { ...row, ai_used_this_month: 0, ai_usage_month: month };
   }
 
-  return {
-    id: Number(data.id),
-    plan_status: String(data.plan_status ?? "trial"),
-    trial_started_at: data.trial_started_at != null ? String(data.trial_started_at) : null,
-    trial_ends_at: data.trial_ends_at != null ? String(data.trial_ends_at) : null,
-    ai_monthly_limit: parseLimit(data.ai_monthly_limit, TRIAL_MONTHLY_LIMIT),
+  return (await loadCompanySubscriptionRow(row.id)) ?? {
+    ...row,
     ai_used_this_month: 0,
     ai_usage_month: month,
   };
 }
 
 export type AiUsageGateResult =
-  | { allowed: true; company: CompanyPlanRow }
+  | { allowed: true; company: CompanySubscriptionRow }
   | { allowed: false; error: string; status: number };
 
 /** Check trial + monthly limit before an OpenAI call. */
 export async function assertAiUsageAllowed(
   companyId: number,
 ): Promise<AiUsageGateResult> {
-  let row = await loadCompanyPlan(companyId);
+  let row = await loadCompanySubscriptionRow(companyId);
   if (!row) {
     return { allowed: false, error: "找不到工作區", status: 404 };
   }
 
   row = await ensureMonthlyCounterCurrent(row);
 
-  if (isTrialExpired(row)) {
+  if (isTrialPeriodExpired(row)) {
     return {
       allowed: false,
       error: AI_TRIAL_EXPIRED_MESSAGE,
@@ -205,9 +135,8 @@ export async function assertAiUsageAllowed(
     };
   }
 
-  const limit = effectiveMonthlyLimit(row);
-  const used = parseUsageCount(row.ai_used_this_month);
-  if (used >= limit) {
+  const view = companyRowToSubscriptionView(row);
+  if (view.aiRemainingThisMonth <= 0) {
     return {
       allowed: false,
       error: AI_LIMIT_EXCEEDED_MESSAGE,
@@ -242,7 +171,7 @@ export async function recordAiUsage(params: {
     console.error("[aiUsage] log insert failed:", logError.message);
   }
 
-  const row = await loadCompanyPlan(params.companyId);
+  const row = await loadCompanySubscriptionRow(params.companyId);
   if (!row) return;
 
   const used =
@@ -349,7 +278,7 @@ export async function openAiChatCompletion(
 export async function getCompanyAiUsageStatus(
   companyId: number,
 ): Promise<CompanyAiUsageStatus | null> {
-  let row = await loadCompanyPlan(companyId);
+  let row = await loadCompanySubscriptionRow(companyId);
   if (!row) return null;
   row = await ensureMonthlyCounterCurrent(row);
   return companyRowToUsageStatus(row);

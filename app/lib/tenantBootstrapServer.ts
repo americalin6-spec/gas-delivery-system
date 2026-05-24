@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
-import { buildNewCompanyPlanFields } from "./aiUsageServer";
+import { buildNewCompanySubscriptionFields } from "./subscriptionServer";
 import {
   getSupabaseServiceRole,
   isServiceRoleConfigured,
@@ -201,7 +201,7 @@ export async function ensureUserTenantBootstrap(
     .insert({
       name,
       owner_user_id: user.id,
-      ...buildNewCompanyPlanFields(),
+      ...buildNewCompanySubscriptionFields(),
     })
     .select("id")
     .maybeSingle();
@@ -250,7 +250,7 @@ export async function createCompanyForUser(
     .insert({
       name,
       owner_user_id: user.id,
-      ...buildNewCompanyPlanFields(),
+      ...buildNewCompanySubscriptionFields(),
     })
     .select("id, name")
     .maybeSingle();
