@@ -44,16 +44,6 @@ export function CrmNotificationBell() {
   const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
 
-  const mayQuery = canQueryTenantCustomers({
-    sessionUserId: user?.id,
-    companyId,
-    companyReady,
-    pathname,
-  });
-
-  if (authLoading || !mayQuery) {
-    return null;
-  }
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CrmNotificationRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -134,6 +124,17 @@ export function CrmNotificationBell() {
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
+
+  const mayQuery = canQueryTenantCustomers({
+    sessionUserId: user?.id,
+    companyId,
+    companyReady,
+    pathname,
+  });
+
+  if (authLoading || !mayQuery) {
+    return null;
+  }
 
   async function markRead(id: number) {
     if (companyId <= 0) return;
