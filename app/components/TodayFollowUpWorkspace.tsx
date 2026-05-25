@@ -30,10 +30,6 @@ export function TodayFollowUpWorkspace({
   /** When false, do not render workspace UI (public / pre-auth). */
   enabled?: boolean;
 }) {
-  if (!enabled) {
-    return null;
-  }
-
   const labels = followUpWorkspaceCopy(lang);
 
   const activeRows = useMemo(() => filterTrackingEligible(rows), [rows]);
@@ -42,6 +38,10 @@ export function TodayFollowUpWorkspace({
   const overdue = useMemo(() => filterOverdue(activeRows), [activeRows]);
   const highDeal = useMemo(() => filterHighDeal(activeRows), [activeRows]);
   const recent = useMemo(() => filterRecent(activeRows), [activeRows]);
+
+  if (!enabled) {
+    return null;
+  }
 
   const grid: CSSProperties = {
     display: "grid",
