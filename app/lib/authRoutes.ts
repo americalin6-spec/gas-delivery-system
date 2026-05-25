@@ -47,8 +47,15 @@ function normalizePathname(pathname: string): string {
   return withoutQuery;
 }
 
+/** Dashboard is never public — must always require a session. */
+export function isDashboardPath(pathname: string): boolean {
+  const path = normalizePathname(pathname);
+  return path === DASHBOARD_PATH || path.startsWith(`${DASHBOARD_PATH}/`);
+}
+
 export function isPublicPath(pathname: string): boolean {
   const path = normalizePathname(pathname);
+  if (isDashboardPath(path)) return false;
   if (path === HOME_PATH) return true;
   if (!path) return false;
   return PUBLIC_PATH_PREFIXES.some(
@@ -67,6 +74,7 @@ export function isPublicApiPath(pathname: string): boolean {
 
 export function isProtectedCrmPath(pathname: string): boolean {
   const path = normalizePathname(pathname);
+  if (isDashboardPath(path)) return true;
   if (!path) return false;
   return PROTECTED_CRM_PATH_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
@@ -78,6 +86,16 @@ export function isProtectedPath(pathname: string): boolean {
   return isProtectedCrmPath(pathname);
 }
 
+/**
+ * Root layout: mount CRM auth gate for protected CRM paths.
+ * Unknown/empty pathname is treated as protected so /dashboard never flashes while hydrating.
+ */
+export function requiresCrmAuthLayout(pathname: string | null | undefined): boolean {
+  const path = normalizePathname(pathname ?? "");
+  if (!path) return true;
+  return isProtectedCrmPath(path);
+}
+
 /** Safe in-app redirect target after login (?next=). */
 export function resolvePostLoginPath(
   next: string | null | undefined,
@@ -85,6 +103,7 @@ export function resolvePostLoginPath(
 ): string {
   const raw = (next ?? "").trim();
   if (!raw.startsWith("/") || raw.startsWith("//")) return fallback;
-  if (isPublicPath(raw) && raw !== DASHBOARD_PATH) return fallback;
-  return raw;
+  if (isPublicPath(raw)) return fallback;
+  if (isProtectedCrmPath(raw)) return raw;
+  return fallback;
 }

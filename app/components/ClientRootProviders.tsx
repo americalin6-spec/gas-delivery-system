@@ -9,7 +9,7 @@ import { AuthLoadingScreen } from "./auth/AuthLoadingScreen";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ThemeProvider } from "./ThemeProvider";
 import { Toaster } from "./Toaster";
-import { isProtectedCrmPath } from "../lib/authRoutes";
+import { requiresCrmAuthLayout } from "../lib/authRoutes";
 
 /**
  * Public routes: theme + auth only — no tenant/CRM chrome.
@@ -18,7 +18,7 @@ import { isProtectedCrmPath } from "../lib/authRoutes";
 export function ClientRootProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const pathReady = pathname != null && pathname.length > 0;
-  const requiresAuth = pathReady && isProtectedCrmPath(pathname);
+  const requiresAuth = pathReady ? requiresCrmAuthLayout(pathname) : true;
 
   if (!pathReady) {
     return <AuthLoadingScreen />;
