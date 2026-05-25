@@ -1,18 +1,21 @@
 import type { ReactNode } from "react";
+import { ActiveCompanyProvider } from "./ActiveCompanyProvider";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ThemeProvider } from "./ThemeProvider";
 import { Toaster } from "./Toaster";
 
 /**
- * Theme + Auth + Toaster only (hydration isolation test).
- * No CRM providers or client redirects.
+ * Theme + Auth + ActiveCompany + Toaster (hydration isolation test).
+ * No AuthGate, AuthenticatedCrmShell, or client redirects.
  */
 export function ClientRootProviders({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
       <AuthProvider>
-        {children}
-        <Toaster />
+        <ActiveCompanyProvider>
+          {children}
+          <Toaster />
+        </ActiveCompanyProvider>
       </AuthProvider>
     </ThemeProvider>
   );
