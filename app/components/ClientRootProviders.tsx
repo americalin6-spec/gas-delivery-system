@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
+import { ThemeProvider } from "./ThemeProvider";
 import { Toaster } from "./Toaster";
 
 /**
- * Passthrough + Toaster only (hydration isolation test).
- * No Auth/Theme/CRM providers.
+ * Passthrough + ThemeProvider + Toaster (hydration isolation test).
+ * No Auth/CRM providers.
  */
 export function ClientRootProviders({ children }: { children: ReactNode }) {
   return (
-    <>
+    <ThemeProvider>
       {children}
       <Toaster />
-    </>
+    </ThemeProvider>
   );
 }
