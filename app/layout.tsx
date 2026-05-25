@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClientRootProviders } from "./components/ClientRootProviders";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,6 +23,9 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
+/** Skip static prerender while providers are disabled (pages use client context hooks). */
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -34,7 +36,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClientRootProviders>{children}</ClientRootProviders>
+        {children}
       </body>
     </html>
   );
