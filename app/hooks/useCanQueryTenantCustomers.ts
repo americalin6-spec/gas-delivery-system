@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
 import { useAuthSession } from "./useAuthSession";
@@ -12,6 +13,7 @@ export function useCanQueryTenantCustomers(): {
   companyReady: boolean;
   sessionUserId: string | null;
 } {
+  const pathname = usePathname();
   const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
   const sessionUserId = user?.id ?? null;
@@ -21,6 +23,7 @@ export function useCanQueryTenantCustomers(): {
       sessionUserId,
       companyId,
       companyReady,
+      pathname,
     }),
     authLoading,
     companyId,

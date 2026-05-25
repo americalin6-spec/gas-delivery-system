@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useActiveCompany } from "./ActiveCompanyProvider";
 import { useAuthSession } from "../hooks/useAuthSession";
 import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
@@ -35,12 +36,24 @@ function formatRelativeTime(iso: string, lang: "zh" | "en"): string {
 }
 
 export function CrmNotificationBell() {
+  const pathname = usePathname();
   const router = useRouter();
   const { lang } = useAppLang();
   const t = crmNotificationBellCopy(lang);
   const isMobile = useIsViewportBelow(MOBILE_MAX);
   const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
+
+  const mayQuery = canQueryTenantCustomers({
+    sessionUserId: user?.id,
+    companyId,
+    companyReady,
+    pathname,
+  });
+
+  if (authLoading || !mayQuery) {
+    return null;
+  }
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CrmNotificationRow[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -52,11 +65,11 @@ export function CrmNotificationBell() {
 
   const fetchNotifications = useCallback(async () => {
     if (
-      authLoading ||
       !canQueryTenantCustomers({
         sessionUserId: user?.id,
         companyId,
         companyReady,
+        pathname,
       }) ||
       notifInFlightRef.current
     ) {
@@ -88,15 +101,15 @@ export function CrmNotificationBell() {
       setLoading(false);
       notifInFlightRef.current = false;
     }
-  }, [authLoading, companyId, companyReady, lang, user?.id]);
+  }, [companyId, companyReady, lang, pathname, user?.id]);
 
   useEffect(() => {
     if (
-      authLoading ||
       !canQueryTenantCustomers({
         sessionUserId: user?.id,
         companyId,
         companyReady,
+        pathname,
       })
     ) {
       return;

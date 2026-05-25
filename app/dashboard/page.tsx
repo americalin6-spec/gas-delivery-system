@@ -925,6 +925,7 @@ export default function Home() {
 
           {showTenantWorkspace ? (
             <TodayFollowUpWorkspace
+              enabled={showTenantWorkspace}
               rows={workspaceRows}
               lang={lang}
               isMobile
@@ -1145,6 +1146,7 @@ export default function Home() {
 
       {showTenantWorkspace ? (
         <TodayFollowUpWorkspace
+          enabled={showTenantWorkspace}
           rows={workspaceRows}
           lang={lang}
           isMobile={false}

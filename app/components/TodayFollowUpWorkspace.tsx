@@ -20,13 +20,20 @@ export function TodayFollowUpWorkspace({
   isMobile,
   loading,
   loadError,
+  enabled = true,
 }: {
   rows: WorkspaceCustomerRow[];
   lang: AppLang;
   isMobile: boolean;
   loading: boolean;
   loadError: string | null;
+  /** When false, do not render workspace UI (public / pre-auth). */
+  enabled?: boolean;
 }) {
+  if (!enabled) {
+    return null;
+  }
+
   const labels = followUpWorkspaceCopy(lang);
 
   const activeRows = useMemo(() => filterTrackingEligible(rows), [rows]);

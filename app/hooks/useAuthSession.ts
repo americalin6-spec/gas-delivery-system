@@ -1,7 +1,7 @@
 "use client";
 
 import type { Session, User } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 
 export type AuthSessionState = {
@@ -14,8 +14,11 @@ export function useAuthSession(): AuthSessionState {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const initialCheckDoneRef = useRef(false);
+
   useEffect(() => {
     const supabase = getSupabaseBrowser();
+    initialCheckDoneRef.current = false;
 
     void (async () => {
       const {
@@ -27,12 +30,14 @@ export function useAuthSession(): AuthSessionState {
       } else {
         setSession(null);
       }
+      initialCheckDoneRef.current = true;
       setLoading(false);
     })();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!initialCheckDoneRef.current) return;
       setSession(nextSession);
       setLoading(false);
     });

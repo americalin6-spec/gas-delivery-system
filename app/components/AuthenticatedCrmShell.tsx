@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useAuthSession } from "../hooks/useAuthSession";
-import { isProtectedPath } from "../lib/authRoutes";
+import { isPublicPath } from "../lib/authRoutes";
 import { CrmNotificationBell } from "./CrmNotificationBell";
 import { TenantBootstrap } from "./auth/TenantBootstrap";
 
@@ -15,9 +15,9 @@ export function AuthenticatedCrmShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { session, loading } = useAuthSession();
   const pathReady = pathname != null && pathname.length > 0;
-  const protectedRoute = pathReady ? isProtectedPath(pathname) : false;
+  const isPublicMarketing = pathReady && isPublicPath(pathname);
   const showCrm =
-    pathReady && !loading && Boolean(session?.user) && protectedRoute;
+    pathReady && !loading && Boolean(session?.user) && !isPublicMarketing;
 
   return (
     <>

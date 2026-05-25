@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useActiveCompany } from "../ActiveCompanyProvider";
 import { useAuthSession } from "../../hooks/useAuthSession";
+import { isPublicPath } from "../../lib/authRoutes";
 import { setClientCompanyId } from "../../lib/clientCompany";
 
 /**
  * After login, sync active company from server bootstrap (never localStorage default).
  */
 export function TenantBootstrap() {
+  const pathname = usePathname();
   const { session, loading: authLoading } = useAuthSession();
   const { setActiveCompanyId } = useActiveCompany();
 
   useEffect(() => {
     if (authLoading || !session?.user) return;
+    if (pathname && isPublicPath(pathname)) return;
 
     let cancelled = false;
 
@@ -57,7 +61,7 @@ export function TenantBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, session, setActiveCompanyId]);
+  }, [authLoading, pathname, session, setActiveCompanyId]);
 
   return null;
 }

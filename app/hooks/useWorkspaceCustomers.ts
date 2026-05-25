@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
 import { useAuthSession } from "./useAuthSession";
 import { logActiveCompany } from "../lib/clientCompany";
@@ -10,6 +11,7 @@ import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
 import { supabase } from "../../supabase";
 
 export function useWorkspaceCustomers() {
+  const pathname = usePathname();
   const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
   const [rows, setRows] = useState<WorkspaceCustomerRow[]>([]);
@@ -23,6 +25,7 @@ export function useWorkspaceCustomers() {
         sessionUserId: user?.id,
         companyId,
         companyReady,
+        pathname,
       })
     ) {
       setRows([]);
@@ -54,7 +57,7 @@ export function useWorkspaceCustomers() {
       setLoadError("load failed");
     }
     setLoading(false);
-  }, [authLoading, companyId, companyReady, user?.id]);
+  }, [authLoading, companyId, companyReady, pathname, user?.id]);
 
   useEffect(() => {
     void refresh();
