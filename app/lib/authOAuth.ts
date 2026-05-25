@@ -58,7 +58,7 @@ export async function signInWithGoogle(
   const popup = window.open(
     data.url,
     "google_oauth",
-    `popup=yes,width=${w},height=${h},left=${left},top=${top},noopener,noreferrer`,
+    `popup=yes,width=${w},height=${h},left=${left},top=${top},noreferrer`,
   );
 
   if (!popup) {

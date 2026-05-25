@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { SUPABASE_AUTH_CALLBACK_MESSAGE } from "../../lib/authOAuth";
 import { authCopy } from "../../lib/authI18n";
+import { resolvePostLoginPath } from "../../lib/authRoutes";
 import { createSupabaseAuthServerClient } from "../../lib/supabaseAuthServer";
 
-function popupHtml(status: "success" | "error"): string {
+function popupHtml(status: "success" | "error", successPath: string): string {
   const message =
     status === "success" ? authCopy.callbackClosing : authCopy.callbackFailed;
   const payload = JSON.stringify({
     type: SUPABASE_AUTH_CALLBACK_MESSAGE,
     status,
   });
+  const fallbackHref =
+    status === "success" ? successPath : "/login?error=auth_callback";
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -39,7 +42,7 @@ function popupHtml(status: "success" | "error"): string {
         target.postMessage(payload, window.location.origin);
         window.close();
       } else {
-        window.location.href = ${JSON.stringify(status === "success" ? "/dashboard" : "/login?error=auth_callback")};
+        window.location.href = ${JSON.stringify(fallbackHref)};
       }
     })();
   </script>
@@ -50,36 +53,58 @@ function popupHtml(status: "success" | "error"): string {
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  const oauthError = searchParams.get("error");
   const popup = searchParams.get("popup") === "1";
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const safeNext = resolvePostLoginPath(searchParams.get("next"));
 
-  if (!code) {
+  const supabase = await createSupabaseAuthServerClient();
+
+  const respondSuccess = () => {
     if (popup) {
-      return new NextResponse(popupHtml("error"), {
+      return new NextResponse(popupHtml("success", safeNext), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+    return NextResponse.redirect(`${origin}${safeNext}`);
+  };
+
+  const respondFailure = () => {
+    if (popup) {
+      return new NextResponse(popupHtml("error", safeNext), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
     return NextResponse.redirect(`${origin}/login?error=auth_callback`);
+  };
+
+  /** Duplicate callback / refresh after a successful exchange — session already valid. */
+  const {
+    data: { user: existingUser },
+  } = await supabase.auth.getUser();
+  if (existingUser) {
+    return respondSuccess();
   }
 
-  const supabase = await createSupabaseAuthServerClient();
+  if (oauthError) {
+    return respondFailure();
+  }
+
+  if (!code) {
+    return respondFailure();
+  }
+
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    if (popup) {
-      return new NextResponse(popupHtml("error"), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+    const {
+      data: { user: userAfterExchange },
+    } = await supabase.auth.getUser();
+    if (userAfterExchange) {
+      return respondSuccess();
     }
-    return NextResponse.redirect(`${origin}/login?error=auth_callback`);
+    console.error("[auth/callback] exchangeCodeForSession:", error.message);
+    return respondFailure();
   }
 
-  if (popup) {
-    return new NextResponse(popupHtml("success"), {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  }
-
-  return NextResponse.redirect(`${origin}${safeNext}`);
+  return respondSuccess();
 }
