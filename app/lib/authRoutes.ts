@@ -17,6 +17,17 @@ export const PUBLIC_PATH_PREFIXES = [
   PRICING_PATH,
 ] as const;
 
+/** CRM app routes — login required (middleware + AuthGate). */
+export const PROTECTED_CRM_PATH_PREFIXES = [
+  "/dashboard",
+  "/customers",
+  "/pipeline",
+  "/workspace",
+  "/settings",
+  "/tasks",
+  "/calendar",
+] as const;
+
 /** Webhooks / cron — no Supabase session (each route validates its own secret). */
 export const PUBLIC_API_PATH_PREFIXES = [
   "/api/line-webhook",
@@ -54,8 +65,17 @@ export function isPublicApiPath(pathname: string): boolean {
   );
 }
 
+export function isProtectedCrmPath(pathname: string): boolean {
+  const path = normalizePathname(pathname);
+  if (!path) return false;
+  return PROTECTED_CRM_PATH_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}
+
+/** @alias isProtectedCrmPath — used by AuthGate and client guards. */
 export function isProtectedPath(pathname: string): boolean {
-  return !isPublicPath(pathname);
+  return isProtectedCrmPath(pathname);
 }
 
 /** Safe in-app redirect target after login (?next=). */

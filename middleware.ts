@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  isProtectedCrmPath,
   isPublicApiPath,
   isPublicPath,
   LOGIN_PATH,
@@ -51,7 +52,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  if (!user) {
+  if (isProtectedCrmPath(pathname) && !user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = LOGIN_PATH;
     loginUrl.searchParams.set("next", pathname);

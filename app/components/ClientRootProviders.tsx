@@ -1,25 +1,42 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { ActiveCompanyProvider } from "./ActiveCompanyProvider";
 import { AuthenticatedCrmShell } from "./AuthenticatedCrmShell";
 import { AuthGate } from "./auth/AuthGate";
+import { AuthLoadingScreen } from "./auth/AuthLoadingScreen";
 import { AuthProvider } from "./auth/AuthProvider";
 import { ThemeProvider } from "./ThemeProvider";
 import { Toaster } from "./Toaster";
+import { isProtectedCrmPath } from "../lib/authRoutes";
 
 /**
- * Theme + Auth + ActiveCompany + AuthGate + AuthenticatedCrmShell + Toaster.
- * Server auth: middleware.ts (unchanged). Client backup: AuthGate.
+ * Public routes: theme + auth only — no tenant/CRM chrome.
+ * Protected CRM routes (/dashboard, /customers, …): full stack + AuthGate.
  */
 export function ClientRootProviders({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const pathReady = pathname != null && pathname.length > 0;
+  const requiresAuth = pathReady && isProtectedCrmPath(pathname);
+
+  if (!pathReady) {
+    return <AuthLoadingScreen />;
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ActiveCompanyProvider>
-          <AuthGate>
-            <AuthenticatedCrmShell>{children}</AuthenticatedCrmShell>
-          </AuthGate>
-          <Toaster />
-        </ActiveCompanyProvider>
+        {!requiresAuth ? (
+          children
+        ) : (
+          <ActiveCompanyProvider>
+            <AuthGate>
+              <AuthenticatedCrmShell>{children}</AuthenticatedCrmShell>
+            </AuthGate>
+            <Toaster />
+          </ActiveCompanyProvider>
+        )}
       </AuthProvider>
     </ThemeProvider>
   );
