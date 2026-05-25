@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 
@@ -27,37 +26,54 @@ const cardStyle = {
   textAlign: "center" as const,
 };
 
+type DashboardState = {
+  loading: boolean;
+  email: string;
+  companyText: string;
+  loggingOut: boolean;
+};
+
+const INITIAL_STATE: DashboardState = {
+  loading: true,
+  email: "",
+  companyText: "載入中…",
+  loggingOut: false,
+};
+
 /**
- * Emergency minimal dashboard — stable render only (no CRM UI).
+ * Emergency minimal dashboard — fixed hook count (useState + useEffect only).
  */
 export default function DashboardPage() {
-  const router = useRouter();
-  const [sessionLoading, setSessionLoading] = useState(true);
-  const [userEmail, setUserEmail] = useState("");
-  const [companyId, setCompanyId] = useState<number | null>(null);
-  const [tenantNote, setTenantNote] = useState("正在載入工作區…");
-  const [logoutBusy, setLogoutBusy] = useState(false);
+  const [state, setState] = useState<DashboardState>(INITIAL_STATE);
 
   useEffect(() => {
     console.log("[dashboard] mounted");
-    const supabase = getSupabaseBrowser();
+    let alive = true;
 
     void (async () => {
+      let next: DashboardState = {
+        loading: false,
+        email: "",
+        companyText: "尚未登入",
+        loggingOut: false,
+      };
+
       try {
+        const supabase = getSupabaseBrowser();
         const {
           data: { user },
         } = await supabase.auth.getUser();
 
+        if (!alive) return;
+
         if (!user) {
-          setUserEmail("");
-          setCompanyId(null);
-          setTenantNote("尚未登入");
           console.log("[dashboard] session loaded: none");
+          setState(next);
           return;
         }
 
-        setUserEmail(user.email ?? "（無電子郵件）");
-        console.log("[dashboard] session loaded:", user.email ?? user.id);
+        const email = user.email ?? "（無電子郵件）";
+        console.log("[dashboard] session loaded:", email);
 
         const res = await fetch("/api/tenant/bootstrap", {
           method: "POST",
@@ -70,45 +86,45 @@ export default function DashboardPage() {
           error?: string;
         };
 
+        if (!alive) return;
+
         if (res.ok && body.ok && body.companyId) {
           const id = Number(body.companyId);
-          setCompanyId(Number.isFinite(id) && id > 0 ? id : null);
-          setTenantNote("");
           console.log("[dashboard] tenant loaded:", body.companyId);
+          next = {
+            loading: false,
+            email,
+            companyText:
+              Number.isFinite(id) && id > 0 ? String(id) : "尚未取得工作區",
+            loggingOut: false,
+          };
         } else {
-          setCompanyId(null);
-          setTenantNote(body.error ?? "尚未取得工作區（請稍後再試）");
           console.log("[dashboard] tenant loaded: missing", body.error ?? res.status);
+          next = {
+            loading: false,
+            email,
+            companyText: body.error ?? "尚未取得工作區（請稍後再試）",
+            loggingOut: false,
+          };
         }
       } catch (err) {
-        setCompanyId(null);
-        setTenantNote("工作區載入失敗");
+        if (!alive) return;
         console.log("[dashboard] tenant loaded: error", err);
-      } finally {
-        setSessionLoading(false);
+        next = {
+          loading: false,
+          email: next.email,
+          companyText: "工作區載入失敗",
+          loggingOut: false,
+        };
       }
+
+      setState(next);
     })();
+
+    return () => {
+      alive = false;
+    };
   }, []);
-
-  async function handleLogout() {
-    if (logoutBusy) return;
-    setLogoutBusy(true);
-    try {
-      const supabase = getSupabaseBrowser();
-      await supabase.auth.signOut();
-      router.replace("/login");
-    } catch (err) {
-      console.log("[dashboard] logout error", err);
-      setLogoutBusy(false);
-    }
-  }
-
-  const companyLabel =
-    companyId != null && companyId > 0
-      ? String(companyId)
-      : sessionLoading
-        ? "載入中…"
-        : tenantNote || "尚未設定";
 
   return (
     <main style={pageStyle}>
@@ -120,29 +136,42 @@ export default function DashboardPage() {
 
         <p style={{ margin: "0 0 8px", fontSize: 14, color: "#94a3b8" }}>使用者</p>
         <p style={{ margin: "0 0 20px", fontSize: 16, wordBreak: "break-word" }}>
-          {sessionLoading ? "載入中…" : userEmail || "—"}
+          {state.loading ? "載入中…" : state.email || "—"}
         </p>
 
         <p style={{ margin: "0 0 8px", fontSize: 14, color: "#94a3b8" }}>工作區 ID</p>
-        <p style={{ margin: "0 0 28px", fontSize: 16 }}>{companyLabel}</p>
+        <p style={{ margin: "0 0 28px", fontSize: 16 }}>{state.companyText}</p>
 
         <button
           type="button"
-          onClick={() => void handleLogout()}
-          disabled={logoutBusy}
+          disabled={state.loggingOut}
+          onClick={() => {
+            void (async () => {
+              setState((prev) => ({ ...prev, loggingOut: true }));
+              try {
+                await getSupabaseBrowser().auth.signOut();
+                window.location.replace("/login");
+              } catch (err) {
+                console.log("[dashboard] logout error", err);
+                setState((prev) => ({ ...prev, loggingOut: false }));
+              }
+            })();
+          }}
           style={{
             width: "100%",
             padding: "14px 20px",
             borderRadius: 12,
             border: "none",
-            background: logoutBusy ? "#64748b" : "linear-gradient(90deg, #ef4444, #dc2626)",
+            background: state.loggingOut
+              ? "#64748b"
+              : "linear-gradient(90deg, #ef4444, #dc2626)",
             color: "#fff",
             fontSize: 16,
             fontWeight: 700,
-            cursor: logoutBusy ? "wait" : "pointer",
+            cursor: state.loggingOut ? "wait" : "pointer",
           }}
         >
-          {logoutBusy ? "登出中…" : "登出"}
+          {state.loggingOut ? "登出中…" : "登出"}
         </button>
       </div>
     </main>

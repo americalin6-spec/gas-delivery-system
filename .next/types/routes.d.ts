@@ -4,7 +4,7 @@
 type AppRoutes = "/" | "/alerts" | "/alerts/all" | "/calendar" | "/customers" | "/customers/[id]" | "/dashboard" | "/login" | "/pipeline" | "/pricing" | "/settings" | "/signup" | "/tasks" | "/workspace/[category]"
 type AppRouteHandlerRoutes = "/api/analyze" | "/api/billing" | "/api/checkout" | "/api/companies" | "/api/company/ai-usage" | "/api/conversations" | "/api/customers" | "/api/customers/[id]" | "/api/customers/ai-extract" | "/api/customers/ai-follow-up" | "/api/customers/ai-summary" | "/api/ecpay/callback" | "/api/ecpay/checkout" | "/api/ecpay/period-callback" | "/api/line-push-test" | "/api/line-users" | "/api/line-webhook" | "/api/line/send-message" | "/api/notifications" | "/api/reminder-check" | "/api/reminder-settings" | "/api/save" | "/api/stripe/webhook" | "/api/subscription" | "/api/tenant/bootstrap" | "/auth/callback"
 type PageRoutes = never
-type LayoutRoutes = "/"
+type LayoutRoutes = "/" | "/dashboard"
 type RedirectRoutes = never
 type RewriteRoutes = never
 type Routes = AppRoutes | PageRoutes | LayoutRoutes | RedirectRoutes | RewriteRoutes | AppRouteHandlerRoutes
@@ -58,6 +58,7 @@ export type ParamsOf<Route extends Routes> = ParamMap[Route]
 
 interface LayoutSlotMap {
   "/": never
+  "/dashboard": never
 }
 
 

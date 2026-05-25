@@ -6,7 +6,7 @@ import { ActiveCompanyProvider } from "./ActiveCompanyProvider";
 import { AuthGate } from "./auth/AuthGate";
 import { AuthLoadingScreen } from "./auth/AuthLoadingScreen";
 import { AuthenticatedCrmShell } from "./AuthenticatedCrmShell";
-import { isPublicPath } from "../lib/authRoutes";
+import { DASHBOARD_PATH, isPublicPath } from "../lib/authRoutes";
 
 /**
  * Marketing routes (/, /login, /pricing, …) must not mount tenant providers
@@ -16,12 +16,13 @@ export function ClientRootProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const pathReady = pathname != null && pathname.length > 0;
   const isPublicMarketing = pathReady && isPublicPath(pathname);
+  const isBareDashboard = pathReady && pathname === DASHBOARD_PATH;
 
   if (!pathReady) {
     return <AuthLoadingScreen />;
   }
 
-  if (isPublicMarketing) {
+  if (isPublicMarketing || isBareDashboard) {
     return <>{children}</>;
   }
 
