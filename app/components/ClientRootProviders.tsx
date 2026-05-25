@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
+import { Toaster } from "./Toaster";
 
 /**
- * Temporary passthrough — all CRM/auth providers disabled for React #310 isolation.
- * Restore hooks and providers after root cause is confirmed.
+ * Passthrough + Toaster only (hydration isolation test).
+ * No Auth/Theme/CRM providers.
  */
 export function ClientRootProviders({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <Toaster />
+    </>
+  );
 }
