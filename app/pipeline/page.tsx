@@ -64,7 +64,7 @@ import {
   softDeleteCustomerPayload,
 } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
-import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { useCanQueryTenantCustomers } from "../hooks/useCanQueryTenantCustomers";
 import { supabase } from "../../supabase";
 
 const MOBILE_MAX = 768;
@@ -133,7 +133,7 @@ export default function PipelineBoardPage() {
   const [collapsedColumns, setCollapsedColumns] = useState<Set<PipelineBoardColumn>>(
     () => new Set(),
   );
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const { canQuery, companyId } = useCanQueryTenantCustomers();
 
   useEffect(() => {
     setCollapsedColumns(loadCollapsedPipelineColumns());
@@ -155,7 +155,7 @@ export default function PipelineBoardPage() {
   );
 
   const loadCustomers = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     logActiveCompany("pipeline.load", { companyId });
     setLoading(true);
 
@@ -201,12 +201,12 @@ export default function PipelineBoardPage() {
     }
 
     setLoading(false);
-  }, [companyId, companyReady]);
+  }, [canQuery, companyId]);
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     void loadCustomers();
-  }, [loadCustomers, companyReady, companyId]);
+  }, [loadCustomers, canQuery]);
 
   const filteredCustomers = useMemo(() => {
     const keyword = search.trim().toLowerCase();

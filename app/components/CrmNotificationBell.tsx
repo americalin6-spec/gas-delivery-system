@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveCompany } from "./ActiveCompanyProvider";
+import { useAuthSession } from "../hooks/useAuthSession";
+import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
 import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { COMPANY_HEADER_NAME } from "../lib/companyContext";
@@ -37,6 +39,7 @@ export function CrmNotificationBell() {
   const { lang } = useAppLang();
   const t = crmNotificationBellCopy(lang);
   const isMobile = useIsViewportBelow(MOBILE_MAX);
+  const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CrmNotificationRow[]>([]);
@@ -48,7 +51,17 @@ export function CrmNotificationBell() {
   const notifInFlightRef = useRef(false);
 
   const fetchNotifications = useCallback(async () => {
-    if (!companyReady || companyId <= 0 || notifInFlightRef.current) return;
+    if (
+      authLoading ||
+      !canQueryTenantCustomers({
+        sessionUserId: user?.id,
+        companyId,
+        companyReady,
+      }) ||
+      notifInFlightRef.current
+    ) {
+      return;
+    }
     notifInFlightRef.current = true;
     setLoading(true);
     setError(null);
@@ -75,10 +88,19 @@ export function CrmNotificationBell() {
       setLoading(false);
       notifInFlightRef.current = false;
     }
-  }, [companyId, companyReady, lang]);
+  }, [authLoading, companyId, companyReady, lang, user?.id]);
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (
+      authLoading ||
+      !canQueryTenantCustomers({
+        sessionUserId: user?.id,
+        companyId,
+        companyReady,
+      })
+    ) {
+      return;
+    }
     void fetchNotifications();
     const id = window.setInterval(() => void fetchNotifications(), POLL_MS);
     return () => window.clearInterval(id);

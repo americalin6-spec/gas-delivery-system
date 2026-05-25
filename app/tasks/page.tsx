@@ -6,7 +6,7 @@ import { useAppLang } from "../hooks/useAppLang";
 import { tasksPageCopy, translateDisplayValue } from "../lib/uiI18n";
 import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
-import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { useCanQueryTenantCustomers } from "../hooks/useCanQueryTenantCustomers";
 import { supabase } from "../supabase";
 
 interface Customer {
@@ -33,10 +33,10 @@ export default function TasksPage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const { canQuery, companyId } = useCanQueryTenantCustomers();
 
   const fetchCustomers = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     setLoading(true);
     logActiveCompany("tasks.load", { companyId });
 
@@ -57,12 +57,12 @@ export default function TasksPage() {
     }
 
     setLoading(false);
-  }, [companyId, companyReady]);
+  }, [canQuery, companyId]);
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     void fetchCustomers();
-  }, [fetchCustomers, companyReady, companyId]);
+  }, [fetchCustomers, canQuery]);
 
   const taskCustomers = customers.filter(
     (c) =>

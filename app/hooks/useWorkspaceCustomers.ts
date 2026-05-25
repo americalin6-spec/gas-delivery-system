@@ -2,19 +2,31 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { useAuthSession } from "./useAuthSession";
 import { logActiveCompany } from "../lib/clientCompany";
 import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { WORKSPACE_CUSTOMER_SELECT, type WorkspaceCustomerRow } from "../lib/followUpWorkspace";
+import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
 import { supabase } from "../../supabase";
 
 export function useWorkspaceCustomers() {
+  const { user, loading: authLoading } = useAuthSession();
   const { companyId, ready: companyReady } = useActiveCompany();
   const [rows, setRows] = useState<WorkspaceCustomerRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!companyReady || companyId <= 0) {
+    if (
+      authLoading ||
+      !canQueryTenantCustomers({
+        sessionUserId: user?.id,
+        companyId,
+        companyReady,
+      })
+    ) {
+      setRows([]);
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -42,7 +54,7 @@ export function useWorkspaceCustomers() {
       setLoadError("load failed");
     }
     setLoading(false);
-  }, [companyId, companyReady]);
+  }, [authLoading, companyId, companyReady, user?.id]);
 
   useEffect(() => {
     void refresh();

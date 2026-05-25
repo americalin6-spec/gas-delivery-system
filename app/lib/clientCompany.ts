@@ -46,6 +46,18 @@ export function setClientCompanyId(id: number): void {
   }
 }
 
+/** Clear persisted tenant after logout so public pages never reuse a stale id. */
+export function clearClientCompanyId(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(ACTIVE_COMPANY_STORAGE_KEY);
+    window.dispatchEvent(new CustomEvent("crm:companyChanged", { detail: { id: 0 } }));
+    logActiveCompany("clearClientCompanyId");
+  } catch (err) {
+    console.error("[clientCompany] clearClientCompanyId failed:", err);
+  }
+}
+
 /** Headers to forward the active tenant to API routes (omitted until company is known). */
 export function companyIdHeader(companyId?: number): Record<string, string> {
   const id = companyId ?? getClientCompanyId();

@@ -16,7 +16,7 @@ import {
 } from "../lib/calendarReminders";
 import { activeCustomersOnly } from "../lib/customerSoftDelete";
 import { logActiveCompany } from "../lib/clientCompany";
-import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { useCanQueryTenantCustomers } from "../hooks/useCanQueryTenantCustomers";
 import { supabase } from "../supabase";
 
 const MOBILE_MAX = 1024;
@@ -35,13 +35,13 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => startOfMonth(new Date()));
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const { canQuery, companyId } = useCanQueryTenantCustomers();
 
   const viewYear = viewDate.getFullYear();
   const viewMonth = viewDate.getMonth();
 
   const fetchCustomers = useCallback(async () => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     setLoading(true);
     setLoadError(null);
     logActiveCompany("calendar.load", { companyId });
@@ -62,12 +62,12 @@ export default function CalendarPage() {
     }
 
     setLoading(false);
-  }, [companyId, companyReady]);
+  }, [canQuery, companyId]);
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     void fetchCustomers();
-  }, [fetchCustomers, companyReady, companyId]);
+  }, [fetchCustomers, canQuery]);
 
   const monthCustomers = useMemo(
     () => customersInMonth(customers, viewYear, viewMonth),

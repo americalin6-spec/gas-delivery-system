@@ -40,7 +40,7 @@ import {
   softDeleteCustomerPayload,
 } from "../lib/customerSoftDelete";
 import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
-import { useActiveCompany } from "../components/ActiveCompanyProvider";
+import { useCanQueryTenantCustomers } from "../hooks/useCanQueryTenantCustomers";
 import { supabase } from "../../supabase";
 import { showInternalCrmNav } from "../lib/crmNavVisibility";
 import { normalizeLineIdForDisplay } from "../lib/lineIdDisplay";
@@ -176,7 +176,7 @@ export default function CustomersPage() {
   const [trashView, setTrashView] = useState(false);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
 
-  const { companyId, ready: companyReady } = useActiveCompany();
+  const { canQuery, companyId, companyReady } = useCanQueryTenantCustomers();
 
   const isMobile = useIsViewportBelow(CRM_MOBILE_MAX_WIDTH);
   const { lang } = useAppLang();
@@ -187,10 +187,10 @@ export default function CustomersPage() {
   };
 
   useEffect(() => {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     void loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, companyReady, trashView]);
+  }, [canQuery, companyId, trashView]);
 
   useEffect(() => {
     if (!toast) return;
@@ -199,7 +199,7 @@ export default function CustomersPage() {
   }, [toast]);
 
   async function loadCustomers() {
-    if (!companyReady || companyId <= 0) return;
+    if (!canQuery) return;
     logActiveCompany("customersList.load", { companyId, trashView });
 
     const [customersRes, convosRes] = await Promise.all([
@@ -450,7 +450,7 @@ export default function CustomersPage() {
 
   async function confirmBatchDelete() {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+    if (ids.length === 0 || !canQuery) return;
 
     setBatchDeleting(true);
     const { error } = await supabase
@@ -475,7 +475,7 @@ export default function CustomersPage() {
 
   async function confirmBatchRestore() {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+    if (ids.length === 0 || !canQuery) return;
 
     setBatchDeleting(true);
     const { error } = await supabase
@@ -500,7 +500,7 @@ export default function CustomersPage() {
 
   async function confirmBatchPermanentDelete() {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0 || !companyReady || companyId <= 0) return;
+    if (ids.length === 0 || !canQuery) return;
 
     setBatchDeleting(true);
     const { error } = await supabase

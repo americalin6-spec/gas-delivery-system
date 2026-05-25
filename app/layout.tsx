@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ActiveCompanyProvider } from "./components/ActiveCompanyProvider";
+import { AuthenticatedCrmShell } from "./components/AuthenticatedCrmShell";
 import { AuthGate } from "./components/auth/AuthGate";
-import { TenantBootstrap } from "./components/auth/TenantBootstrap";
-import { CrmAppChrome } from "./components/CrmAppChrome";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,8 +38,7 @@ export default function RootLayout({
       >
         <ActiveCompanyProvider>
           <AuthGate>
-            <TenantBootstrap />
-            <CrmAppChrome>{children}</CrmAppChrome>
+            <AuthenticatedCrmShell>{children}</AuthenticatedCrmShell>
           </AuthGate>
         </ActiveCompanyProvider>
       </body>

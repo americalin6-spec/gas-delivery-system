@@ -9,7 +9,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuthSession } from "../hooks/useAuthSession";
 import {
+  clearClientCompanyId,
   getClientCompanyId,
   logActiveCompany,
   setClientCompanyId as persistCompanyId,
@@ -26,16 +28,31 @@ export type ActiveCompanyContextValue = {
 const ActiveCompanyContext = createContext<ActiveCompanyContextValue | null>(null);
 
 export function ActiveCompanyProvider({ children }: { children: ReactNode }) {
+  const { session, loading: authLoading } = useAuthSession();
   const [companyId, setCompanyId] = useState(0);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (authLoading) {
+      setReady(false);
+      return;
+    }
+
+    if (!session?.user) {
+      clearClientCompanyId();
+      setCompanyId(0);
+      setReady(true);
+      logActiveCompany("provider.loggedOut", { companyId: 0 });
+      return;
+    }
+
     const id = getClientCompanyId();
     setCompanyId(id);
     setReady(true);
     logActiveCompany("provider.hydrated", { companyId: id });
 
     function syncFromStorage() {
+      if (!session?.user) return;
       const next = getClientCompanyId();
       setCompanyId(next);
       logActiveCompany("provider.sync", { companyId: next });
@@ -47,7 +64,7 @@ export function ActiveCompanyProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("crm:companyChanged", syncFromStorage);
       window.removeEventListener("storage", syncFromStorage);
     };
-  }, []);
+  }, [authLoading, session]);
 
   const setActiveCompanyId = useCallback((id: number) => {
     persistCompanyId(id);

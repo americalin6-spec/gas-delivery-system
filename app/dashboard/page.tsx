@@ -233,8 +233,11 @@ export default function Home() {
   const [hasExplicitImportantDate, setHasExplicitImportantDate] = useState(false);
   const [extractedPreview, setExtractedPreview] = useState<ExtractedCustomerProfile | null>(null);
   const [workspaceRows, setWorkspaceRows] = useState<WorkspaceCustomerRow[]>([]);
-  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+
+  const showTenantWorkspace =
+    tenantReady && Boolean(authUserId) && activeCompanyId > 0;
 
   const draftHydratedRef = useRef(false);
   const draftSnapshotRef = useRef<HomeFormDraft>(emptyHomeFormDraft());
@@ -320,7 +323,12 @@ export default function Home() {
   }, [activeCompanyId, authUserId, tenantError, tenantReady]);
 
   useEffect(() => {
-    if (!tenantReady || activeCompanyId <= 0 || !authUserId) return;
+    if (!tenantReady || activeCompanyId <= 0 || !authUserId) {
+      setWorkspaceRows([]);
+      setWorkspaceError(null);
+      setWorkspaceLoading(false);
+      return;
+    }
     void loadWorkspaceRows();
   }, [loadWorkspaceRows, tenantReady, activeCompanyId, authUserId]);
 
@@ -907,19 +915,23 @@ export default function Home() {
             </p>
           </header>
 
-          <CompanyAiUsagePanel
-            tenantReady={tenantReady}
-            activeCompanyId={activeCompanyId}
-            isMobile
-          />
+          {showTenantWorkspace ? (
+            <CompanyAiUsagePanel
+              tenantReady={tenantReady}
+              activeCompanyId={activeCompanyId}
+              isMobile
+            />
+          ) : null}
 
-          <TodayFollowUpWorkspace
-            rows={workspaceRows}
-            lang={lang}
-            isMobile
-            loading={workspaceLoading}
-            loadError={workspaceError}
-          />
+          {showTenantWorkspace ? (
+            <TodayFollowUpWorkspace
+              rows={workspaceRows}
+              lang={lang}
+              isMobile
+              loading={workspaceLoading}
+              loadError={workspaceError}
+            />
+          ) : null}
 
           <section style={{ ...block(), display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div style={statCard}>
@@ -1119,23 +1131,27 @@ export default function Home() {
 
       </div>
 
-      <CompanyAiUsagePanel
-        tenantReady={tenantReady}
-        activeCompanyId={activeCompanyId}
-        isMobile={false}
-        cardsGridStyle={s.cards}
-        cardStyle={s.card}
-        cardTitleStyle={s.cardTitle}
-        cardValueStyle={s.cardValue}
-      />
+      {showTenantWorkspace ? (
+        <CompanyAiUsagePanel
+          tenantReady={tenantReady}
+          activeCompanyId={activeCompanyId}
+          isMobile={false}
+          cardsGridStyle={s.cards}
+          cardStyle={s.card}
+          cardTitleStyle={s.cardTitle}
+          cardValueStyle={s.cardValue}
+        />
+      ) : null}
 
-      <TodayFollowUpWorkspace
-        rows={workspaceRows}
-        lang={lang}
-        isMobile={false}
-        loading={workspaceLoading}
-        loadError={workspaceError}
-      />
+      {showTenantWorkspace ? (
+        <TodayFollowUpWorkspace
+          rows={workspaceRows}
+          lang={lang}
+          isMobile={false}
+          loading={workspaceLoading}
+          loadError={workspaceError}
+        />
+      ) : null}
 
       <div style={{ ...s.cards, marginTop: 22 }}>
         <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
