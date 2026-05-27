@@ -91,6 +91,10 @@ async function ensureMonthlyCounterCurrent(
   const month = currentUsageMonth();
   if (row.ai_usage_month === month) return row;
 
+  if (!row.usageCountersPersisted) {
+    return { ...row, ai_used_this_month: 0, ai_usage_month: month };
+  }
+
   const admin = getSupabaseServiceRole();
   const { error } = await admin
     .from("companies")
@@ -101,7 +105,7 @@ async function ensureMonthlyCounterCurrent(
     .eq("id", row.id);
 
   if (error) {
-    console.error("[aiUsage] month reset failed:", error.message);
+    console.warn("[aiUsage] month reset skipped:", error.message);
     return { ...row, ai_used_this_month: 0, ai_usage_month: month };
   }
 
@@ -122,6 +126,7 @@ export async function assertAiUsageAllowed(
 ): Promise<AiUsageGateResult> {
   let row = await loadCompanySubscriptionRow(companyId);
   if (!row) {
+    console.error("[aiUsage] workspace row missing for company:", { companyId });
     return { allowed: false, error: "找不到工作區", status: 404 };
   }
 
@@ -174,6 +179,10 @@ export async function recordAiUsage(params: {
   const row = await loadCompanySubscriptionRow(params.companyId);
   if (!row) return;
 
+  if (!row.usageCountersPersisted) {
+    return;
+  }
+
   const used =
     row.ai_usage_month === month ? parseUsageCount(row.ai_used_this_month) + 1 : 1;
 
@@ -186,7 +195,7 @@ export async function recordAiUsage(params: {
     .eq("id", params.companyId);
 
   if (updateError) {
-    console.error("[aiUsage] counter update failed:", updateError.message);
+    console.warn("[aiUsage] counter update skipped:", updateError.message);
   }
 }
 

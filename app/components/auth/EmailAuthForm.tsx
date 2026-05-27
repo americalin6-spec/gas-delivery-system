@@ -8,8 +8,9 @@ import {
   authInputStyle,
   authPrimaryBtnStyle,
 } from "../../lib/authStyles";
+import { buildOAuthRedirectUrl } from "../../lib/authOAuth";
 import { getSupabaseBrowser } from "../../lib/supabaseBrowser";
-import { DASHBOARD_PATH } from "../../lib/supabaseConfig";
+import { DASHBOARD_PATH, resolveOAuthRedirectOrigin } from "../../lib/supabaseConfig";
 
 export function EmailLoginForm({
   redirectNext = DASHBOARD_PATH,
@@ -110,7 +111,10 @@ export function EmailSignupForm() {
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        emailRedirectTo: buildOAuthRedirectUrl({
+          origin: resolveOAuthRedirectOrigin() || window.location.origin,
+          next: DASHBOARD_PATH,
+        }),
       },
     });
     setBusy(false);

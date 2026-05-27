@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApiAuth } from "../../lib/apiAuth";
+import { parsePreferredCompanyId, requireApiAuth } from "../../lib/apiAuth";
 import { openAiChatCompletion } from "../../lib/aiUsageServer";
 import {
   extractCustomerFromLineChat,
@@ -14,16 +14,40 @@ import { parseAiJsonObject } from "../../lib/parseAiJson";
 import { sanitizeImportantDateFields } from "../../lib/sanitizeImportantDateFields";
 
 export async function POST(req: Request) {
-  const auth = await requireApiAuth(req);
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const preferredCompanyId = parsePreferredCompanyId(
+    body.company_id ?? body.companyId ?? body.workspace_id ?? body.workspaceId,
+  );
+
+  const auth = await requireApiAuth(req, { preferredCompanyId });
   if (auth instanceof NextResponse) {
     return auth;
   }
   const { companyId, user } = auth;
 
+  if (!companyId || companyId <= 0) {
+    return NextResponse.json({ error: "找不到工作區" }, { status: 404 });
+  }
+
   try {
-    const { text, lang: rawLang } = await req.json();
+    const rawLang = body.lang;
     const lang = rawLang === "en" ? "en" : "zh";
-    const inputText = typeof text === "string" ? text : "";
+    const inputText = typeof body.text === "string" ? body.text : "";
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[analyze] request context:", {
+        userId: user.id,
+        companyId,
+        workspaceId: companyId,
+        textLength: inputText.length,
+      });
+    }
 
     const regexExtracted = extractCustomerFromLineChat(inputText, lang);
     const honorificName = extractHonorificCustomerName(inputText);

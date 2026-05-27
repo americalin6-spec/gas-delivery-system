@@ -30,35 +30,37 @@ type AuthProviderProps = {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const initialCheckDoneRef = useRef(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowser();
-    initialCheckDoneRef.current = false;
+    let mounted = true;
 
-    void (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.auth.getSession();
-        setSession(data.session ?? null);
-      } else {
-        setSession(null);
-      }
-      initialCheckDoneRef.current = true;
+    const applySession = (next: Session | null) => {
+      if (!mounted) return;
+      setSession(next);
       setLoading(false);
-    })();
+    };
+
+    void supabase.auth.getSession().then(({ data: { session: initial } }) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[AuthProvider] getSession", initial?.user?.id ?? null);
+      }
+      applySession(initial);
+    });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!initialCheckDoneRef.current) return;
-      setSession(nextSession);
-      setLoading(false);
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[AuthProvider] onAuthStateChange", event, nextSession?.user?.id ?? null);
+      }
+      applySession(nextSession);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const value: AuthSessionState = {

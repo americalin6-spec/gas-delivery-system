@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { setClientCompanyId } from "../lib/clientCompany";
 import { useAuthSession } from "./useAuthSession";
 
 export type ServerTenantState = {
@@ -77,6 +78,7 @@ export function useServerTenant(): ServerTenantState {
         created: Boolean(body.created),
       });
 
+      setClientCompanyId(companyId);
       setActiveCompanyId(companyId);
       setAuthUserId(session.user.id);
       setCreated(Boolean(body.created));

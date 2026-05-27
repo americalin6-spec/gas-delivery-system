@@ -724,16 +724,51 @@ export default function DashboardPageClient() {
       return;
     }
 
+    if (!session?.user) {
+      console.warn("[analyze] blocked — no authenticated user");
+      return;
+    }
+
+    if (!tenantReady || activeCompanyId <= 0 || !authUserId) {
+      console.warn("[analyze] blocked — workspace not ready", {
+        userId: session.user.id,
+        tenantReady,
+        activeCompanyId,
+        authUserId,
+        tenantError,
+      });
+      alert(tenantError ?? "找不到工作區");
+      if (!tenantReady || activeCompanyId <= 0) {
+        void refreshTenant();
+      }
+      return;
+    }
+
     setLoading(true);
-    console.log("[analyze] start");
+    const analysisPayload = {
+      text: lineText,
+      lang,
+      company_id: activeCompanyId,
+      workspace_id: activeCompanyId,
+    };
+    console.log("[analyze] start", {
+      userId: session.user.id,
+      activeCompanyId,
+      workspaceId: activeCompanyId,
+      analysisPayload: {
+        ...analysisPayload,
+        text: `[${lineText.length} chars]`,
+      },
+    });
 
     let aiResult: AiAnalyzeCustomerPayload | null = null;
     try {
       try {
         const aiRes = await fetch("/api/analyze", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: lineText, lang }),
+          body: JSON.stringify(analysisPayload),
         });
         const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
         if (!aiRes.ok && aiBody.error) {

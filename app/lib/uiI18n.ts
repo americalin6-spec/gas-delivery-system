@@ -67,7 +67,7 @@ export function homePageCopy(lang: AppLang) {
       ? "貼上對話後開始客戶分析：自動擷取客戶資料填入上方客戶資料表（可手動修改），並產出成交洞察。"
       : "After pasting, run analysis to extract CRM fields above (editable) plus deal insights.",
     linePlaceholder: zh
-      ? "客戶：您好，我們想了解貴公司的方案與報價…"
+      ? "載入 LINE 對話資料"
       : "Client: We want a brand video...",
     clearText: zh ? "清除文字" : "Clear Text",
     analyzing: zh ? "分析中..." : "Analyzing...",

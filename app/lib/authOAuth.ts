@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { AUTH_CALLBACK_PATH } from "./supabaseConfig";
+import {
+  AUTH_CALLBACK_PATH,
+  OAUTH_PENDING_KEY,
+  OAUTH_RETURN_ORIGIN_KEY,
+  resolveOAuthRedirectOrigin,
+} from "./supabaseConfig";
 
 export const SUPABASE_AUTH_CALLBACK_MESSAGE = "SUPABASE_AUTH_CALLBACK";
 
@@ -15,21 +20,61 @@ export function buildOAuthRedirectUrl(opts: {
 }): string {
   const url = new URL(`${opts.origin}${AUTH_CALLBACK_PATH}`);
   url.searchParams.set("next", opts.next ?? "/dashboard");
+  url.searchParams.set("app_origin", opts.origin);
   if (opts.popup) url.searchParams.set("popup", "1");
   return url.toString();
 }
 
-/** Google OAuth — prefers popup; falls back to same-tab redirect if blocked. */
+/** Force authorize URL to use our redirect_to (local dev vs production). */
+export function applyOAuthRedirectTo(authorizeUrl: string, redirectTo: string): string {
+  try {
+    const url = new URL(authorizeUrl);
+    url.searchParams.set("redirect_to", redirectTo);
+    return url.toString();
+  } catch {
+    return authorizeUrl;
+  }
+}
+
+function markOAuthPending(origin: string): void {
+  try {
+    sessionStorage.setItem(OAUTH_RETURN_ORIGIN_KEY, origin);
+    sessionStorage.setItem(OAUTH_PENDING_KEY, "1");
+  } catch {
+    /* private mode */
+  }
+}
+
+function clearOAuthPending(): void {
+  try {
+    sessionStorage.removeItem(OAUTH_RETURN_ORIGIN_KEY);
+    sessionStorage.removeItem(OAUTH_PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Google OAuth — same-tab redirect so PKCE cookies and callback stay on the current host.
+ */
 export async function signInWithGoogle(
   supabase: SupabaseClient,
   opts: { redirectNext?: string; onPopupBlocked?: () => void },
 ): Promise<{ error: Error | null; usedPopup: boolean }> {
-  const origin = window.location.origin;
+  void opts.onPopupBlocked;
+
+  const origin = resolveOAuthRedirectOrigin();
+  if (!origin) {
+    return { error: new Error("無法取得目前網址"), usedPopup: false };
+  }
+
   const redirectTo = buildOAuthRedirectUrl({
     origin,
     next: opts.redirectNext ?? "/dashboard",
-    popup: true,
+    popup: false,
   });
+
+  markOAuthPending(origin);
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -44,48 +89,35 @@ export async function signInWithGoogle(
   });
 
   if (error) {
+    clearOAuthPending();
     return { error, usedPopup: false };
   }
 
   if (!data?.url) {
+    clearOAuthPending();
     return { error: new Error("missing_oauth_url"), usedPopup: false };
   }
 
-  const w = 520;
-  const h = 660;
-  const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
-  const top = Math.round(window.screenY + (window.outerHeight - h) / 2);
-  const popup = window.open(
-    data.url,
-    "google_oauth",
-    `popup=yes,width=${w},height=${h},left=${left},top=${top},noreferrer`,
-  );
-
-  if (!popup) {
-    opts.onPopupBlocked?.();
-    const { error: redirectError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: buildOAuthRedirectUrl({
-          origin,
-          next: opts.redirectNext ?? "/dashboard",
-          popup: false,
-        }),
-      },
-    });
-    return { error: redirectError, usedPopup: false };
-  }
-
-  return { error: null, usedPopup: true };
+  window.location.assign(applyOAuthRedirectTo(data.url, redirectTo));
+  return { error: null, usedPopup: false };
 }
 
 export function subscribeToAuthCallbackMessage(
   handler: (msg: AuthCallbackMessage) => void,
 ): () => void {
   const onMessage = (event: MessageEvent) => {
-    if (event.origin !== window.location.origin) return;
     const data = event.data as AuthCallbackMessage | undefined;
     if (data?.type !== SUPABASE_AUTH_CALLBACK_MESSAGE) return;
+
+    let pending = false;
+    try {
+      pending = sessionStorage.getItem(OAUTH_PENDING_KEY) === "1";
+    } catch {
+      pending = false;
+    }
+    if (!pending) return;
+
+    clearOAuthPending();
     handler(data);
   };
   window.addEventListener("message", onMessage);

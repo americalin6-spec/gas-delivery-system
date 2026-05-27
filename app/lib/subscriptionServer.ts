@@ -23,6 +23,8 @@ export type CompanySubscriptionRow = {
   stripe_subscription_id: string | null;
   paid_until: string | null;
   ai_extra_credits: number;
+  /** False when DB has no ai_usage_month / ai_used_this_month columns (in-memory limits only). */
+  usageCountersPersisted: boolean;
 };
 
 export type CompanySubscriptionView = {
@@ -45,13 +47,37 @@ export type CompanySubscriptionView = {
   billingReady: boolean;
 };
 
-const COMPANY_SUBSCRIPTION_SELECT =
-  "id, plan_status, trial_started_at, trial_ends_at, ai_monthly_limit, ai_used_this_month, ai_usage_month, subscription_status, subscription_plan, stripe_customer_id, stripe_subscription_id, paid_until, ai_extra_credits";
+/** Columns from add_company_subscription.sql — safe on all deployed schemas. */
+const COMPANY_BASE_SELECT =
+  "id, subscription_status, subscription_plan, stripe_customer_id, stripe_subscription_id, paid_until";
+
+/** Optional AI plan columns (add_company_ai_plan.sql) — queried only when present. */
+const COMPANY_AI_PLAN_SELECT =
+  "plan_status, trial_started_at, trial_ends_at, ai_monthly_limit, ai_used_this_month, ai_usage_month, ai_extra_credits";
+
+const COMPANY_SUBSCRIPTION_SELECT = `${COMPANY_BASE_SELECT}, ${COMPANY_AI_PLAN_SELECT}`;
+
+function currentUsageMonth(now = new Date()): string {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function isMissingColumnError(message: string | undefined): boolean {
+  if (!message) return false;
+  return /does not exist/i.test(message) || /column/i.test(message);
+}
+
+function defaultTrialEndsAt(now = new Date()): string {
+  const ends = new Date(now);
+  ends.setUTCDate(ends.getUTCDate() + TRIAL_PERIOD_DAYS);
+  return ends.toISOString();
+}
 
 export function buildNewCompanySubscriptionFields(now = new Date()): Record<string, unknown> {
   const trialEnds = new Date(now);
   trialEnds.setUTCDate(trialEnds.getUTCDate() + TRIAL_PERIOD_DAYS);
-  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const month = currentUsageMonth(now);
 
   return {
     plan_status: "trial",
@@ -72,6 +98,50 @@ export function buildNewCompanySubscriptionFields(now = new Date()): Record<stri
 function parseUsageCount(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+function normalizeSubscriptionRow(
+  data: Record<string, unknown>,
+  options: { usageCountersPersisted: boolean; now?: Date },
+): CompanySubscriptionRow {
+  const now = options.now ?? new Date();
+  const plan = String(data.subscription_plan ?? "trial");
+  const hasAiPlanColumns = options.usageCountersPersisted;
+
+  return {
+    id: Number(data.id),
+    plan_status: String(
+      hasAiPlanColumns && data.plan_status != null ? data.plan_status : "trial",
+    ),
+    trial_started_at:
+      hasAiPlanColumns && data.trial_started_at != null
+        ? String(data.trial_started_at)
+        : now.toISOString(),
+    trial_ends_at:
+      hasAiPlanColumns && data.trial_ends_at != null
+        ? String(data.trial_ends_at)
+        : defaultTrialEndsAt(now),
+    ai_monthly_limit:
+      hasAiPlanColumns && data.ai_monthly_limit != null
+        ? Number(data.ai_monthly_limit) || monthlyAiLimitForPlan("trial")
+        : monthlyAiLimitForPlan(plan === "trial" ? "trial" : (plan as SubscriptionPlan)),
+    ai_used_this_month: hasAiPlanColumns
+      ? parseUsageCount(data.ai_used_this_month)
+      : 0,
+    ai_usage_month:
+      hasAiPlanColumns && data.ai_usage_month != null
+        ? String(data.ai_usage_month)
+        : currentUsageMonth(now),
+    subscription_status: String(data.subscription_status ?? "active"),
+    subscription_plan: plan,
+    stripe_customer_id:
+      data.stripe_customer_id != null ? String(data.stripe_customer_id) : null,
+    stripe_subscription_id:
+      data.stripe_subscription_id != null ? String(data.stripe_subscription_id) : null,
+    paid_until: data.paid_until != null ? String(data.paid_until) : null,
+    ai_extra_credits: hasAiPlanColumns ? parseUsageCount(data.ai_extra_credits) : 0,
+    usageCountersPersisted: hasAiPlanColumns,
+  };
 }
 
 export function hasActivePaidSubscription(row: CompanySubscriptionRow, now = new Date()): boolean {
@@ -99,6 +169,9 @@ export function isTrialPeriodExpired(row: CompanySubscriptionRow, now = new Date
   if (row.subscription_plan !== "trial" && row.plan_status !== "trial") {
     return false;
   }
+  if (!row.usageCountersPersisted) {
+    return false;
+  }
   const ends = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
   if (!ends || Number.isNaN(ends.getTime())) return false;
   return now.getTime() >= ends.getTime();
@@ -106,6 +179,7 @@ export function isTrialPeriodExpired(row: CompanySubscriptionRow, now = new Date
 
 export function trialDaysRemaining(row: CompanySubscriptionRow, now = new Date()): number | null {
   if (hasActivePaidSubscription(row, now)) return null;
+  if (!row.usageCountersPersisted) return TRIAL_PERIOD_DAYS;
   const ends = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
   if (!ends || Number.isNaN(ends.getTime())) return null;
   const ms = ends.getTime() - now.getTime();
@@ -140,7 +214,7 @@ export function companyRowToSubscriptionView(
   row: CompanySubscriptionRow,
   now = new Date(),
 ): CompanySubscriptionView {
-  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const month = currentUsageMonth(now);
   const used =
     row.ai_usage_month === month ? parseUsageCount(row.ai_used_this_month) : 0;
   const limit = effectiveMonthlyAiLimit(row);
@@ -170,38 +244,79 @@ export function companyRowToSubscriptionView(
 export async function loadCompanySubscriptionRow(
   companyId: number,
 ): Promise<CompanySubscriptionRow | null> {
+  if (!Number.isFinite(companyId) || companyId <= 0) {
+    return null;
+  }
+
   const admin = getSupabaseServiceRole();
-  const { data, error } = await admin
+
+  const extended = await admin
     .from("companies")
     .select(COMPANY_SUBSCRIPTION_SELECT)
     .eq("id", companyId)
     .maybeSingle();
 
-  if (error || !data) {
-    if (error) {
-      console.error("[subscription] load failed:", { companyId, message: error.message });
-    }
+  if (!extended.error && extended.data) {
+    return normalizeSubscriptionRow(extended.data as Record<string, unknown>, {
+      usageCountersPersisted: true,
+    });
+  }
+
+  if (extended.error) {
+    console.warn("[subscription] extended load fallback:", {
+      companyId,
+      message: extended.error.message,
+    });
+  }
+
+  const base = await admin
+    .from("companies")
+    .select(COMPANY_BASE_SELECT)
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (!base.error && base.data) {
+    return normalizeSubscriptionRow(base.data as Record<string, unknown>, {
+      usageCountersPersisted: false,
+    });
+  }
+
+  if (base.error) {
+    console.warn("[subscription] base load fallback:", {
+      companyId,
+      message: base.error.message,
+    });
+  }
+
+  const minimal = await admin
+    .from("companies")
+    .select("id")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (minimal.error) {
+    console.error("[subscription] id-only load failed:", {
+      companyId,
+      message: minimal.error.message,
+    });
     return null;
   }
 
-  return {
-    id: Number(data.id),
-    plan_status: String(data.plan_status ?? "trial"),
-    trial_started_at:
-      data.trial_started_at != null ? String(data.trial_started_at) : null,
-    trial_ends_at: data.trial_ends_at != null ? String(data.trial_ends_at) : null,
-    ai_monthly_limit: Number(data.ai_monthly_limit) || monthlyAiLimitForPlan("trial"),
-    ai_used_this_month: parseUsageCount(data.ai_used_this_month),
-    ai_usage_month: data.ai_usage_month != null ? String(data.ai_usage_month) : null,
-    subscription_status: String(data.subscription_status ?? "active"),
-    subscription_plan: String(data.subscription_plan ?? "trial"),
-    stripe_customer_id:
-      data.stripe_customer_id != null ? String(data.stripe_customer_id) : null,
-    stripe_subscription_id:
-      data.stripe_subscription_id != null ? String(data.stripe_subscription_id) : null,
-    paid_until: data.paid_until != null ? String(data.paid_until) : null,
-    ai_extra_credits: parseUsageCount(data.ai_extra_credits),
-  };
+  if (!minimal.data) {
+    return null;
+  }
+
+  return normalizeSubscriptionRow(
+    {
+      id: minimal.data.id,
+      subscription_status: "active",
+      subscription_plan: "trial",
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      paid_until: null,
+    },
+    { usageCountersPersisted: false },
+  );
 }
 
 export async function getCompanySubscriptionView(

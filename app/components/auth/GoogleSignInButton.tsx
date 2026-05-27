@@ -65,7 +65,7 @@ export function GoogleSignInButton({
     setError(null);
     setBusy(true);
     const supabase = getSupabaseBrowser();
-    const { error: oauthError, usedPopup } = await signInWithGoogle(supabase, {
+    const { error: oauthError } = await signInWithGoogle(supabase, {
       redirectNext,
       onPopupBlocked: () => onNotice?.(authCopy.popupBlocked),
     });
@@ -74,9 +74,7 @@ export function GoogleSignInButton({
       setError(oauthError.message || authCopy.authError);
       return;
     }
-    if (!usedPopup) {
-      /* same-tab redirect — page will navigate away */
-    }
+    /* same-tab redirect — page navigates away to Google */
   };
 
   return (
