@@ -300,34 +300,6 @@ export function CustomerAiFollowUpSection({
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              padding: "5px 10px",
-              borderRadius: 999,
-              background: `${urgencyTheme.accent}18`,
-              color: urgencyTheme.accent,
-              border: `1px solid ${urgencyTheme.border}`,
-            }}
-          >
-            {urgencyTheme.label}
-          </span>
-          {followUp?.reEngagement ? (
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "5px 10px",
-                borderRadius: 999,
-                background: "rgba(251,191,36,0.12)",
-                color: "#fcd34d",
-                border: "1px solid rgba(251,191,36,0.4)",
-              }}
-            >
-              喚回建議
-            </span>
-          ) : null}
           <button
             type="button"
             onClick={() => void loadFollowUp()}
