@@ -238,7 +238,14 @@ export function CustomerAiFollowUpSection({
         gap: isMobile ? 14 : 18,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 16,
+        }}
+      >
         <div style={{ minWidth: 0 }}>
           <div
             style={{

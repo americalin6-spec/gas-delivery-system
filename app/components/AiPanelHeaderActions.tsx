@@ -11,7 +11,7 @@ type Props = {
 /** Header action row: reanalyze control only (no badges/pills). */
 export function AiPanelHeaderActions({ loading, onReanalyze, buttonStyle }: Props) {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-start" }}>
       <button
         type="button"
         onClick={onReanalyze}
