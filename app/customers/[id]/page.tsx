@@ -144,6 +144,13 @@ interface Customer {
   ai_todo?: string | null;
 }
 
+const customerDetailCache = new Map<string, Customer>();
+
+function readCachedCustomer(customerId: string): Customer | null {
+  if (!customerId?.trim()) return null;
+  return customerDetailCache.get(customerId) ?? null;
+}
+
 type Draft = Record<string, string>;
 
 const EDIT_FIELD_KEYS: (keyof Customer)[] = [
@@ -220,10 +227,10 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(() => readCachedCustomer(id));
   const customerRef = useRef<Customer | null>(null);
   customerRef.current = customer;
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readCachedCustomer(id));
   const [notFound, setNotFound] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>({});
@@ -325,8 +332,10 @@ export default function CustomerDetailPage() {
           status: res.status,
           error: body.error ?? null,
         });
-        setCustomer(null);
-        setNotFound(true);
+        if (!customerRef.current) {
+          setCustomer(null);
+          setNotFound(true);
+        }
       } else {
         const data = body.customer;
         const rowCompanyId = Number(data.company_id);
@@ -337,8 +346,10 @@ export default function CustomerDetailPage() {
             customerId: id,
             rowCompanyId: data.company_id ?? null,
           });
-          setCustomer(null);
-          setNotFound(true);
+          if (!customerRef.current) {
+            setCustomer(null);
+            setNotFound(true);
+          }
         } else {
           console.log("[customerDetail] customer loaded:", {
             authUserId,
@@ -359,6 +370,7 @@ export default function CustomerDetailPage() {
             ai_professional_reply: data.ai_professional_reply ?? null,
             ai_todo: data.ai_todo ?? null,
           });
+          customerDetailCache.set(id, data);
           setCustomer(data);
           setNotFound(false);
           setManualFollowUpYmd(null);
@@ -368,8 +380,10 @@ export default function CustomerDetailPage() {
       }
     } catch (err) {
       console.error("[customerDetail] fetch failed:", err);
-      setCustomer(null);
-      setNotFound(true);
+      if (!customerRef.current) {
+        setCustomer(null);
+        setNotFound(true);
+      }
     }
 
     if (blockUi) setLoading(false);
@@ -412,8 +426,14 @@ export default function CustomerDetailPage() {
   }, []);
 
   useEffect(() => {
-    void fetchCustomer();
-  }, [fetchCustomer]);
+    const cached = readCachedCustomer(id);
+    if (cached) {
+      setCustomer(cached);
+      setLoading(false);
+      setNotFound(false);
+    }
+    void fetchCustomer({ silent: Boolean(cached) });
+  }, [fetchCustomer, id]);
 
   function startEdit() {
     if (!customer) return;
@@ -459,7 +479,9 @@ export default function CustomerDetailPage() {
     }
 
     if (data) {
-      setCustomer(data as Customer);
+      const saved = data as Customer;
+      customerDetailCache.set(id, saved);
+      setCustomer(saved);
       const savedFollow = normalizeFollowUpDateValue(payload.follow_up_date);
       setManualFollowUpYmd(savedFollow);
     }
@@ -508,8 +530,14 @@ export default function CustomerDetailPage() {
       alert(error.message);
       return;
     }
-    if (data) setCustomer(data as Customer);
+    if (data) {
+      const saved = data as Customer;
+      customerDetailCache.set(id, saved);
+      setCustomer(saved);
+    }
   }
+
+  const showFullPageLoading = loading && !customer;
 
   const persistedAiSummary = useMemo((): CustomerAiSummary | null => {
     if (!customer) return null;
@@ -643,7 +671,7 @@ export default function CustomerDetailPage() {
           </Link>
         </nav>
 
-        {!tenantReady || (loading && !customer) ? (
+        {showFullPageLoading ? (
           <div
             style={{
               padding: 52,

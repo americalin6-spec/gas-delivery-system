@@ -267,16 +267,6 @@ export function CustomerAiSummaryDashboard({
             gap: 8,
           }}
         >
-          <PriorityPill
-            label={DEAL_PRIORITY_THEME[dealLevel].label}
-            color={DEAL_PRIORITY_THEME[dealLevel].accent}
-          />
-          {riskLevel === "high" ? (
-            <PriorityPill
-              label={RISK_PRIORITY_THEME.high.label}
-              color={RISK_PRIORITY_THEME.high.accent}
-            />
-          ) : null}
           <button
             type="button"
             onClick={() => void loadSummary()}
@@ -428,23 +418,5 @@ export function CustomerAiSummaryDashboard({
         </span>
       </footer>
     </section>
-  );
-}
-
-function PriorityPill({ label, color }: { label: string; color: string }) {
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 700,
-        padding: "5px 10px",
-        borderRadius: 999,
-        background: `${color}18`,
-        color,
-        border: `1px solid ${color}44`,
-      }}
-    >
-      {label}
-    </span>
   );
 }
