@@ -753,7 +753,8 @@ export default function DashboardPageClient() {
       company_id: activeCompanyId,
       workspace_id: activeWorkspaceId,
     };
-    console.log("[analyze] companyId", activeCompanyId, "workspaceId", activeWorkspaceId);
+    console.log("[analyze-request] company_id", analysisPayload.company_id);
+    console.log("[analyze-request] workspace_id", analysisPayload.workspace_id);
 
     let aiResult: AiAnalyzeCustomerPayload | null = null;
     try {

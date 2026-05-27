@@ -21,6 +21,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  console.log("[analyze] received", {
+    company_id: body.company_id ?? body.companyId ?? null,
+    workspace_id: body.workspace_id ?? body.workspaceId ?? null,
+  });
+
   const preferredCompanyId = parsePreferredCompanyId(
     body.company_id ?? body.companyId,
   );

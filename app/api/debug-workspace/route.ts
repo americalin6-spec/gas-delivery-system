@@ -180,8 +180,9 @@ export async function GET(req: Request) {
         defaultWorkspaceCreateSucceeded,
         finalWorkspaceId,
         error,
+        authHttpStatus: auth.status,
       },
-      { status: auth.status },
+      { status: 200 },
     );
   }
 
@@ -210,7 +211,8 @@ export async function GET(req: Request) {
       defaultWorkspaceCreateSucceeded,
       finalWorkspaceId,
       error,
+      authHttpStatus: 200,
     },
-    { status: error ? 404 : 200 },
+    { status: 200 },
   );
 }
