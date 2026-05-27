@@ -197,16 +197,8 @@ export function CustomerAiSummaryDashboard({
         gap: isMobile ? 14 : 18,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               display: "inline-flex",
@@ -259,7 +251,7 @@ export function CustomerAiSummaryDashboard({
           </p>
         </div>
 
-        <div style={{ flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
           <button
             type="button"
             onClick={() => void loadSummary()}
