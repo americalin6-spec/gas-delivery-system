@@ -80,8 +80,6 @@ function cardAccent(
     return {
       border: t.border,
       glow: t.glow,
-      badge: t.label,
-      badgeColor: t.accent,
     };
   }
   if (priority === "risk") {
