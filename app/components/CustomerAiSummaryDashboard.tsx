@@ -54,9 +54,9 @@ const CARD_ITEMS: {
 }[] = [
   { key: "customerNeeds", title: "客戶需求", icon: "◆" },
   { key: "painPoints", title: "客戶痛點", icon: "◇" },
-  { key: "dealProbability", title: "成交機率", icon: "◎", priority: "deal" },
   { key: "customerEmotion", title: "客戶情緒", icon: "○" },
   { key: "suggestedNextStep", title: "建議下一步", icon: "→" },
+  { key: "dealProbability", title: "成交機率", icon: "◎", priority: "deal" },
   { key: "riskAlert", title: "風險提醒", icon: "!", priority: "risk" },
 ];
 

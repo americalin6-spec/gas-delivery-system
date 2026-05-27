@@ -237,16 +237,8 @@ export function CustomerAiFollowUpSection({
         gap: isMobile ? 14 : 18,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               display: "inline-flex",
@@ -299,7 +291,7 @@ export function CustomerAiFollowUpSection({
           </p>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
           <button
             type="button"
             onClick={() => void loadFollowUp()}
