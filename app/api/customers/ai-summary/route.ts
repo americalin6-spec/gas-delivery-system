@@ -9,7 +9,11 @@ import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { requireApiAuth } from "../../../lib/apiAuth";
 import { API_ACCESS_DENIED } from "../../../lib/apiTenant";
-import { openAiChatCompletion } from "../../../lib/aiUsageServer";
+import {
+  finalizeAiUsageSuccess,
+  openAiChatCompletion,
+  releaseAiQuotaReservation,
+} from "../../../lib/aiUsageServer";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
 import { persistCustomerAiSummaryFields } from "../../../lib/customerAiPersistence";
 
@@ -17,6 +21,9 @@ const CONVERSATIONS_SELECT =
   "id, customer_id, message_text, direction, created_at";
 
 export async function POST(req: Request) {
+  let heldReservation:
+    | import("../../../lib/aiUsageServer").AiQuotaReservation
+    | null = null;
   try {
     const auth = await requireApiAuth(req);
     if (auth instanceof NextResponse) {
@@ -113,11 +120,14 @@ export async function POST(req: Request) {
         { status: aiCall.status },
       );
     }
+    heldReservation = aiCall.result.reservation;
 
     const content = aiCall.result.content;
     const parsed = parseAiJsonObject(content);
 
     if (!parsed) {
+      await releaseAiQuotaReservation(aiCall.result.reservation);
+      heldReservation = null;
       console.error("[ai-summary] invalid AI JSON", {
         preview: typeof content === "string" ? content.slice(0, 300) : content,
       });
@@ -133,6 +143,19 @@ export async function POST(req: Request) {
       customerId,
       summary,
     );
+    if (saved.error || saved.savedColumns.length === 0) {
+      await releaseAiQuotaReservation(aiCall.result.reservation);
+      heldReservation = null;
+    } else {
+      await finalizeAiUsageSuccess({
+        reservation: aiCall.result.reservation,
+        companyId,
+        userId: user.id,
+        feature: "ai_summary",
+        estimatedTokens: aiCall.result.estimatedTokens,
+      });
+      heldReservation = null;
+    }
     console.log("[analyze-save]", {
       source: "ai-summary",
       customerId,
@@ -143,6 +166,9 @@ export async function POST(req: Request) {
     extract = await runExtract();
     return NextResponse.json({ ok: true, summary, source: "ai", extract });
   } catch (err) {
+    if (heldReservation) {
+      await releaseAiQuotaReservation(heldReservation);
+    }
     console.error("[ai-summary]", err);
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "AI 分析失敗" },

@@ -28,7 +28,7 @@ export const AI_TRIAL_EXPIRED_MESSAGE =
   "免費試用已結束，請升級方案後繼續使用";
 
 export const AI_LIMIT_EXCEEDED_MESSAGE =
-  "本月 AI 使用次數已達上限，請升級方案或下個月再使用";
+  "本月 AI 分析次數已用完，請升級方案或等待下個月重置。";
 
 export const PLAN_DEFINITIONS: Record<SubscriptionPlan, PlanDefinition> = {
   trial: {

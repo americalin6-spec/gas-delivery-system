@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { parsePreferredCompanyId, requireApiAuth } from "../../lib/apiAuth";
-import { openAiChatCompletion } from "../../lib/aiUsageServer";
+import {
+  finalizeAiUsageSuccess,
+  openAiChatCompletion,
+  releaseAiQuotaReservation,
+} from "../../lib/aiUsageServer";
 import { buildCustomerAiPatchFromAnalyzePayload } from "../../lib/customerAiPersistence";
 import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
 import {
@@ -16,6 +20,9 @@ import { parseAiJsonObject } from "../../lib/parseAiJson";
 import { sanitizeImportantDateFields } from "../../lib/sanitizeImportantDateFields";
 
 export async function POST(req: Request) {
+  let heldReservation:
+    | import("../../lib/aiUsageServer").AiQuotaReservation
+    | null = null;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -122,10 +129,12 @@ ${inputText}
         { status: aiCall.status },
       );
     }
+    heldReservation = aiCall.result.reservation;
 
     const result = aiCall.result.content;
     const aiParsed = parseAiJsonObject(result);
     if (!aiParsed) {
+      await releaseAiQuotaReservation(aiCall.result.reservation);
       console.error("[analyze] invalid AI JSON", {
         preview: typeof result === "string" ? result.slice(0, 300) : result,
       });
@@ -170,6 +179,7 @@ ${inputText}
       lang,
     );
 
+    let analysisSaved = false;
     if (customerId) {
       const { customer, error: fetchError } = await fetchCustomerByIdForActiveCompany(
         supabase,
@@ -205,11 +215,29 @@ ${inputText}
           updateResult,
           updateError: updateError?.message ?? null,
         });
+        analysisSaved = !updateError && (updateResult?.length ?? 0) > 0;
       }
+    }
+
+    if (analysisSaved) {
+      await finalizeAiUsageSuccess({
+        reservation: aiCall.result.reservation,
+        companyId,
+        userId: user.id,
+        feature: "analyze",
+        estimatedTokens: aiCall.result.estimatedTokens,
+      });
+      heldReservation = null;
+    } else {
+      await releaseAiQuotaReservation(aiCall.result.reservation);
+      heldReservation = null;
     }
 
     return NextResponse.json(payload);
   } catch (error) {
+    if (heldReservation) {
+      await releaseAiQuotaReservation(heldReservation);
+    }
     console.error(error);
 
     return NextResponse.json({

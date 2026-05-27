@@ -211,6 +211,7 @@ async function extractWithOpenAi(
     companyId,
     userId,
     feature: "ai_extract",
+    chargeQuota: false,
     messages: [
       {
         role: "user",
@@ -286,7 +287,7 @@ export async function runCustomerAiFieldExtraction(
       const message = aiErr instanceof Error ? aiErr.message : String(aiErr);
       if (
         message.includes("免費試用已結束") ||
-        message.includes("本月 AI 使用次數已達上限")
+        message.includes("本月 AI")
       ) {
         return {
           ok: false,
