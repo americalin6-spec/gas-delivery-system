@@ -174,4 +174,36 @@ export const FOLLOW_UP_URGENCY_THEME: Record<
   },
 };
 
+export function hasPersistedAiFollowUpContent(
+  raw: Partial<CustomerAiFollowUp> | null | undefined,
+): boolean {
+  if (!raw) return false;
+  return [
+    raw.suggestedFollowUpTime,
+    raw.suggestedMessage,
+    raw.suggestedAction,
+    raw.closingStrategy,
+  ].some((v) => cleanField(v).length > 0);
+}
+
+/** Hydrate follow-up cards from `customers.ai_*` — returns null when row has no saved AI text. */
+export function hydrateCustomerAiFollowUpFromPersisted(
+  raw: Partial<CustomerAiFollowUp>,
+): CustomerAiFollowUp | null {
+  if (!hasPersistedAiFollowUpContent(raw)) return null;
+
+  return {
+    suggestedFollowUpTime: cleanField(raw.suggestedFollowUpTime) || NOT_PROVIDED,
+    suggestedMessage: cleanField(raw.suggestedMessage) || NOT_PROVIDED,
+    suggestedAction: cleanField(raw.suggestedAction) || NOT_PROVIDED,
+    closingStrategy: cleanField(raw.closingStrategy) || NOT_PROVIDED,
+    urgencyLevel:
+      raw.urgencyLevel === "high" || raw.urgencyLevel === "low"
+        ? raw.urgencyLevel
+        : "medium",
+    reEngagement: raw.reEngagement === true,
+    updatedAt: String(raw.updatedAt ?? "").trim() || new Date().toISOString(),
+  };
+}
+
 export { formatAiSummaryUpdatedAt };

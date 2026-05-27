@@ -11,6 +11,7 @@ import { customerStatusWritePayload } from "../lib/customerStatus";
 import {
   FOLLOW_UP_URGENCY_THEME,
   formatAiSummaryUpdatedAt,
+  hydrateCustomerAiFollowUpFromPersisted,
   type CustomerAiFollowUp,
   type FollowUpUrgencyLevel,
 } from "../lib/customerAiFollowUp";
@@ -29,6 +30,7 @@ type Props = {
   companyId: number;
   customer: CustomerSnapshot;
   conversationSourceText: string;
+  persistedFollowUp?: Partial<CustomerAiFollowUp> | null;
   isMobile: boolean;
   registerRun?: (run: (() => Promise<void>) | null) => void;
   copyWithFallback: (text: string, options?: CopyWithFallbackOptions) => Promise<boolean>;
@@ -66,6 +68,7 @@ export function CustomerAiFollowUpSection({
   companyId,
   customer,
   conversationSourceText,
+  persistedFollowUp,
   isMobile,
   registerRun,
   copyWithFallback,
@@ -73,7 +76,9 @@ export function CustomerAiFollowUpSection({
   onCustomerUpdated,
   onExtractComplete,
 }: Props) {
-  const [followUp, setFollowUp] = useState<CustomerAiFollowUp | null>(null);
+  const [followUp, setFollowUp] = useState<CustomerAiFollowUp | null>(() =>
+    persistedFollowUp ? hydrateCustomerAiFollowUpFromPersisted(persistedFollowUp) : null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -122,14 +127,12 @@ export function CustomerAiFollowUpSection({
       if (result.ok === false) {
         if (result.aborted || result.error === "aborted") return;
         setError(result.error);
-        setFollowUp(null);
         return;
       }
 
       const data = result.data;
       if (!data.followUp) {
         setError("無法取得 AI 跟進建議");
-        setFollowUp(null);
         return;
       }
       setFollowUp(data.followUp);
@@ -141,6 +144,13 @@ export function CustomerAiFollowUpSection({
   }, [customerId, companyId]);
 
   useRegisterAiRun(registerRun, loadFollowUp);
+
+  useEffect(() => {
+    if (!persistedFollowUp) return;
+    const hydrated = hydrateCustomerAiFollowUpFromPersisted(persistedFollowUp);
+    if (!hydrated) return;
+    setFollowUp(hydrated);
+  }, [persistedFollowUp]);
 
   const urgency: FollowUpUrgencyLevel = followUp?.urgencyLevel ?? "medium";
   const urgencyTheme = FOLLOW_UP_URGENCY_THEME[urgency];
@@ -354,9 +364,15 @@ export function CustomerAiFollowUpSection({
         }}
       >
         {FIELD_CARDS.map((item) => {
-          const rawValue = followUp?.[item.key] ?? (loading ? "…" : "—");
+          const rawValue = followUp?.[item.key];
           const value =
-            typeof rawValue === "string" ? localizeCrmDisplayText(rawValue) : rawValue;
+            typeof rawValue === "string" && rawValue.trim()
+              ? localizeCrmDisplayText(rawValue)
+              : followUp
+                ? "—"
+                : loading
+                  ? "…"
+                  : "—";
           const isMessage = item.key === "suggestedMessage";
           return (
             <article
@@ -388,7 +404,7 @@ export function CustomerAiFollowUpSection({
                   margin: 0,
                   fontSize: dt.paragraph,
                   lineHeight: dt.lineHeightBody,
-                  color: loading && !followUp ? shell.faint : "#e2e8f0",
+                  color: !followUp && loading ? shell.faint : "#e2e8f0",
                   whiteSpace: "pre-wrap",
                 }}
               >

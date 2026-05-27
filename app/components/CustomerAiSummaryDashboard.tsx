@@ -10,6 +10,7 @@ import {
   DEAL_PRIORITY_THEME,
   RISK_PRIORITY_THEME,
   formatAiSummaryUpdatedAt,
+  hydrateCustomerAiSummaryFromPersisted,
   type CustomerAiSummary,
   type DealPriorityLevel,
   type RiskPriorityLevel,
@@ -30,6 +31,7 @@ type Props = {
   customerId: string;
   companyId: number;
   conversationSourceText: string;
+  persistedSummary?: Partial<CustomerAiSummary> | null;
   isMobile: boolean;
   /** Parent stores runner — only invoked on user refresh or explicit parent trigger. */
   registerRun?: (run: (() => Promise<void>) | null) => void;
@@ -101,11 +103,14 @@ export function CustomerAiSummaryDashboard({
   customerId,
   companyId,
   conversationSourceText,
+  persistedSummary,
   isMobile,
   registerRun,
   onExtractComplete,
 }: Props) {
-  const [summary, setSummary] = useState<CustomerAiSummary | null>(null);
+  const [summary, setSummary] = useState<CustomerAiSummary | null>(() =>
+    persistedSummary ? hydrateCustomerAiSummaryFromPersisted(persistedSummary) : null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onExtractRef = useRef(onExtractComplete);
@@ -153,14 +158,12 @@ export function CustomerAiSummaryDashboard({
       if (result.ok === false) {
         if (result.aborted || result.error === "aborted") return;
         setError(result.error);
-        setSummary(null);
         return;
       }
 
       const data = result.data;
       if (!data.summary) {
         setError("無法取得 AI 分析");
-        setSummary(null);
         return;
       }
       setSummary(data.summary);
@@ -175,6 +178,13 @@ export function CustomerAiSummaryDashboard({
 
   const dealLevel = summary?.dealLevel ?? "medium";
   const riskLevel = summary?.riskLevel ?? "normal";
+
+  useEffect(() => {
+    if (!persistedSummary) return;
+    const hydrated = hydrateCustomerAiSummaryFromPersisted(persistedSummary);
+    if (!hydrated) return;
+    setSummary(hydrated);
+  }, [persistedSummary]);
 
   return (
     <section
@@ -318,9 +328,15 @@ export function CustomerAiSummaryDashboard({
       >
         {CARD_ITEMS.map((item) => {
           const accent = cardAccent(item.priority, dealLevel, riskLevel);
-          const rawBody = summary?.[item.key] ?? (loading ? "…" : "—");
+          const rawBody = summary?.[item.key];
           const body =
-            typeof rawBody === "string" ? localizeCrmDisplayText(rawBody) : rawBody;
+            typeof rawBody === "string" && rawBody.trim()
+              ? localizeCrmDisplayText(rawBody)
+              : summary
+                ? "—"
+                : loading
+                  ? "…"
+                  : "—";
           return (
             <article
               key={item.key}
@@ -376,7 +392,7 @@ export function CustomerAiSummaryDashboard({
                   margin: 0,
                   fontSize: dt.paragraph,
                   lineHeight: dt.lineHeightBody,
-                  color: loading && !summary ? shell.faint : "#e2e8f0",
+                  color: !summary && loading ? shell.faint : "#e2e8f0",
                   whiteSpace: "pre-wrap",
                 }}
               >

@@ -268,3 +268,46 @@ export function formatAiSummaryUpdatedAt(iso: string): string {
     return iso;
   }
 }
+
+export function hasPersistedAiSummaryContent(
+  raw: Partial<CustomerAiSummary> | null | undefined,
+): boolean {
+  if (!raw) return false;
+  return [
+    raw.customerNeeds,
+    raw.painPoints,
+    raw.dealProbability,
+    raw.customerEmotion,
+    raw.suggestedNextStep,
+    raw.riskAlert,
+  ].some((v) => cleanField(v).length > 0);
+}
+
+/** Hydrate dashboard state from `customers.ai_*` — returns null when row has no saved AI text. */
+export function hydrateCustomerAiSummaryFromPersisted(
+  raw: Partial<CustomerAiSummary>,
+): CustomerAiSummary | null {
+  if (!hasPersistedAiSummaryContent(raw)) return null;
+
+  const dealProbability = cleanField(raw.dealProbability);
+  const riskAlert = cleanField(raw.riskAlert);
+
+  return {
+    customerNeeds: cleanField(raw.customerNeeds) || NOT_PROVIDED,
+    painPoints: cleanField(raw.painPoints) || NOT_PROVIDED,
+    dealProbability: dealProbability || NOT_PROVIDED,
+    customerEmotion: cleanField(raw.customerEmotion) || NOT_PROVIDED,
+    suggestedNextStep: cleanField(raw.suggestedNextStep) || NOT_PROVIDED,
+    riskAlert: riskAlert || NOT_PROVIDED,
+    dealLevel: inferDealLevel(
+      dealProbability,
+      raw.dealLevel as DealPriorityLevel | undefined,
+    ),
+    riskLevel: inferRiskLevel(
+      riskAlert,
+      false,
+      raw.riskLevel as RiskPriorityLevel | undefined,
+    ),
+    updatedAt: String(raw.updatedAt ?? "").trim() || new Date().toISOString(),
+  };
+}

@@ -605,6 +605,27 @@ export default function DashboardPageClient() {
         reply_suggestion:
           analysisPayload.replySuggestion === "--" ? null : analysisPayload.replySuggestion,
         follow_up: analysisPayload.followUp === "--" ? null : analysisPayload.followUp,
+        ai_summary: [
+          analysisPayload.customerNeed === "--" ? null : `需求：${analysisPayload.customerNeed}`,
+          analysisPayload.customerEmotion === "--" ? null : `情緒：${analysisPayload.customerEmotion}`,
+          analysisPayload.nextStep === "--" ? null : `下一步：${analysisPayload.nextStep}`,
+          analysisPayload.followUp === "--" ? null : `跟進：${analysisPayload.followUp}`,
+        ]
+          .filter(Boolean)
+          .join("\n") || null,
+        ai_customer_needs:
+          analysisPayload.customerNeed === "--" ? null : analysisPayload.customerNeed,
+        ai_pain_points: null,
+        ai_emotion:
+          analysisPayload.customerEmotion === "--" ? null : analysisPayload.customerEmotion,
+        ai_next_step: analysisPayload.nextStep === "--" ? null : analysisPayload.nextStep,
+        ai_risk_alert: analysisPayload.leakRisk === "--" ? null : analysisPayload.leakRisk,
+        ai_follow_up: analysisPayload.followUp === "--" ? null : analysisPayload.followUp,
+        ai_probability:
+          analysisPayload.dealProbability === "--" ? null : analysisPayload.dealProbability,
+        ai_professional_reply:
+          analysisPayload.replySuggestion === "--" ? null : analysisPayload.replySuggestion,
+        ai_todo: analysisPayload.todo === "--" ? null : analysisPayload.todo,
         success_rate: dealProb,
         customer_level:
           analysisPayload.customerLevel === "--" ? null : analysisPayload.customerLevel,
@@ -628,6 +649,13 @@ export default function DashboardPageClient() {
         activeCompanyId,
         authUserId,
         payload: baseInsert,
+      });
+      console.log("[analyze-save]", {
+        source: "dashboard-analyze",
+        requestId,
+        companyId: activeCompanyId,
+        ai_probability: baseInsert.ai_probability,
+        ai_next_step: baseInsert.ai_next_step,
       });
 
       const { customerId, action, error, customer: savedRow } = await upsertCustomerForCompany(

@@ -16,6 +16,7 @@ import { requireApiAuth } from "../../../lib/apiAuth";
 import { API_ACCESS_DENIED } from "../../../lib/apiTenant";
 import { openAiChatCompletion } from "../../../lib/aiUsageServer";
 import { runCustomerAiFieldExtraction } from "../../../lib/customerAiExtractServer";
+import { persistCustomerAiFollowUpFields } from "../../../lib/customerAiPersistence";
 
 const CONVERSATIONS_SELECT =
   "id, customer_id, message_text, direction, created_at";
@@ -128,6 +129,19 @@ export async function POST(req: Request) {
     }
 
     const followUp = parseCustomerAiFollowUp(parsed, customer, engagement);
+    const saved = await persistCustomerAiFollowUpFields(
+      supabase,
+      companyId,
+      customerId,
+      followUp,
+    );
+    console.log("[analyze-save]", {
+      source: "ai-follow-up",
+      customerId,
+      companyId,
+      savedColumns: saved.savedColumns,
+      error: saved.error,
+    });
     const extract = await runExtract();
     return NextResponse.json({ ok: true, followUp, source: "ai", extract });
   } catch (err) {

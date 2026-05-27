@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { parsePreferredCompanyId, requireApiAuth } from "../../lib/apiAuth";
 import { openAiChatCompletion } from "../../lib/aiUsageServer";
+import { buildCustomerAiPatchFromAnalyzePayload } from "../../lib/customerAiPersistence";
+import { fetchCustomerByIdForActiveCompany } from "../../lib/customersTenant";
 import {
   extractCustomerFromLineChat,
   extractHonorificCustomerName,
@@ -40,7 +42,8 @@ export async function POST(req: Request) {
   if (auth instanceof NextResponse) {
     return auth;
   }
-  const { companyId, workspaceId, user } = auth;
+  const { supabase, companyId, workspaceId, user } = auth;
+  const customerId = String(body.customer_id ?? body.customerId ?? "").trim();
 
   if (!companyId || companyId <= 0 || !workspaceId || workspaceId <= 0) {
     return NextResponse.json({ error: "找不到工作區" }, { status: 404 });
@@ -166,6 +169,44 @@ ${inputText}
       inputText,
       lang,
     );
+
+    if (customerId) {
+      const { customer, error: fetchError } = await fetchCustomerByIdForActiveCompany(
+        supabase,
+        customerId,
+        companyId,
+      );
+
+      if (fetchError || !customer) {
+        console.log("[analyze-save]", {
+          customerId,
+          updatePayload: null,
+          updateResult: null,
+          updateError: fetchError?.message ?? "customer not found or access denied",
+        });
+      } else {
+        const patch = buildCustomerAiPatchFromAnalyzePayload(
+          payload as Record<string, unknown>,
+        );
+        const updatePayload = Object.fromEntries(
+          Object.entries(patch).filter(([, value]) => value != null),
+        );
+
+        const { data: updateResult, error: updateError } = await supabase
+          .from("customers")
+          .update(updatePayload)
+          .eq("company_id", companyId)
+          .eq("id", customerId)
+          .select("id, ai_summary, ai_customer_needs, ai_emotion, ai_next_step, ai_probability");
+
+        console.log("[analyze-save]", {
+          customerId,
+          updatePayload,
+          updateResult,
+          updateError: updateError?.message ?? null,
+        });
+      }
+    }
 
     return NextResponse.json(payload);
   } catch (error) {

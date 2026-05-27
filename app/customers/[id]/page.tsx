@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -58,6 +59,14 @@ import { useServerTenant } from "../../hooks/useServerTenant";
 import { DASHBOARD_PATH } from "../../lib/authRoutes";
 import { localizeCrmDisplayText } from "../../lib/crmAiDisplayLabels";
 import { dt } from "../../lib/customerDetailTypography";
+import {
+  hasPersistedAiFollowUpContent,
+  type CustomerAiFollowUp,
+} from "../../lib/customerAiFollowUp";
+import {
+  hasPersistedAiSummaryContent,
+  type CustomerAiSummary,
+} from "../../lib/customerAiSummary";
 import { supabase } from "../../../supabase";
 
 const MOBILE_MAX = 768;
@@ -123,6 +132,16 @@ interface Customer {
   created_at?: string | null;
   updated_at?: string | null;
   ai_extracted_at?: string | null;
+  ai_summary?: string | null;
+  ai_customer_needs?: string | null;
+  ai_pain_points?: string | null;
+  ai_emotion?: string | null;
+  ai_next_step?: string | null;
+  ai_risk_alert?: string | null;
+  ai_follow_up?: string | null;
+  ai_probability?: string | null;
+  ai_professional_reply?: string | null;
+  ai_todo?: string | null;
 }
 
 type Draft = Record<string, string>;
@@ -202,6 +221,8 @@ export default function CustomerDetailPage() {
   const id = params.id as string;
 
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const customerRef = useRef<Customer | null>(null);
+  customerRef.current = customer;
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -278,7 +299,8 @@ export default function CustomerDetailPage() {
     if (!id || !tenantReady || activeCompanyId <= 0 || !authUserId) return;
 
     const silent = opts?.silent === true;
-    if (!silent) {
+    const blockUi = !silent && customerRef.current == null;
+    if (blockUi) {
       setLoading(true);
       setNotFound(false);
     }
@@ -324,6 +346,19 @@ export default function CustomerDetailPage() {
             customerId: id,
             customerCompanyId: rowCompanyId,
           });
+          console.log("[customer-load]", {
+            customerId: id,
+            ai_summary: data.ai_summary ?? null,
+            ai_customer_needs: data.ai_customer_needs ?? null,
+            ai_pain_points: data.ai_pain_points ?? null,
+            ai_emotion: data.ai_emotion ?? null,
+            ai_next_step: data.ai_next_step ?? null,
+            ai_risk_alert: data.ai_risk_alert ?? null,
+            ai_follow_up: data.ai_follow_up ?? null,
+            ai_probability: data.ai_probability ?? null,
+            ai_professional_reply: data.ai_professional_reply ?? null,
+            ai_todo: data.ai_todo ?? null,
+          });
           setCustomer(data);
           setNotFound(false);
           setManualFollowUpYmd(null);
@@ -337,7 +372,7 @@ export default function CustomerDetailPage() {
       setNotFound(true);
     }
 
-    if (!silent) setLoading(false);
+    if (blockUi) setLoading(false);
   }, [id, activeCompanyId, authUserId, tenantReady]);
 
   const selectLineUserForTimeline = useCallback((lineUserId: string, displayLabel: string) => {
@@ -476,6 +511,52 @@ export default function CustomerDetailPage() {
     if (data) setCustomer(data as Customer);
   }
 
+  const persistedAiSummary = useMemo((): Partial<CustomerAiSummary> | null => {
+    if (!customer) return null;
+    const raw: Partial<CustomerAiSummary> = {
+      customerNeeds: customer.ai_customer_needs ?? undefined,
+      painPoints: customer.ai_pain_points ?? undefined,
+      dealProbability: customer.ai_probability ?? undefined,
+      customerEmotion: customer.ai_emotion ?? undefined,
+      suggestedNextStep: customer.ai_next_step ?? undefined,
+      riskAlert: customer.ai_risk_alert ?? undefined,
+      updatedAt:
+        customer.updated_at ?? customer.ai_extracted_at ?? new Date().toISOString(),
+    };
+    return hasPersistedAiSummaryContent(raw) ? raw : null;
+  }, [
+    customer?.ai_customer_needs,
+    customer?.ai_pain_points,
+    customer?.ai_probability,
+    customer?.ai_emotion,
+    customer?.ai_next_step,
+    customer?.ai_risk_alert,
+    customer?.updated_at,
+    customer?.ai_extracted_at,
+  ]);
+
+  const persistedAiFollowUp = useMemo((): Partial<CustomerAiFollowUp> | null => {
+    if (!customer) return null;
+    const raw: Partial<CustomerAiFollowUp> = {
+      suggestedFollowUpTime: customer.follow_up_date ?? undefined,
+      suggestedMessage: customer.ai_follow_up ?? undefined,
+      suggestedAction: customer.ai_next_step ?? undefined,
+      closingStrategy: customer.ai_summary ?? undefined,
+      urgencyLevel: "medium",
+      reEngagement: false,
+      updatedAt:
+        customer.updated_at ?? customer.ai_extracted_at ?? new Date().toISOString(),
+    };
+    return hasPersistedAiFollowUpContent(raw) ? raw : null;
+  }, [
+    customer?.follow_up_date,
+    customer?.ai_follow_up,
+    customer?.ai_next_step,
+    customer?.ai_summary,
+    customer?.updated_at,
+    customer?.ai_extracted_at,
+  ]);
+
   const isHighValue = isHighDealProbability(customer?.success_rate);
   const sanitizedDates = customer
     ? sanitizeImportantDateFields(
@@ -572,7 +653,7 @@ export default function CustomerDetailPage() {
           </Link>
         </nav>
 
-        {!tenantReady || loading ? (
+        {!tenantReady || (loading && !customer) ? (
           <div
             style={{
               padding: 52,
@@ -792,6 +873,7 @@ export default function CustomerDetailPage() {
                   customerId={id}
                   companyId={activeCompanyId}
                   conversationSourceText={conversationSourceText}
+                  persistedSummary={persistedAiSummary}
                   isMobile={isMobile}
                   registerRun={registerAiSummaryRun}
                   onExtractComplete={handleAiExtractComplete}
@@ -802,6 +884,7 @@ export default function CustomerDetailPage() {
                   companyId={activeCompanyId}
                   customer={customer}
                   conversationSourceText={conversationSourceText}
+                  persistedFollowUp={persistedAiFollowUp}
                   isMobile={isMobile}
                   registerRun={registerAiFollowUpRun}
                   copyWithFallback={copyWithFallback}
