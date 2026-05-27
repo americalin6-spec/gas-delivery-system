@@ -6,7 +6,6 @@ import { PRICING_PATH } from "../lib/authRoutes";
 
 type UsagePayload = {
   subscriptionPlanLabel: string;
-  trialDaysRemaining: number | null;
   remainingThisMonth: number;
   monthlyLimit: number;
   usedThisMonth: number;
@@ -22,10 +21,16 @@ type Props = {
   cardsGridStyle?: CSSProperties;
 };
 
-function formatTrialDays(days: number | null): string {
-  if (days === null) return "—";
-  if (days <= 0) return "0 天";
-  return `${days} 天`;
+function isUnlimitedLimit(limit: number): boolean {
+  return limit >= 2147483647;
+}
+
+function formatLimit(limit: number): string {
+  return isUnlimitedLimit(limit) ? "不限次數" : String(limit);
+}
+
+function formatRemaining(remaining: number, limit: number): string {
+  return isUnlimitedLimit(limit) ? "不限次數" : String(remaining);
 }
 
 export function CompanyAiUsagePanel({
@@ -60,7 +65,6 @@ export function CompanyAiUsagePanel({
         setUsage({
           subscriptionPlanLabel:
             u.subscriptionPlanLabel ?? u.planStatusLabel ?? "—",
-          trialDaysRemaining: u.trialDaysRemaining ?? null,
           remainingThisMonth: u.remainingThisMonth ?? 0,
           monthlyLimit: u.monthlyLimit ?? 0,
           usedThisMonth: u.usedThisMonth ?? 0,
@@ -89,7 +93,7 @@ export function CompanyAiUsagePanel({
     marginTop: isMobile ? 16 : 24,
     display: isMobile ? "flex" : "grid",
     flexDirection: isMobile ? "column" : undefined,
-    gridTemplateColumns: isMobile ? undefined : "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: isMobile ? undefined : "repeat(4, minmax(0, 1fr))",
     gap: isMobile ? 12 : 22,
   };
 
@@ -110,36 +114,35 @@ export function CompanyAiUsagePanel({
   const placeholder = loading && !usage ? "…" : "—";
 
   return (
-    <section aria-label="方案與 AI 用量">
+    <section aria-label="AI 分析用量">
       <div style={gridStyle}>
         <div style={card}>
-          <div style={title}>目前方案</div>
-          <div style={value}>{usage?.subscriptionPlanLabel ?? placeholder}</div>
+          <div style={title}>本月已使用 AI 分析次數</div>
+          <div style={value}>{usage?.usedThisMonth ?? placeholder}</div>
         </div>
         <div style={card}>
-          <div style={title}>AI 剩餘次數</div>
+          <div style={title}>本月可用 AI 分析次數</div>
+          <div style={value}>
+            {usage != null ? formatLimit(usage.monthlyLimit) : placeholder}
+          </div>
+        </div>
+        <div style={card}>
+          <div style={title}>剩餘次數</div>
           <div style={value}>
             {usage != null
-              ? `${usage.remainingThisMonth} / ${usage.monthlyLimit}`
+              ? formatRemaining(usage.remainingThisMonth, usage.monthlyLimit)
               : placeholder}
           </div>
         </div>
         <div style={card}>
-          <div style={title}>免費試用剩餘天數</div>
-          <div style={value}>
-            {usage ? formatTrialDays(usage.trialDaysRemaining) : placeholder}
-          </div>
+          <div style={title}>目前方案</div>
+          <div style={value}>{usage?.subscriptionPlanLabel ?? placeholder}</div>
         </div>
       </div>
       <p style={{ margin: isMobile ? "12px 0 0" : "14px 0 0", fontSize: 14, opacity: 0.8 }}>
         <Link href={PRICING_PATH} style={{ color: "#a5b4fc", fontWeight: 600 }}>
           查看方案與升級
         </Link>
-        {usage != null ? (
-          <span style={{ marginLeft: 12 }}>
-            本月已使用 {usage.usedThisMonth} 次
-          </span>
-        ) : null}
       </p>
     </section>
   );

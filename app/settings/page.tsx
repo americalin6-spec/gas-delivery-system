@@ -6,7 +6,9 @@ import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
 import { lineReminderSettingsCopy } from "../lib/lineReminderI18n";
 import { BillingPlaceholderPanel } from "../components/BillingPlaceholderPanel";
+import { CompanyAiUsagePanel } from "../components/CompanyAiUsagePanel";
 import { CompanySwitcher } from "../components/CompanySwitcher";
+import { useServerTenant } from "../hooks/useServerTenant";
 
 const MOBILE_MAX = 1024;
 
@@ -28,6 +30,10 @@ export default function LineReminderSettingsPage() {
   const { lang } = useAppLang();
   const t = lineReminderSettingsCopy(lang);
   const isMobile = useIsViewportBelow(MOBILE_MAX);
+  const {
+    activeCompanyId,
+    ready: tenantReady,
+  } = useServerTenant();
 
   const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
@@ -168,6 +174,16 @@ export default function LineReminderSettingsPage() {
       <div style={{ maxWidth: 560 }}>
         <CompanySwitcher lang={lang} isMobile={isMobile} />
       </div>
+
+      {tenantReady && activeCompanyId > 0 ? (
+        <div style={{ maxWidth: 960, marginTop: 20 }}>
+          <CompanyAiUsagePanel
+            tenantReady={tenantReady}
+            activeCompanyId={activeCompanyId}
+            isMobile={isMobile}
+          />
+        </div>
+      ) : null}
 
       <BillingPlaceholderPanel isMobile={isMobile} />
 
