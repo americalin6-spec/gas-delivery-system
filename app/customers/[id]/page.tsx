@@ -225,7 +225,8 @@ function formatLastContact(iso?: string | null): string {
 export default function CustomerDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const id = params.id as string;
+  const rawId = (params as unknown as { id?: unknown }).id;
+  const id = Array.isArray(rawId) ? String(rawId[0] ?? "") : String(rawId ?? "");
 
   const [customer, setCustomer] = useState<Customer | null>(() => readCachedCustomer(id));
   const customerRef = useRef<Customer | null>(null);
@@ -332,7 +333,7 @@ export default function CustomerDetailPage() {
           status: res.status,
           error: body.error ?? null,
         });
-        if (!customerRef.current) {
+        if (!silent) {
           setCustomer(null);
           setNotFound(true);
         }
@@ -346,7 +347,7 @@ export default function CustomerDetailPage() {
             customerId: id,
             rowCompanyId: data.company_id ?? null,
           });
-          if (!customerRef.current) {
+          if (!silent) {
             setCustomer(null);
             setNotFound(true);
           }
@@ -380,7 +381,7 @@ export default function CustomerDetailPage() {
       }
     } catch (err) {
       console.error("[customerDetail] fetch failed:", err);
-      if (!customerRef.current) {
+      if (!silent) {
         setCustomer(null);
         setNotFound(true);
       }
