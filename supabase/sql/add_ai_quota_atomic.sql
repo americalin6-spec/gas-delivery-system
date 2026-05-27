@@ -41,6 +41,8 @@ declare
   effective_limit int := 0;
   used int := 0;
   unlimited boolean := false;
+  active_paid boolean := false;
+  expired_paid boolean := false;
 begin
   select * into c
   from public.companies
@@ -62,19 +64,33 @@ begin
     c.ai_usage_reset_at := reset_at;
   end if;
 
-  base_limit := coalesce(nullif(c.monthly_ai_limit, 0), nullif(c.ai_monthly_limit, 0), 0);
-  if base_limit <= 0 then
-    case c.subscription_plan
-      when 'trial' then base_limit := 30;
-      when 'starter' then base_limit := 300;
-      when 'professional' then base_limit := 2000;
-      when 'enterprise' then base_limit := 0;
-      else base_limit := 30;
-    end case;
+  active_paid := (
+    c.subscription_plan <> 'trial'
+    and c.subscription_status in ('active', 'trialing')
+    and (
+      c.paid_until is null
+      or c.paid_until >= now()
+    )
+  );
+  expired_paid := (c.subscription_plan <> 'trial' and not active_paid);
+
+  if active_paid then
+    base_limit := coalesce(nullif(c.monthly_ai_limit, 0), nullif(c.ai_monthly_limit, 0), 0);
+    if base_limit <= 0 then
+      case c.subscription_plan
+        when 'starter' then base_limit := 300;
+        when 'professional' then base_limit := 2000;
+        when 'enterprise' then base_limit := 0;
+        else base_limit := 30;
+      end case;
+    end if;
+  else
+    -- Expired/non-paid subscriptions always degrade to 免費體驗 quota.
+    base_limit := 30;
   end if;
 
   extra_credits := greatest(coalesce(c.ai_extra_credits, 0), 0);
-  if c.subscription_plan = 'enterprise' and coalesce(c.monthly_ai_limit, 0) <= 0 and coalesce(c.ai_monthly_limit, 0) <= 0 then
+  if active_paid and c.subscription_plan = 'enterprise' and coalesce(c.monthly_ai_limit, 0) <= 0 and coalesce(c.ai_monthly_limit, 0) <= 0 then
     unlimited := true;
   end if;
 
@@ -90,7 +106,10 @@ begin
 
     return query
       select false,
-             '本月 AI 分析次數已用完，請升級方案或等待下個月重置。',
+             case
+               when expired_paid then '您的方案已到期，請續訂以繼續使用進階功能。'
+               else '本月 AI 分析次數已用完，請升級方案或等待下個月重置。'
+             end,
              c.ai_usage_month,
              effective_limit,
              used,

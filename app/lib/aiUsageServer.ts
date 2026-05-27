@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   companyRowToSubscriptionView,
-  isTrialPeriodExpired,
+  isExpiredPaidSubscription,
   loadCompanySubscriptionRow,
   type CompanySubscriptionRow,
 } from "./subscriptionServer";
@@ -21,6 +21,8 @@ export {
 export const TRIAL_MONTHLY_LIMIT = PLAN_DEFINITIONS.trial.aiMonthlyLimit;
 export const PAID_MONTHLY_LIMIT = PLAN_DEFINITIONS.professional.aiMonthlyLimit;
 export const TRIAL_PERIOD_DAYS = 30;
+export const SUBSCRIPTION_EXPIRED_MESSAGE =
+  "您的方案已到期，請續訂以繼續使用進階功能。";
 
 export type AiFeature =
   | "analyze"
@@ -131,7 +133,7 @@ export type AiQuotaReservation =
       companyId: number;
     };
 
-/** Check trial + monthly limit before an OpenAI call. */
+/** Check monthly quota before an OpenAI call (server-side only). */
 export async function assertAiUsageAllowed(
   companyId: number,
 ): Promise<AiUsageGateResult> {
@@ -143,19 +145,14 @@ export async function assertAiUsageAllowed(
 
   row = await ensureMonthlyCounterCurrent(row);
 
-  if (isTrialPeriodExpired(row)) {
-    return {
-      allowed: false,
-      error: AI_TRIAL_EXPIRED_MESSAGE,
-      status: 403,
-    };
-  }
-
   const view = companyRowToSubscriptionView(row);
   if (view.aiRemainingThisMonth <= 0) {
+    const error = isExpiredPaidSubscription(row)
+      ? SUBSCRIPTION_EXPIRED_MESSAGE
+      : AI_LIMIT_EXCEEDED_MESSAGE;
     return {
       allowed: false,
-      error: AI_LIMIT_EXCEEDED_MESSAGE,
+      error,
       status: 403,
     };
   }

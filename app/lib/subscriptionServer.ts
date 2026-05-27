@@ -164,6 +164,13 @@ export function hasActivePaidSubscription(row: CompanySubscriptionRow, now = new
   return true;
 }
 
+export function isExpiredPaidSubscription(
+  row: CompanySubscriptionRow,
+  now = new Date(),
+): boolean {
+  return row.subscription_plan !== "trial" && !hasActivePaidSubscription(row, now);
+}
+
 export function isTrialPeriodExpired(row: CompanySubscriptionRow, now = new Date()): boolean {
   if (hasActivePaidSubscription(row, now)) return false;
   if (row.subscription_plan !== "trial" && row.plan_status !== "trial") {
@@ -194,6 +201,9 @@ export function effectiveMonthlyAiLimit(row: CompanySubscriptionRow): number {
     const fromPlan = monthlyAiLimitForPlan(row.subscription_plan);
     const fromColumn = parseUsageCount(row.ai_monthly_limit);
     base = Math.max(fromPlan, fromColumn > 0 ? fromColumn : 0) || fromPlan;
+  } else if (isExpiredPaidSubscription(row)) {
+    // Expired paid plans downgrade to 免費體驗 quota.
+    base = monthlyAiLimitForPlan("trial");
   } else if (row.ai_monthly_limit > 0) {
     base = row.ai_monthly_limit;
   } else {
@@ -205,6 +215,9 @@ export function effectiveMonthlyAiLimit(row: CompanySubscriptionRow): number {
 export function currentPlanLabel(row: CompanySubscriptionRow, now = new Date()): string {
   if (hasActivePaidSubscription(row, now)) {
     return planLabelZh(row.subscription_plan);
+  }
+  if (isExpiredPaidSubscription(row, now)) {
+    return planLabelZh("trial");
   }
   if (isTrialPeriodExpired(row, now)) return "試用已結束";
   return planLabelZh("trial");
