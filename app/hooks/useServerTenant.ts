@@ -8,6 +8,7 @@ export type ServerTenantState = {
   /** True after bootstrap attempt finishes (success or failure). */
   ready: boolean;
   activeCompanyId: number;
+  activeWorkspaceId: number;
   authUserId: string | null;
   error: string | null;
   created: boolean;
@@ -21,6 +22,7 @@ export function useServerTenant(): ServerTenantState {
   const { session, loading: authLoading } = useAuthSession();
   const [ready, setReady] = useState(false);
   const [activeCompanyId, setActiveCompanyId] = useState(0);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(0);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState(false);
@@ -29,6 +31,7 @@ export function useServerTenant(): ServerTenantState {
     if (!session?.user) {
       setReady(true);
       setActiveCompanyId(0);
+      setActiveWorkspaceId(0);
       setAuthUserId(null);
       setError(null);
       setCreated(false);
@@ -47,6 +50,7 @@ export function useServerTenant(): ServerTenantState {
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         companyId?: number;
+        workspaceId?: number;
         created?: boolean;
         error?: string;
       };
@@ -55,6 +59,7 @@ export function useServerTenant(): ServerTenantState {
         const message = body.error ?? `bootstrap failed (${res.status})`;
         console.error("[useServerTenant] bootstrap failed:", message);
         setActiveCompanyId(0);
+        setActiveWorkspaceId(0);
         setAuthUserId(session.user.id);
         setCreated(false);
         setError(message);
@@ -63,9 +68,21 @@ export function useServerTenant(): ServerTenantState {
       }
 
       const companyId = Number(body.companyId);
+      const workspaceId = Number(body.workspaceId ?? body.companyId);
       if (!Number.isFinite(companyId) || companyId <= 0) {
         setError("invalid companyId from bootstrap");
         setActiveCompanyId(0);
+        setActiveWorkspaceId(0);
+        setAuthUserId(session.user.id);
+        setCreated(false);
+        setReady(true);
+        return;
+      }
+
+      if (!Number.isFinite(workspaceId) || workspaceId <= 0) {
+        setError("invalid workspaceId from bootstrap");
+        setActiveCompanyId(0);
+        setActiveWorkspaceId(0);
         setAuthUserId(session.user.id);
         setCreated(false);
         setReady(true);
@@ -75,11 +92,13 @@ export function useServerTenant(): ServerTenantState {
       console.log("[useServerTenant] bootstrap ok:", {
         authUserId: session.user.id,
         activeCompanyId: companyId,
+        activeWorkspaceId: workspaceId,
         created: Boolean(body.created),
       });
 
       setClientCompanyId(companyId);
       setActiveCompanyId(companyId);
+      setActiveWorkspaceId(workspaceId);
       setAuthUserId(session.user.id);
       setCreated(Boolean(body.created));
       setError(null);
@@ -88,6 +107,7 @@ export function useServerTenant(): ServerTenantState {
       const message = err instanceof Error ? err.message : "bootstrap request failed";
       console.error("[useServerTenant]", message);
       setActiveCompanyId(0);
+      setActiveWorkspaceId(0);
       setAuthUserId(session.user.id);
       setCreated(false);
       setError(message);
@@ -100,6 +120,7 @@ export function useServerTenant(): ServerTenantState {
     if (!session?.user) {
       setReady(true);
       setActiveCompanyId(0);
+      setActiveWorkspaceId(0);
       setAuthUserId(null);
       setError(null);
       setCreated(false);
@@ -111,6 +132,7 @@ export function useServerTenant(): ServerTenantState {
   return {
     ready,
     activeCompanyId,
+    activeWorkspaceId,
     authUserId,
     error,
     created,

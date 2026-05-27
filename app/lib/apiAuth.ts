@@ -3,16 +3,20 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createSupabaseAuthServerClient } from "./supabaseAuthServer";
 import { ensureUserTenantBootstrap } from "./tenantBootstrapServer";
 import { resolveUserActiveCompanyId, userHasCompanyAccess } from "./tenantAuth";
+import { resolveWorkspaceContext } from "./workspaceBootstrapServer";
 
 export type ApiAuthContext = {
   supabase: SupabaseClient;
   user: User;
   companyId: number;
+  workspaceId: number;
 };
 
 export type RequireApiAuthOptions = {
   /** Client active company — validated against membership before use. */
   preferredCompanyId?: number;
+  /** Client active workspace — must belong to resolved company. */
+  preferredWorkspaceId?: number;
 };
 
 export function parsePreferredCompanyId(value: unknown): number | undefined {
@@ -79,15 +83,24 @@ export async function requireApiAuth(
     }
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[apiAuth] workspace resolved:", {
-      userId: user.id,
-      companyId,
-      preferredCompanyId: preferred ?? null,
-    });
+  const workspace = await resolveWorkspaceContext(
+    user,
+    companyId,
+    opts?.preferredWorkspaceId,
+  );
+  if (workspace.error || workspace.workspaceId <= 0) {
+    return NextResponse.json(
+      { ok: false, error: workspace.error ?? "找不到工作區" },
+      { status: 404 },
+    );
   }
 
-  return { supabase, user, companyId };
+  return {
+    supabase,
+    user,
+    companyId: workspace.companyId,
+    workspaceId: workspace.workspaceId,
+  };
 }
 
 export function isApiAuthError(

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAuthServerClient } from "../../../lib/supabaseAuthServer";
 import { ensureUserTenantBootstrap } from "../../../lib/tenantBootstrapServer";
 import { listUserCompanies, resolveUserActiveCompanyId } from "../../../lib/tenantAuth";
+import { ensureDefaultWorkspaceForCompany } from "../../../lib/workspaceBootstrapServer";
 
 /**
  * POST /api/tenant/bootstrap
@@ -38,6 +39,15 @@ export async function POST() {
   }
 
   const companyId = resolved.companyId!;
+  const workspaceBoot = await ensureDefaultWorkspaceForCompany(user, companyId);
+  if (workspaceBoot.error || workspaceBoot.workspaceId <= 0) {
+    console.error("[api/tenant/bootstrap] workspace:", workspaceBoot.error);
+    return NextResponse.json(
+      { ok: false, error: workspaceBoot.error ?? "找不到工作區" },
+      { status: 500 },
+    );
+  }
+
   const { companies, error: listErr } = await listUserCompanies(supabase);
   if (listErr) {
     return NextResponse.json({ ok: false, error: listErr }, { status: 500 });
@@ -46,13 +56,17 @@ export async function POST() {
   console.log("[api/tenant/bootstrap] ok:", {
     authUserId: user.id,
     activeCompanyId: companyId,
+    workspaceId: workspaceBoot.workspaceId,
     created,
+    workspaceCreated: workspaceBoot.created,
   });
 
   return NextResponse.json({
     ok: true,
     companyId,
+    workspaceId: workspaceBoot.workspaceId,
     created,
+    workspaceCreated: workspaceBoot.created,
     companies,
   });
 }

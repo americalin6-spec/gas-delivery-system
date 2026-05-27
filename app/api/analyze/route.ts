@@ -22,32 +22,31 @@ export async function POST(req: Request) {
   }
 
   const preferredCompanyId = parsePreferredCompanyId(
-    body.company_id ?? body.companyId ?? body.workspace_id ?? body.workspaceId,
+    body.company_id ?? body.companyId,
+  );
+  const preferredWorkspaceId = parsePreferredCompanyId(
+    body.workspace_id ?? body.workspaceId,
   );
 
-  const auth = await requireApiAuth(req, { preferredCompanyId });
+  const auth = await requireApiAuth(req, {
+    preferredCompanyId,
+    preferredWorkspaceId,
+  });
   if (auth instanceof NextResponse) {
     return auth;
   }
-  const { companyId, user } = auth;
+  const { companyId, workspaceId, user } = auth;
 
-  if (!companyId || companyId <= 0) {
+  if (!companyId || companyId <= 0 || !workspaceId || workspaceId <= 0) {
     return NextResponse.json({ error: "找不到工作區" }, { status: 404 });
   }
+
+  console.log("[analyze] companyId", companyId, "workspaceId", workspaceId);
 
   try {
     const rawLang = body.lang;
     const lang = rawLang === "en" ? "en" : "zh";
     const inputText = typeof body.text === "string" ? body.text : "";
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[analyze] request context:", {
-        userId: user.id,
-        companyId,
-        workspaceId: companyId,
-        textLength: inputText.length,
-      });
-    }
 
     const regexExtracted = extractCustomerFromLineChat(inputText, lang);
     const honorificName = extractHonorificCustomerName(inputText);

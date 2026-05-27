@@ -210,6 +210,7 @@ export default function DashboardPageClient() {
   const ui = homePageCopy(lang);
   const {
     activeCompanyId,
+    activeWorkspaceId,
     ready: tenantReady,
     authUserId,
     error: tenantError,
@@ -242,7 +243,7 @@ export default function DashboardPageClient() {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   const showTenantWorkspace =
-    tenantReady && Boolean(authUserId) && activeCompanyId > 0;
+    tenantReady && Boolean(authUserId) && activeCompanyId > 0 && activeWorkspaceId > 0;
 
   const draftHydratedRef = useRef(false);
   const draftSnapshotRef = useRef<HomeFormDraft>(emptyHomeFormDraft());
@@ -729,16 +730,17 @@ export default function DashboardPageClient() {
       return;
     }
 
-    if (!tenantReady || activeCompanyId <= 0 || !authUserId) {
+    if (!tenantReady || activeCompanyId <= 0 || activeWorkspaceId <= 0 || !authUserId) {
       console.warn("[analyze] blocked — workspace not ready", {
         userId: session.user.id,
         tenantReady,
         activeCompanyId,
+        activeWorkspaceId,
         authUserId,
         tenantError,
       });
       alert(tenantError ?? "找不到工作區");
-      if (!tenantReady || activeCompanyId <= 0) {
+      if (!tenantReady || activeCompanyId <= 0 || activeWorkspaceId <= 0) {
         void refreshTenant();
       }
       return;
@@ -749,17 +751,9 @@ export default function DashboardPageClient() {
       text: lineText,
       lang,
       company_id: activeCompanyId,
-      workspace_id: activeCompanyId,
+      workspace_id: activeWorkspaceId,
     };
-    console.log("[analyze] start", {
-      userId: session.user.id,
-      activeCompanyId,
-      workspaceId: activeCompanyId,
-      analysisPayload: {
-        ...analysisPayload,
-        text: `[${lineText.length} chars]`,
-      },
-    });
+    console.log("[analyze] companyId", activeCompanyId, "workspaceId", activeWorkspaceId);
 
     let aiResult: AiAnalyzeCustomerPayload | null = null;
     try {
@@ -876,7 +870,7 @@ export default function DashboardPageClient() {
     return <DashboardLoadingScreen message="正在載入工作區設定…" />;
   }
 
-  if (!authUserId || activeCompanyId <= 0) {
+  if (!authUserId || activeCompanyId <= 0 || activeWorkspaceId <= 0) {
     return (
       <DashboardTenantSetupMessage
         error={tenantError}
