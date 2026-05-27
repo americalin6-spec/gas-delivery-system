@@ -1,21 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { PRICING_PATH } from "../lib/authRoutes";
+import {
+  formatAiRemainingDisplay,
+  isSubscriptionExpiredForUx,
+  isSubscriptionNearExpiration,
+  subscriptionAccessLabel,
+  subscriptionExpiryDateDisplay,
+} from "../lib/billingSubscriptionUx";
 import type { BillingSettingsSnapshot } from "../lib/billingSettings";
+
+type SubscriptionSnapshot = {
+  subscriptionPlan?: string;
+  subscriptionPlanLabel?: string;
+  subscriptionStatusLabel?: string;
+  paidUntil?: string | null;
+  trialEndsAt?: string | null;
+  trialDaysRemaining?: number | null;
+  aiRemainingThisMonth?: number;
+  monthlyAiLimit?: number;
+  hasActivePaidSubscription?: boolean;
+  trialExpired?: boolean;
+  stripeCustomerId?: string | null;
+};
 
 type BillingResponse = {
   ok?: boolean;
   billing?: {
-    subscription?: {
-      subscriptionPlanLabel?: string;
-      subscriptionStatusLabel?: string;
-      paidUntil?: string | null;
-      trialDaysRemaining?: number | null;
-      aiRemainingThisMonth?: number;
-      monthlyAiLimit?: number;
-    };
+    subscription?: SubscriptionSnapshot;
     settings?: BillingSettingsSnapshot;
     stripeConnected?: boolean;
     ecpayConfigured?: boolean;
@@ -35,10 +50,21 @@ const shell: CSSProperties = {
   border: "1px solid rgba(255,255,255,0.12)",
 };
 
+const actionBtn: CSSProperties = {
+  padding: "10px 16px",
+  borderRadius: 10,
+  border: "none",
+  fontWeight: 700,
+  fontSize: 14,
+  cursor: "pointer",
+};
+
 export function BillingPlaceholderPanel({ isMobile }: Props) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<BillingResponse["billing"] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [manageBusy, setManageBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +87,31 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
     void load();
   }, [load]);
 
+  const sub = data?.subscription;
+
+  const uxInput = useMemo(
+    () => ({
+      subscriptionPlan: sub?.subscriptionPlan ?? "trial",
+      hasActivePaidSubscription: Boolean(sub?.hasActivePaidSubscription),
+      trialExpired: Boolean(sub?.trialExpired),
+      paidUntil: sub?.paidUntil ?? null,
+      trialEndsAt: sub?.trialEndsAt ?? null,
+    }),
+    [sub],
+  );
+
+  const accessLabel = sub ? subscriptionAccessLabel(uxInput) : "—";
+  const expired = sub ? isSubscriptionExpiredForUx(uxInput) : false;
+  const nearExpiry = sub ? isSubscriptionNearExpiration(uxInput) : false;
+  const expiryDate = sub ? subscriptionExpiryDateDisplay(uxInput) : "—";
+  const aiRemaining =
+    sub != null
+      ? formatAiRemainingDisplay(
+          sub.aiRemainingThisMonth ?? 0,
+          sub.monthlyAiLimit ?? 0,
+        )
+      : "—";
+
   async function tryEcpayCheckout(plan: string) {
     setNotice(null);
     try {
@@ -77,7 +128,31 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
     }
   }
 
-  const sub = data?.subscription;
+  async function openManageSubscription() {
+    setNotice(null);
+    if (!data?.stripeConnected) {
+      setNotice("金流尚未啟用，請使用「升級方案」查看可購買方案。");
+      return;
+    }
+    setManageBusy(true);
+    try {
+      const res = await fetch("/api/billing/portal", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
+      if (res.ok && body.ok && body.url) {
+        window.location.href = body.url;
+        return;
+      }
+      setNotice(body.error ?? "尚無法開啟訂閱管理，請稍後再試或聯絡客服。");
+    } catch {
+      setNotice("無法連線至帳單服務");
+    } finally {
+      setManageBusy(false);
+    }
+  }
+
   const settings = data?.settings;
 
   return (
@@ -93,12 +168,22 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
         <p style={{ opacity: 0.8 }}>載入中…</p>
       ) : (
         <>
+          {expired ? (
+            <div style={alertBoxExpired} role="alert">
+              您的方案已到期
+            </div>
+          ) : nearExpiry ? (
+            <div style={alertBoxNear} role="status">
+              您的方案即將於 {expiryDate} 到期，請續訂以避免服務中斷。
+            </div>
+          ) : null}
+
           <div
             style={{
               display: "grid",
               gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
               gap: 12,
-              marginBottom: 20,
+              marginBottom: 16,
             }}
           >
             <div style={statBox}>
@@ -107,24 +192,46 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
             </div>
             <div style={statBox}>
               <div style={statLabel}>訂閱狀態</div>
-              <div style={statValue}>{sub?.subscriptionStatusLabel ?? "—"}</div>
+              <div style={statValue}>{accessLabel}</div>
             </div>
             <div style={statBox}>
-              <div style={statLabel}>付費有效至</div>
-              <div style={statValue}>
-                {sub?.paidUntil
-                  ? new Date(sub.paidUntil).toLocaleDateString("zh-TW")
-                  : "—"}
-              </div>
+              <div style={statLabel}>到期日</div>
+              <div style={statValue}>{expiryDate}</div>
             </div>
             <div style={statBox}>
               <div style={statLabel}>AI 剩餘次數</div>
-              <div style={statValue}>
-                {sub != null
-                  ? `${sub.aiRemainingThisMonth ?? 0} / ${sub.monthlyAiLimit ?? 0}`
-                  : "—"}
-              </div>
+              <div style={statValue}>{aiRemaining}</div>
             </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              marginBottom: 20,
+            }}
+          >
+            <button
+              type="button"
+              style={{ ...actionBtn, background: "#6366f1", color: "white" }}
+              onClick={() => router.push(PRICING_PATH)}
+            >
+              升級方案
+            </button>
+            <button
+              type="button"
+              style={{
+                ...actionBtn,
+                background: "rgba(255,255,255,0.12)",
+                color: "white",
+                opacity: manageBusy ? 0.7 : 1,
+              }}
+              disabled={manageBusy}
+              onClick={() => void openManageSubscription()}
+            >
+              {manageBusy ? "開啟中…" : "管理訂閱"}
+            </button>
           </div>
 
           {settings ? (
@@ -155,7 +262,7 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
                       background: "rgba(0,0,0,0.15)",
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>{plan.nameZh}</div>
+                    <div style={statValue}>{plan.nameZh}</div>
                     <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>
                       {plan.priceLabelZh} · {plan.periodLabelZh} · 每月 {plan.aiMonthlyLimit}{" "}
                       次 AI
@@ -226,4 +333,26 @@ const statValue: CSSProperties = {
   marginTop: 6,
   fontSize: 17,
   fontWeight: 700,
+};
+
+const alertBoxExpired: CSSProperties = {
+  marginBottom: 16,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(239,68,68,0.2)",
+  border: "1px solid rgba(248,113,113,0.45)",
+  color: "#fecaca",
+  fontSize: 14,
+  fontWeight: 700,
+};
+
+const alertBoxNear: CSSProperties = {
+  marginBottom: 16,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(245,158,11,0.18)",
+  border: "1px solid rgba(251,191,36,0.4)",
+  color: "#fde68a",
+  fontSize: 14,
+  lineHeight: 1.5,
 };

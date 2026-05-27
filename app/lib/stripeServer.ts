@@ -194,6 +194,29 @@ export async function createStripeCheckoutSession(
   return { url: session.url, sessionId: session.id };
 }
 
+export async function createStripeBillingPortalSession(params: {
+  companyId: number;
+  email: string;
+}): Promise<string> {
+  const stripe = getStripe();
+  const baseUrl = getAppBaseUrl();
+  const customerId = await getOrCreateStripeCustomer({
+    companyId: params.companyId,
+    email: params.email,
+  });
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${baseUrl}/settings`,
+  });
+
+  if (!session.url) {
+    throw new Error("無法開啟 Stripe 訂閱管理");
+  }
+
+  return session.url;
+}
+
 export function mapStripeSubscriptionStatus(
   status: Stripe.Subscription.Status,
 ): string {
