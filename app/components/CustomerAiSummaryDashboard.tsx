@@ -357,6 +357,22 @@ export function CustomerAiSummaryDashboard({
                   <span style={{ marginRight: 6, opacity: 0.7 }}>{item.icon}</span>
                   {item.title}
                 </span>
+                {accent.badge ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "3px 8px",
+                      borderRadius: 999,
+                      background: `${accent.badgeColor}22`,
+                      color: accent.badgeColor,
+                      border: `1px solid ${accent.badgeColor}55`,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {accent.badge}
+                  </span>
+                ) : null}
               </div>
               <p
                 style={{
