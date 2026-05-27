@@ -4,6 +4,7 @@ import { authCopy } from "../../lib/authI18n";
 import { resolvePostLoginPath } from "../../lib/authRoutes";
 import { createSupabaseAuthRouteClient } from "../../lib/supabaseAuthServer";
 import { resolveRequestOrigin } from "../../lib/supabaseConfig";
+import { serverLogger } from "../../lib/serverLogger";
 
 function popupHtml(
   status: "success" | "error",
@@ -123,14 +124,30 @@ export async function GET(request: NextRequest) {
     data: { user: existingUser },
   } = await supabase.auth.getUser();
   if (existingUser) {
+    serverLogger.info({
+      eventType: "auth.login_success",
+      status: "ok",
+      userId: existingUser.id,
+      message: "session_already_active",
+    });
     return respondSuccess();
   }
 
   if (oauthError) {
+    serverLogger.warn({
+      eventType: "auth.login_failure",
+      status: "warn",
+      message: oauthError,
+    });
     return respondFailure();
   }
 
   if (!code) {
+    serverLogger.warn({
+      eventType: "auth.login_failure",
+      status: "warn",
+      message: "missing_oauth_code",
+    });
     return respondFailure();
   }
 
@@ -151,11 +168,31 @@ export async function GET(request: NextRequest) {
       data: { user: userAfterExchange },
     } = await supabase.auth.getUser();
     if (userAfterExchange) {
+      serverLogger.info({
+        eventType: "auth.login_success",
+        status: "ok",
+        userId: userAfterExchange.id,
+        message: "exchange_recovered_session",
+      });
       return respondSuccess();
     }
-    console.error("[auth/callback] exchangeCodeForSession:", error.message);
+    serverLogger.error({
+      eventType: "auth.login_failure",
+      status: "error",
+      message: error.message,
+    });
     return respondFailure();
   }
+
+  const {
+    data: { user: userAfterSuccess },
+  } = await supabase.auth.getUser();
+  serverLogger.info({
+    eventType: "auth.login_success",
+    status: "ok",
+    userId: userAfterSuccess?.id ?? null,
+    message: "oauth_exchange_ok",
+  });
 
   return respondSuccess();
 }

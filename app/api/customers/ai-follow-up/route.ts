@@ -13,6 +13,7 @@ import {
 import { parseAiJsonObject } from "../../../lib/parseAiJson";
 import { fetchCustomerByIdForActiveCompany } from "../../../lib/customersTenant";
 import { requireApiAuth } from "../../../lib/apiAuth";
+import { logUnexpectedException } from "../../../lib/safeApiError";
 import { API_ACCESS_DENIED } from "../../../lib/apiTenant";
 import {
   finalizeAiUsageSuccess,
@@ -29,12 +30,16 @@ export async function POST(req: Request) {
   let heldReservation:
     | import("../../../lib/aiUsageServer").AiQuotaReservation
     | null = null;
+  let logCompanyId: number | null = null;
+  let logUserId: string | null = null;
   try {
     const auth = await requireApiAuth(req);
     if (auth instanceof NextResponse) {
       return auth;
     }
     const { supabase, companyId, user } = auth;
+    logCompanyId = companyId;
+    logUserId = user.id;
     let body: { customer_id?: string; conversation_text?: string } = {};
     try {
       body = (await req.json()) as typeof body;
@@ -171,7 +176,11 @@ export async function POST(req: Request) {
     if (heldReservation) {
       await releaseAiQuotaReservation(heldReservation);
     }
-    console.error("[ai-follow-up]", err);
+    logUnexpectedException(err, {
+      route: "/api/customers/ai-follow-up",
+      companyId: logCompanyId,
+      userId: logUserId,
+    });
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "AI 跟進分析失敗" },
       { status: 500 },

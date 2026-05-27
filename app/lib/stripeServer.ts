@@ -8,6 +8,7 @@ import {
 } from "./subscriptionPlans";
 import { getSupabaseServiceRole } from "./supabaseServer";
 import { loadCompanySubscriptionRow } from "./subscriptionServer";
+import { serverLogger } from "./serverLogger";
 
 let stripeClient: Stripe | null = null;
 
@@ -275,11 +276,12 @@ export async function syncSubscriptionFromStripe(
     throw new Error(error.message);
   }
 
-  console.log("[stripe] subscription synced:", {
+  serverLogger.info({
+    eventType: "subscription.changed",
+    status: "ok",
     companyId,
-    plan: validPlan,
-    status,
-    paidUntil,
+    message: "stripe_subscription_synced",
+    meta: { plan: validPlan, subscriptionStatus: status },
   });
 }
 

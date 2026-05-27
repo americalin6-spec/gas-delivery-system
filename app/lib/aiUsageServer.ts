@@ -12,6 +12,7 @@ import {
   PLAN_DEFINITIONS,
 } from "./subscriptionPlans";
 import { getSupabaseServiceRole } from "./supabaseServer";
+import { serverLogger } from "./serverLogger";
 
 export {
   AI_TRIAL_EXPIRED_MESSAGE,
@@ -150,6 +151,13 @@ export async function assertAiUsageAllowed(
     const error = isExpiredPaidSubscription(row)
       ? SUBSCRIPTION_EXPIRED_MESSAGE
       : AI_LIMIT_EXCEEDED_MESSAGE;
+    serverLogger.warn({
+      eventType: "ai.quota_denied",
+      status: "warn",
+      companyId,
+      message: error,
+      meta: { feature: "gate" },
+    });
     return {
       allowed: false,
       error,
@@ -203,8 +211,25 @@ export async function recordAiUsage(params: {
     .eq("id", params.companyId);
 
   if (updateError) {
-    console.warn("[aiUsage] counter update skipped:", updateError.message);
+    serverLogger.warn({
+      eventType: "api.error",
+      status: "warn",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: updateError.message,
+      meta: { feature: params.feature, step: "counter_update" },
+    });
+    return;
   }
+
+  serverLogger.info({
+    eventType: "ai.quota_deducted",
+    status: "ok",
+    companyId: params.companyId,
+    userId: params.userId ?? null,
+    message: "usage_recorded",
+    meta: { feature: params.feature },
+  });
 }
 
 async function reserveAiQuota(companyId: number): Promise<
@@ -223,9 +248,17 @@ async function reserveAiQuota(companyId: number): Promise<
       usage_month?: string | null;
     };
     if (!row.ok) {
+      const denied = row.error?.trim() || AI_LIMIT_EXCEEDED_MESSAGE;
+      serverLogger.warn({
+        eventType: "ai.quota_denied",
+        status: "warn",
+        companyId,
+        message: denied,
+        meta: { mode: "rpc" },
+      });
       return {
         ok: false,
-        error: row.error?.trim() || AI_LIMIT_EXCEEDED_MESSAGE,
+        error: denied,
         status: 403,
       };
     }
@@ -302,7 +335,23 @@ export async function finalizeAiUsageSuccess(params: {
     estimated_tokens: tokens,
   });
   if (error) {
-    console.warn("[aiUsage] usage log insert failed:", error.message);
+    serverLogger.warn({
+      eventType: "api.error",
+      status: "warn",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: error.message,
+      meta: { feature: params.feature, step: "usage_log_insert" },
+    });
+  } else {
+    serverLogger.info({
+      eventType: "ai.quota_deducted",
+      status: "ok",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: "quota_finalized",
+      meta: { feature: params.feature },
+    });
   }
 }
 
@@ -351,6 +400,18 @@ export async function openAiChatCompletion(
     reservation = reserved.reservation;
   }
 
+  serverLogger.info({
+    eventType: "ai.analysis_request",
+    status: "ok",
+    companyId: params.companyId,
+    userId: params.userId ?? null,
+    message: "openai_request_start",
+    meta: {
+      feature: params.feature,
+      chargeQuota: params.chargeQuota !== false,
+    },
+  });
+
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -373,8 +434,16 @@ export async function openAiChatCompletion(
         data &&
         "error" in data &&
         typeof (data as { error?: { message?: string } }).error?.message === "string"
-          ? (data as { error: { message: string } }).error.message
+          ? (data as { error: { message: string } }).error?.message
           : `OpenAI HTTP ${response.status}`;
+      serverLogger.error({
+        eventType: "api.error",
+        status: "error",
+        companyId: params.companyId,
+        userId: params.userId ?? null,
+        message,
+        meta: { feature: params.feature, httpStatus: response.status },
+      });
       return { ok: false, error: message, status: 502 };
     }
 
@@ -393,9 +462,21 @@ export async function openAiChatCompletion(
     };
   } catch (err) {
     await releaseAiQuotaReservation(reservation);
+    const message = err instanceof Error ? err.message : "OpenAI 呼叫失敗";
+    serverLogger.error(
+      {
+        eventType: "exception",
+        status: "error",
+        companyId: params.companyId,
+        userId: params.userId ?? null,
+        message,
+        meta: { feature: params.feature },
+      },
+      err,
+    );
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "OpenAI 呼叫失敗",
+      error: message,
       status: 502,
     };
   }

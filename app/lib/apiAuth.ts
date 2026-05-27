@@ -4,6 +4,7 @@ import { createSupabaseAuthServerClient } from "./supabaseAuthServer";
 import { ensureUserTenantBootstrap } from "./tenantBootstrapServer";
 import { resolveUserActiveCompanyId, userHasCompanyAccess } from "./tenantAuth";
 import { resolveWorkspaceContext } from "./workspaceBootstrapServer";
+import { serverLogger } from "./serverLogger";
 
 export type ApiAuthContext = {
   supabase: SupabaseClient;
@@ -42,6 +43,11 @@ export async function requireApiAuth(
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
+    serverLogger.warn({
+      eventType: "auth.login_failure",
+      status: "warn",
+      message: authError?.message ?? "未登入",
+    });
     return NextResponse.json(
       { ok: false, error: "請先登入" },
       { status: 401 },

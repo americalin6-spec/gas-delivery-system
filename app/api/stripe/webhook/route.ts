@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { dispatchStripeWebhookEvent } from "../../../lib/stripeWebhookHandlers";
 import { getStripe, isStripeConfigured } from "../../../lib/stripeServer";
+import { serverLogger } from "../../../lib/serverLogger";
 
 export const runtime = "nodejs";
 
@@ -12,12 +13,21 @@ export async function POST(req: Request) {
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (!webhookSecret) {
-    console.error("[stripe/webhook] STRIPE_WEBHOOK_SECRET missing");
+    serverLogger.error({
+      eventType: "webhook.failure",
+      status: "error",
+      message: "STRIPE_WEBHOOK_SECRET missing",
+    });
     return NextResponse.json({ ok: false, error: "Webhook 未設定" }, { status: 503 });
   }
 
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "missing_stripe_signature",
+    });
     return NextResponse.json({ ok: false, error: "缺少簽章" }, { status: 400 });
   }
 
@@ -29,14 +39,36 @@ export async function POST(req: Request) {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err) {
     const message = err instanceof Error ? err.message : "簽章驗證失敗";
-    console.error("[stripe/webhook] verify failed:", message);
+    serverLogger.error(
+      {
+        eventType: "webhook.failure",
+        status: "error",
+        message,
+      },
+      err,
+    );
     return NextResponse.json({ ok: false, error: message }, { status: 400 });
   }
+
+  serverLogger.info({
+    eventType: "payment.callback",
+    status: "ok",
+    message: "stripe_webhook_received",
+    meta: { eventType: event.type },
+  });
 
   try {
     await dispatchStripeWebhookEvent(event);
   } catch (err) {
-    console.error("[stripe/webhook] handler error:", err);
+    serverLogger.error(
+      {
+        eventType: "webhook.failure",
+        status: "error",
+        message: "stripe_webhook_handler_failed",
+        meta: { eventType: event.type },
+      },
+      err,
+    );
     return NextResponse.json(
       { ok: false, error: "Webhook 處理失敗" },
       { status: 500 },

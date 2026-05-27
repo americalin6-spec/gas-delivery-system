@@ -8,6 +8,7 @@ import {
   syncSubscriptionFromStripe,
 } from "./stripeServer";
 import { getSupabaseServiceRole } from "./supabaseServer";
+import { serverLogger } from "./serverLogger";
 function companyIdFromMetadata(
   metadata: Stripe.Metadata | null | undefined,
 ): number | null {
@@ -80,6 +81,13 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
   }
 
   await syncSubscriptionFromStripe(companyId, subscription);
+  serverLogger.info({
+    eventType: "subscription.changed",
+    status: "ok",
+    companyId,
+    message: "stripe_subscription_updated",
+    meta: { subscriptionId: subscription.id },
+  });
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
@@ -100,6 +108,14 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
       plan_status: "trial",
     })
     .eq("id", companyId);
+
+  serverLogger.info({
+    eventType: "subscription.changed",
+    status: "ok",
+    companyId,
+    message: "stripe_subscription_deleted",
+    meta: { subscriptionId: subscription.id },
+  });
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
@@ -129,6 +145,14 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
       subscription_status: status,
     })
     .eq("id", companyId);
+
+  serverLogger.info({
+    eventType: "payment.callback",
+    status: "ok",
+    companyId,
+    message: "stripe_invoice_paid",
+    meta: { subscriptionId },
+  });
 }
 
 async function findCompanyIdByStripeSubscription(

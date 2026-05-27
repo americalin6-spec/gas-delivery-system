@@ -3,6 +3,7 @@ import {
   ECPAY_NOT_IMPLEMENTED,
   handleEcpayPeriodCallbackStub,
 } from "../../../lib/ecpayArchitecture";
+import { serverLogger } from "../../../lib/serverLogger";
 
 export const runtime = "nodejs";
 
@@ -24,8 +25,20 @@ export async function POST(req: Request) {
       });
     }
   } catch {
+    serverLogger.warn({
+      eventType: "payment.callback",
+      status: "warn",
+      message: "ecpay_period_callback_parse_failed",
+    });
     return NextResponse.json({ ok: false, error: "無法解析回傳資料" }, { status: 400 });
   }
+
+  serverLogger.info({
+    eventType: "payment.callback",
+    status: "ok",
+    message: "ecpay_period_callback_received",
+    meta: { fieldCount: Object.keys(payload).length },
+  });
 
   const result = handleEcpayPeriodCallbackStub(payload);
   return NextResponse.json(

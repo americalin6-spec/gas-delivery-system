@@ -31,6 +31,7 @@ export const PROTECTED_CRM_PATH_PREFIXES = [
 
 /** Webhooks / cron — no Supabase session (each route validates its own secret). */
 export const PUBLIC_API_PATH_PREFIXES = [
+  "/api/health",
   "/api/line-webhook",
   "/api/reminder-check",
   "/api/stripe/webhook",

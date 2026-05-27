@@ -12,6 +12,7 @@ import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { persistCustomerLineUserId } from "../../lib/lineCustomerBinding";
 import { getSupabaseServer } from "../../lib/supabaseServer";
+import { serverLogger } from "../../lib/serverLogger";
 
 type LineWebhookBody = {
   events?: LineWebhookEvent[];
@@ -613,7 +614,11 @@ export async function POST(req: Request) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-line-signature");
   if (!verifyLineWebhookSignature(rawBody, signature)) {
-    console.warn("[line-webhook] invalid signature");
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "line_invalid_signature",
+    });
     return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
   }
 
@@ -621,15 +626,24 @@ export async function POST(req: Request) {
   try {
     body = JSON.parse(rawBody) as LineWebhookBody;
   } catch (err) {
-    console.error("[line-webhook] invalid JSON body:", err);
+    serverLogger.error(
+      {
+        eventType: "webhook.failure",
+        status: "error",
+        message: "line_invalid_json_body",
+      },
+      err,
+    );
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
   const events = body.events ?? [];
   const textEvents = events.filter(isTextMessageEvent);
-  console.log("[line-webhook] received events:", {
-    total: events.length,
-    text: textEvents.length,
+  serverLogger.info({
+    eventType: "payment.callback",
+    status: "ok",
+    message: "line_webhook_received",
+    meta: { totalEvents: events.length, textEvents: textEvents.length },
   });
 
   if (textEvents.length === 0) {
@@ -643,10 +657,21 @@ export async function POST(req: Request) {
     if (channelAccessToken) {
       await logInboundEvents(supabase, textEvents, channelAccessToken);
     } else {
-      console.error("[line-webhook] no channel access token; skipping inbound pipeline.");
+      serverLogger.warn({
+        eventType: "webhook.failure",
+        status: "warn",
+        message: "line_missing_channel_access_token_inbound",
+      });
     }
   } catch (err) {
-    console.error("[line-webhook] logInboundEvents threw:", err);
+    serverLogger.error(
+      {
+        eventType: "webhook.failure",
+        status: "error",
+        message: "line_log_inbound_failed",
+      },
+      err,
+    );
   }
 
   try {
@@ -655,10 +680,21 @@ export async function POST(req: Request) {
         textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
       );
     } else {
-      console.error("[line-webhook] no channel access token; skipping reply/binding.");
+      serverLogger.warn({
+        eventType: "webhook.failure",
+        status: "warn",
+        message: "line_missing_channel_access_token_reply",
+      });
     }
   } catch (err) {
-    console.error("[line-webhook] handleTextMessage chain threw:", err);
+    serverLogger.error(
+      {
+        eventType: "webhook.failure",
+        status: "error",
+        message: "line_handle_text_failed",
+      },
+      err,
+    );
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

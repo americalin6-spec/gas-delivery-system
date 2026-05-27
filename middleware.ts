@@ -27,6 +27,7 @@ const PROTECTED_CRM_PREFIXES = [
 
 /** API routes that validate their own secrets (no session). */
 const PUBLIC_API_PREFIXES = [
+  "/api/health",
   "/api/line-webhook",
   "/api/reminder-check",
   "/api/stripe/webhook",

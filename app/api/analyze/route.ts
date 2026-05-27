@@ -18,6 +18,7 @@ import {
 import { normalizeLineIdForDisplay } from "../../lib/lineIdDisplay";
 import { parseAiJsonObject } from "../../lib/parseAiJson";
 import { sanitizeImportantDateFields } from "../../lib/sanitizeImportantDateFields";
+import { logUnexpectedException } from "../../lib/safeApiError";
 
 export async function POST(req: Request) {
   let heldReservation:
@@ -29,11 +30,6 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-
-  console.log("[analyze] received", {
-    company_id: body.company_id ?? body.companyId ?? null,
-    workspace_id: body.workspace_id ?? body.workspaceId ?? null,
-  });
 
   const preferredCompanyId = parsePreferredCompanyId(
     body.company_id ?? body.companyId,
@@ -55,8 +51,6 @@ export async function POST(req: Request) {
   if (!companyId || companyId <= 0 || !workspaceId || workspaceId <= 0) {
     return NextResponse.json({ error: "找不到工作區" }, { status: 404 });
   }
-
-  console.log("[analyze] companyId", companyId, "workspaceId", workspaceId);
 
   try {
     const rawLang = body.lang;
@@ -238,7 +232,12 @@ ${inputText}
     if (heldReservation) {
       await releaseAiQuotaReservation(heldReservation);
     }
-    console.error(error);
+    logUnexpectedException(error, {
+      eventType: "exception",
+      companyId,
+      userId: user.id,
+      route: "/api/analyze",
+    });
 
     return NextResponse.json({
       error: "AI 分析失敗",
