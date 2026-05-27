@@ -139,6 +139,12 @@
       "namedRegex": "^/api/customers/ai\\-summary(?:/)?$"
     },
     {
+      "page": "/api/debug-workspace",
+      "regex": "^/api/debug\\-workspace(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/debug\\-workspace(?:/)?$"
+    },
+    {
       "page": "/api/ecpay/callback",
       "regex": "^/api/ecpay/callback(?:/)?$",
       "routeKeys": {},

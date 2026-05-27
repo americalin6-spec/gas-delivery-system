@@ -14,6 +14,7 @@
   "/api/customers/ai-follow-up/route": "/api/customers/ai-follow-up",
   "/api/customers/ai-summary/route": "/api/customers/ai-summary",
   "/api/customers/route": "/api/customers",
+  "/api/debug-workspace/route": "/api/debug-workspace",
   "/api/ecpay/callback/route": "/api/ecpay/callback",
   "/api/ecpay/checkout/route": "/api/ecpay/checkout",
   "/api/ecpay/period-callback/route": "/api/ecpay/period-callback",

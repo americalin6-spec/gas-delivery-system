@@ -14,6 +14,7 @@
   "/api/customers/ai-follow-up/route": "app/api/customers/ai-follow-up/route.js",
   "/api/customers/ai-summary/route": "app/api/customers/ai-summary/route.js",
   "/api/customers/route": "app/api/customers/route.js",
+  "/api/debug-workspace/route": "app/api/debug-workspace/route.js",
   "/api/ecpay/callback/route": "app/api/ecpay/callback/route.js",
   "/api/ecpay/checkout/route": "app/api/ecpay/checkout/route.js",
   "/api/ecpay/period-callback/route": "app/api/ecpay/period-callback/route.js",
