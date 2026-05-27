@@ -23,6 +23,7 @@ export const PROTECTED_CRM_PATH_PREFIXES = [
   "/customers",
   "/pipeline",
   "/workspace",
+  "/alerts",
   "/settings",
   "/tasks",
   "/calendar",

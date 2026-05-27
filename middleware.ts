@@ -19,6 +19,7 @@ const PROTECTED_CRM_PREFIXES = [
   "/customers",
   "/pipeline",
   "/workspace",
+  "/alerts",
   "/settings",
   "/tasks",
   "/calendar",

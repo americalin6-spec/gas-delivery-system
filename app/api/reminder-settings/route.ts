@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { requireInternalApiEnabled } from "../../lib/internalApiGuard";
 import {
   loadLineReminderSettings,
   saveLineReminderSettings,
@@ -27,6 +28,8 @@ function parseReminderTimeToHour(value: unknown): number | undefined {
 }
 
 export async function GET(req: Request) {
+  const internalBlocked = requireInternalApiEnabled();
+  if (internalBlocked) return internalBlocked;
   const auth = await requireApiAuth(req);
   if (auth instanceof NextResponse) {
     return auth;
@@ -36,7 +39,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       enabled: settings.enabled,
       reminder_time: hourToReminderTime(settings.notify_hour),
-      channel_access_token: settings.channel_access_token,
+      channel_access_token: settings.channel_access_token.trim() ? "********" : "",
       user_id: settings.user_id,
     });
   } catch (err) {
@@ -46,6 +49,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const internalBlocked = requireInternalApiEnabled();
+  if (internalBlocked) return internalBlocked;
   const auth = await requireApiAuth(req);
   if (auth instanceof NextResponse) {
     return auth;
@@ -86,7 +91,7 @@ export async function POST(req: Request) {
       ok: true,
       enabled: settings.enabled,
       reminder_time: hourToReminderTime(settings.notify_hour),
-      channel_access_token: settings.channel_access_token,
+      channel_access_token: settings.channel_access_token.trim() ? "********" : "",
       user_id: settings.user_id,
     });
   } catch (err) {

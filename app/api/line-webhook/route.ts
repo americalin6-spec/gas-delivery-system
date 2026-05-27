@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findCompanyIdForLineUser, logLineConversation } from "../../lib/conversationsServer";
 import { runCustomerAiFieldExtraction } from "../../lib/customerAiExtractServer";
@@ -70,6 +71,19 @@ const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
 const BIND_COMMAND = "綁定";
 
 const DEFAULT_LINE_CUSTOMER_NAME = "LINE 客戶";
+function verifyLineWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
+  const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim() ?? "";
+  if (!channelSecret || !signatureHeader) return false;
+  const expected = crypto
+    .createHmac("sha256", channelSecret)
+    .update(rawBody, "utf8")
+    .digest("base64");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(signatureHeader);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 
 /** Exclude soft-deleted customers (same filter as customerSoftDelete.activeCustomersOnly). */
 function activeCustomersOnly<T extends { is: (col: string, val: null) => T }>(query: T): T {
@@ -596,9 +610,16 @@ async function handleTextMessage(
 }
 
 export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const signature = req.headers.get("x-line-signature");
+  if (!verifyLineWebhookSignature(rawBody, signature)) {
+    console.warn("[line-webhook] invalid signature");
+    return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
+  }
+
   let body: LineWebhookBody = {};
   try {
-    body = (await req.json()) as LineWebhookBody;
+    body = JSON.parse(rawBody) as LineWebhookBody;
   } catch (err) {
     console.error("[line-webhook] invalid JSON body:", err);
     return NextResponse.json({ ok: true }, { status: 200 });
@@ -644,5 +665,5 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: false, error: "method not allowed" }, { status: 405 });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parsePreferredCompanyId, requireApiAuth } from "../../lib/apiAuth";
+import { requireInternalApiEnabled } from "../../lib/internalApiGuard";
 import { createSupabaseAuthServerClient } from "../../lib/supabaseAuthServer";
 import { ensureUserTenantBootstrap } from "../../lib/tenantBootstrapServer";
 import {
@@ -98,6 +99,9 @@ async function resolveDebugCompanyId(
  * Optional query: company_id, companyId, workspace_id, workspaceId
  */
 export async function GET(req: Request) {
+  const internalBlocked = requireInternalApiEnabled();
+  if (internalBlocked) return internalBlocked;
+
   const url = new URL(req.url);
   const preferredCompanyId = parsePreferredCompanyId(
     url.searchParams.get("company_id") ?? url.searchParams.get("companyId"),

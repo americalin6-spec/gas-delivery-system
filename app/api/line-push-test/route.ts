@@ -4,9 +4,12 @@ import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { formatLineReminderMessage } from "../../lib/reminderCheck";
 import { fetchDueReminderCustomers } from "../../lib/runReminderCheck";
 import { requireApiAuth } from "../../lib/apiAuth";
+import { requireInternalApiEnabled } from "../../lib/internalApiGuard";
 
 /** Send a test LINE Messaging API push to the configured personal User ID. */
 export async function POST(req: Request) {
+  const internalBlocked = requireInternalApiEnabled();
+  if (internalBlocked) return internalBlocked;
   const auth = await requireApiAuth(req);
   if (auth instanceof NextResponse) {
     return auth;
