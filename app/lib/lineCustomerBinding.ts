@@ -70,7 +70,7 @@ export function pickPrimaryLineBinding(
 export async function fetchLineUserRowsByCustomerId(
   supabase: SupabaseClient,
   customerId: string,
-  _companyId?: number,
+  companyId?: number,
 ): Promise<LineUserBindingRow[]> {
   const candidates = customerIdMatchValues(customerId);
   if (candidates.length === 0) return [];
@@ -78,12 +78,14 @@ export async function fetchLineUserRowsByCustomerId(
   const merged = new Map<string, LineUserBindingRow>();
 
   for (const cid of candidates) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("line_users")
       .select(LINE_USER_SELECT)
       .eq("customer_id", cid)
       .order("created_at", { ascending: false })
       .limit(500);
+    if (companyId != null && companyId > 0) q = q.eq("company_id", companyId);
+    const { data, error } = await q;
 
     if (error) continue;
     for (const row of data ?? []) {
@@ -99,11 +101,13 @@ export async function fetchLineUserRowsByCustomerId(
   }
 
   if (merged.size === 0) {
-    const { data } = await supabase
+    let q = supabase
       .from("line_users")
       .select(LINE_USER_SELECT)
       .order("created_at", { ascending: false })
       .limit(3000);
+    if (companyId != null && companyId > 0) q = q.eq("company_id", companyId);
+    const { data } = await q;
 
     for (const row of data ?? []) {
       const lineUserId = row.line_user_id?.trim();
@@ -120,9 +124,7 @@ export async function fetchLineUserRowsByCustomerId(
   return Array.from(merged.values());
 }
 
-/**
- * Write customers.line_user_id (idempotent). Tries all id variants; does not require company_id match.
- */
+/** Write customers.line_user_id (idempotent) scoped to company when provided. */
 export async function persistCustomerLineUserId(
   supabase: SupabaseClient,
   customerId: string,
@@ -152,6 +154,12 @@ export async function persistCustomerLineUserId(
     if (scoped.error) {
       console.warn("[lineCustomerBinding] persist scoped error:", scoped.error.message);
     }
+  }
+
+  // Never run an unscoped fallback update. If scoped update did not match,
+  // treat it as not-found to avoid cross-tenant writes under service role.
+  if (companyId != null && companyId > 0) {
+    return { ok: false, error: "customer row not updated" };
   }
 
   const { data, error } = await supabase

@@ -95,16 +95,19 @@ function logQuery(
 export async function resolveCustomerLineUserId(
   supabase: SupabaseClient,
   customerId: string,
+  companyId?: number,
 ): Promise<string | null> {
+  if (companyId == null || !Number.isFinite(companyId) || companyId <= 0) return null;
   const candidates = customerIdMatchValues(customerId);
   if (candidates.length === 0) return null;
 
   for (const cid of candidates) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("customers")
       .select("line_user_id")
-      .eq("id", cid)
-      .maybeSingle();
+      .eq("id", cid);
+    q = q.eq("company_id", companyId);
+    const { data, error } = await q.maybeSingle();
 
     if (error) continue;
     const lineId = data?.line_user_id;
@@ -112,12 +115,13 @@ export async function resolveCustomerLineUserId(
   }
 
   const orParts = candidates.map((c) => `id.eq.${c}`).join(",");
-  const { data, error } = await supabase
+  let q = supabase
     .from("customers")
     .select("line_user_id")
     .or(orParts)
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  q = q.eq("company_id", companyId);
+  const { data, error } = await q.maybeSingle();
 
   if (error) return null;
   const lineId = data?.line_user_id;
@@ -138,6 +142,9 @@ export async function fetchLineUsersForCustomer(
     debug?: FetchLineUsersDebug;
   },
 ): Promise<{ rows: LineUserBindingRow[]; error: string | null }> {
+  if (companyId == null || !Number.isFinite(companyId) || companyId <= 0) {
+    return { rows: [], error: "missing company_id scope" };
+  }
   const customerIdInput = customerId.trim();
   const candidates = customerIdMatchValues(customerIdInput);
   const queryLogs: LineUsersQueryLog[] = [];
@@ -168,6 +175,7 @@ export async function fetchLineUsersForCustomer(
   const probe = await supabase
     .from("line_users")
     .select("line_user_id, customer_id")
+    .eq("company_id", companyId)
     .limit(10);
   debug.tableProbeCount = probe.data?.length ?? 0;
   if (probe.error) {
@@ -183,6 +191,7 @@ export async function fetchLineUsersForCustomer(
       .from("line_users")
       .select(SELECT_COLUMNS)
       .eq("customer_id", cid)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(500);
 
@@ -202,6 +211,7 @@ export async function fetchLineUsersForCustomer(
     const res = await supabase
       .from("line_users")
       .select(SELECT_COLUMNS)
+      .eq("company_id", companyId)
       .or(orParts)
       .order("created_at", { ascending: false })
       .limit(500);
@@ -221,6 +231,7 @@ export async function fetchLineUsersForCustomer(
     const res = await supabase
       .from("line_users")
       .select(SELECT_COLUMNS)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: false })
       .limit(3000);
 
@@ -241,13 +252,14 @@ export async function fetchLineUsersForCustomer(
   // 4) customers.line_user_id → line_users.line_user_id
   const customerLineUserId =
     options?.primaryLineUserId?.trim() ||
-    (await resolveCustomerLineUserId(supabase, customerIdInput));
+    (await resolveCustomerLineUserId(supabase, customerIdInput, companyId));
 
   if (customerLineUserId) {
     const res = await supabase
       .from("line_users")
       .select(SELECT_COLUMNS)
       .eq("line_user_id", customerLineUserId)
+      .eq("company_id", companyId)
       .maybeSingle();
 
     logQuery(

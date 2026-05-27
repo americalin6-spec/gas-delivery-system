@@ -54,7 +54,9 @@ export async function GET(req: Request) {
   console.log("[line-users] syncCustomerPrimaryLineUserId:", sync);
 
   const resolvedLineUserId =
-    primaryLineUserId ?? sync.lineUserId ?? (await resolveCustomerLineUserId(supabase, customerId));
+    primaryLineUserId ??
+    sync.lineUserId ??
+    (await resolveCustomerLineUserId(supabase, customerId, companyId));
 
   const { rows, error } = await fetchLineUsersForCustomer(supabase, customerId, companyId, {
     primaryLineUserId: resolvedLineUserId,
