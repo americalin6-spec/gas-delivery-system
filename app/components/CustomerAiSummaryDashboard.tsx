@@ -17,6 +17,7 @@ import {
 } from "../lib/customerAiSummary";
 import { localizeCrmDisplayText } from "../lib/crmAiDisplayLabels";
 import { dt } from "../lib/customerDetailTypography";
+import { AiPanelHeaderActions } from "./AiPanelHeaderActions";
 
 export type CustomerAiExtractPayload = {
   updatedColumns?: string[];
@@ -251,25 +252,20 @@ export function CustomerAiSummaryDashboard({
           </p>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
-          <button
-            type="button"
-            onClick={() => void loadSummary()}
-            disabled={loading}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.06)",
-              color: shell.text,
-              fontSize: 13,
-              cursor: loading ? "wait" : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            {loading ? "分析中…" : "重新分析"}
-          </button>
-        </div>
+        <AiPanelHeaderActions
+          loading={loading}
+          onReanalyze={() => void loadSummary()}
+          buttonStyle={{
+            padding: "8px 14px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(255,255,255,0.06)",
+            color: shell.text,
+            fontSize: 13,
+            cursor: loading ? "wait" : "pointer",
+            opacity: loading ? 0.7 : 1,
+          }}
+        />
       </div>
 
       {error ? (

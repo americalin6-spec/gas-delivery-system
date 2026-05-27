@@ -19,6 +19,7 @@ import { localizeCrmDisplayText } from "../lib/crmAiDisplayLabels";
 import { dt } from "../lib/customerDetailTypography";
 import { supabase } from "../../supabase";
 import type { CustomerAiExtractPayload } from "./CustomerAiSummaryDashboard";
+import { AiPanelHeaderActions } from "./AiPanelHeaderActions";
 
 type CustomerSnapshot = {
   id: string | number;
@@ -291,16 +292,11 @@ export function CustomerAiFollowUpSection({
           </p>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
-          <button
-            type="button"
-            onClick={() => void loadFollowUp()}
-            disabled={loading}
-            style={ghostBtnStyle(loading)}
-          >
-            {loading ? "分析中…" : "重新分析"}
-          </button>
-        </div>
+        <AiPanelHeaderActions
+          loading={loading}
+          onReanalyze={() => void loadFollowUp()}
+          buttonStyle={ghostBtnStyle(loading)}
+        />
       </div>
 
       {error ? (
