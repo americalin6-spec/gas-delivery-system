@@ -9,8 +9,8 @@ import {
 import {
   DEAL_PRIORITY_THEME,
   RISK_PRIORITY_THEME,
+  formatAiSummaryCardDisplay,
   formatAiSummaryUpdatedAt,
-  hydrateCustomerAiSummaryFromPersisted,
   type CustomerAiSummary,
   type DealPriorityLevel,
   type RiskPriorityLevel,
@@ -31,7 +31,7 @@ type Props = {
   customerId: string;
   companyId: number;
   conversationSourceText: string;
-  persistedSummary?: Partial<CustomerAiSummary> | null;
+  persistedSummary?: CustomerAiSummary | null;
   isMobile: boolean;
   /** Parent stores runner — only invoked on user refresh or explicit parent trigger. */
   registerRun?: (run: (() => Promise<void>) | null) => void;
@@ -108,8 +108,8 @@ export function CustomerAiSummaryDashboard({
   registerRun,
   onExtractComplete,
 }: Props) {
-  const [summary, setSummary] = useState<CustomerAiSummary | null>(() =>
-    persistedSummary ? hydrateCustomerAiSummaryFromPersisted(persistedSummary) : null,
+  const [summary, setSummary] = useState<CustomerAiSummary | null>(
+    () => persistedSummary ?? null,
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,10 +180,7 @@ export function CustomerAiSummaryDashboard({
   const riskLevel = summary?.riskLevel ?? "normal";
 
   useEffect(() => {
-    if (!persistedSummary) return;
-    const hydrated = hydrateCustomerAiSummaryFromPersisted(persistedSummary);
-    if (!hydrated) return;
-    setSummary(hydrated);
+    if (persistedSummary) setSummary(persistedSummary);
   }, [persistedSummary]);
 
   return (
@@ -330,13 +327,13 @@ export function CustomerAiSummaryDashboard({
           const accent = cardAccent(item.priority, dealLevel, riskLevel);
           const rawBody = summary?.[item.key];
           const body =
-            typeof rawBody === "string" && rawBody.trim()
-              ? localizeCrmDisplayText(rawBody)
-              : summary
+            rawBody == null
+              ? summary
                 ? "—"
                 : loading
                   ? "…"
-                  : "—";
+                  : "—"
+              : localizeCrmDisplayText(formatAiSummaryCardDisplay(rawBody));
           return (
             <article
               key={item.key}

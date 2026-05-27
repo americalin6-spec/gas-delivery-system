@@ -269,45 +269,78 @@ export function formatAiSummaryUpdatedAt(iso: string): string {
   }
 }
 
-export function hasPersistedAiSummaryContent(
-  raw: Partial<CustomerAiSummary> | null | undefined,
-): boolean {
-  if (!raw) return false;
-  return [
-    raw.customerNeeds,
-    raw.painPoints,
-    raw.dealProbability,
-    raw.customerEmotion,
-    raw.suggestedNextStep,
-    raw.riskAlert,
-  ].some((v) => cleanField(v).length > 0);
+export type CustomerDbAiSummaryRow = {
+  ai_customer_needs?: string | null;
+  ai_pain_points?: string | null;
+  ai_probability?: string | null;
+  ai_emotion?: string | null;
+  ai_next_step?: string | null;
+  ai_risk_alert?: string | null;
+  updated_at?: string | null;
+  ai_extracted_at?: string | null;
+};
+
+function dbAiText(value: string | null | undefined): string {
+  return value == null ? "" : String(value);
 }
 
-/** Hydrate dashboard state from `customers.ai_*` — returns null when row has no saved AI text. */
+/** Map `customers.ai_*` columns directly into AI summary card state (no placeholder overwrite). */
+export function mapCustomerRowToAiSummary(
+  row: CustomerDbAiSummaryRow,
+): CustomerAiSummary | null {
+  const customerNeeds = row.ai_customer_needs;
+  const painPoints = row.ai_pain_points;
+  const dealProbability = row.ai_probability;
+  const customerEmotion = row.ai_emotion;
+  const suggestedNextStep = row.ai_next_step;
+  const riskAlert = row.ai_risk_alert;
+
+  const hasAny =
+    customerNeeds != null ||
+    painPoints != null ||
+    dealProbability != null ||
+    customerEmotion != null ||
+    suggestedNextStep != null ||
+    riskAlert != null;
+
+  if (!hasAny) return null;
+
+  const dealProbabilityText = dbAiText(dealProbability);
+  const riskAlertText = dbAiText(riskAlert);
+
+  return {
+    customerNeeds: dbAiText(customerNeeds),
+    painPoints: dbAiText(painPoints),
+    dealProbability: dealProbabilityText,
+    customerEmotion: dbAiText(customerEmotion),
+    suggestedNextStep: dbAiText(suggestedNextStep),
+    riskAlert: riskAlertText,
+    dealLevel: inferDealLevel(dealProbabilityText),
+    riskLevel: inferRiskLevel(riskAlertText, false),
+    updatedAt:
+      row.updated_at?.trim() ||
+      row.ai_extracted_at?.trim() ||
+      new Date().toISOString(),
+  };
+}
+
+/** Card display: only null/undefined becomes "—". */
+export function formatAiSummaryCardDisplay(value: string | null | undefined): string {
+  if (value == null) return "—";
+  return value;
+}
+
+/** @deprecated Use mapCustomerRowToAiSummary — kept for camelCase partial payloads. */
 export function hydrateCustomerAiSummaryFromPersisted(
   raw: Partial<CustomerAiSummary>,
 ): CustomerAiSummary | null {
-  if (!hasPersistedAiSummaryContent(raw)) return null;
-
-  const dealProbability = cleanField(raw.dealProbability);
-  const riskAlert = cleanField(raw.riskAlert);
-
-  return {
-    customerNeeds: cleanField(raw.customerNeeds) || NOT_PROVIDED,
-    painPoints: cleanField(raw.painPoints) || NOT_PROVIDED,
-    dealProbability: dealProbability || NOT_PROVIDED,
-    customerEmotion: cleanField(raw.customerEmotion) || NOT_PROVIDED,
-    suggestedNextStep: cleanField(raw.suggestedNextStep) || NOT_PROVIDED,
-    riskAlert: riskAlert || NOT_PROVIDED,
-    dealLevel: inferDealLevel(
-      dealProbability,
-      raw.dealLevel as DealPriorityLevel | undefined,
-    ),
-    riskLevel: inferRiskLevel(
-      riskAlert,
-      false,
-      raw.riskLevel as RiskPriorityLevel | undefined,
-    ),
-    updatedAt: String(raw.updatedAt ?? "").trim() || new Date().toISOString(),
-  };
+  return mapCustomerRowToAiSummary({
+    ai_customer_needs: raw.customerNeeds,
+    ai_pain_points: raw.painPoints,
+    ai_probability: raw.dealProbability,
+    ai_emotion: raw.customerEmotion,
+    ai_next_step: raw.suggestedNextStep,
+    ai_risk_alert: raw.riskAlert,
+    updated_at: raw.updatedAt,
+  });
 }

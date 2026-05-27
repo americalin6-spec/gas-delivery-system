@@ -64,7 +64,7 @@ import {
   type CustomerAiFollowUp,
 } from "../../lib/customerAiFollowUp";
 import {
-  hasPersistedAiSummaryContent,
+  mapCustomerRowToAiSummary,
   type CustomerAiSummary,
 } from "../../lib/customerAiSummary";
 import { supabase } from "../../../supabase";
@@ -511,19 +511,9 @@ export default function CustomerDetailPage() {
     if (data) setCustomer(data as Customer);
   }
 
-  const persistedAiSummary = useMemo((): Partial<CustomerAiSummary> | null => {
+  const persistedAiSummary = useMemo((): CustomerAiSummary | null => {
     if (!customer) return null;
-    const raw: Partial<CustomerAiSummary> = {
-      customerNeeds: customer.ai_customer_needs ?? undefined,
-      painPoints: customer.ai_pain_points ?? undefined,
-      dealProbability: customer.ai_probability ?? undefined,
-      customerEmotion: customer.ai_emotion ?? undefined,
-      suggestedNextStep: customer.ai_next_step ?? undefined,
-      riskAlert: customer.ai_risk_alert ?? undefined,
-      updatedAt:
-        customer.updated_at ?? customer.ai_extracted_at ?? new Date().toISOString(),
-    };
-    return hasPersistedAiSummaryContent(raw) ? raw : null;
+    return mapCustomerRowToAiSummary(customer);
   }, [
     customer?.ai_customer_needs,
     customer?.ai_pain_points,
