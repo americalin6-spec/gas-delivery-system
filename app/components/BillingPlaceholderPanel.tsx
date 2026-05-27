@@ -182,7 +182,7 @@ export function BillingPlaceholderPanel({ isMobile }: Props) {
                       </button>
                     ) : (
                       <p style={{ margin: "10px 0 0", fontSize: 13, opacity: 0.75 }}>
-                        請聯絡我們開通 Enterprise
+                        請聯絡我們開通企業方案
                       </p>
                     )}
                   </div>

@@ -99,7 +99,7 @@ export default function PricingPage() {
             方案與定價
           </h1>
           <p style={{ margin: 0, opacity: 0.85, fontSize: isMobile ? 15 : 18, lineHeight: 1.55 }}>
-            免費試用 30 天，隨時升級 Starter、Professional 或 Enterprise
+            從免費體驗開始，依需求升級個人、專業或企業方案
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -164,6 +164,7 @@ export default function PricingPage() {
         {plans.map((planId) => {
           const plan = PLAN_DEFINITIONS[planId];
           const isTrial = planId === "trial";
+          const isEnterprise = planId === "enterprise";
           const isHighlight = plan.highlight === true;
 
           return (
@@ -201,13 +202,12 @@ export default function PricingPage() {
               <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{plan.nameZh}</h2>
               <p style={{ margin: "10px 0 0", fontSize: 28, fontWeight: 800 }}>
                 {plan.priceZh}
-                <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.75 }}>
-                  {" "}
-                  / {plan.periodZh}
-                </span>
-              </p>
-              <p style={{ margin: "8px 0 0", fontSize: 14, opacity: 0.8 }}>
-                每月 {plan.aiMonthlyLimit.toLocaleString("zh-TW")} 次 AI
+                {plan.periodZh ? (
+                  <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.75 }}>
+                    {" "}
+                    / {plan.periodZh}
+                  </span>
+                ) : null}
               </p>
               <ul
                 style={{
@@ -240,8 +240,28 @@ export default function PricingPage() {
                     fontWeight: 600,
                   }}
                 >
-                  {session ? "前往儀表板" : "免費試用 30 天"}
+                  {session ? "前往儀表板" : plan.ctaZh}
                 </Link>
+              ) : isEnterprise ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNotice("請聯絡我們，由專人為您報價並開通企業方案。")
+                  }
+                  style={{
+                    marginTop: 20,
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    background: "rgba(255,255,255,0.1)",
+                    color: "white",
+                  }}
+                >
+                  {plan.ctaZh}
+                </button>
               ) : (
                 <button
                   type="button"
@@ -261,7 +281,7 @@ export default function PricingPage() {
                     color: "#0f172a",
                   }}
                 >
-                  {busy === planId ? "處理中…" : "升級方案"}
+                  {busy === planId ? "處理中…" : plan.ctaZh}
                 </button>
               )}
             </article>
