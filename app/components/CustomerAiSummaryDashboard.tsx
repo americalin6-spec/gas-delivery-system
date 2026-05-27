@@ -80,6 +80,8 @@ function cardAccent(
     return {
       border: t.border,
       glow: t.glow,
+      badge: t.label,
+      badgeColor: t.accent,
     };
   }
   if (priority === "risk") {
@@ -257,14 +259,7 @@ export function CustomerAiSummaryDashboard({
           </p>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+        <div style={{ flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => void loadSummary()}
@@ -355,7 +350,8 @@ export function CustomerAiSummaryDashboard({
                   <span style={{ marginRight: 6, opacity: 0.7 }}>{item.icon}</span>
                   {item.title}
                 </span>
-                {accent.badge ? (
+                {accent.badge &&
+                (item.key === "dealProbability" || item.key === "riskAlert") ? (
                   <span
                     style={{
                       fontSize: 10,
