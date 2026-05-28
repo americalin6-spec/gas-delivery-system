@@ -31,7 +31,6 @@ import {
 import { AiAnalyzingIndicator } from "../components/AiAnalyzingIndicator";
 import { CompanyAiUsagePanel } from "../components/CompanyAiUsagePanel";
 import { TodayFollowUpWorkspace } from "../components/TodayFollowUpWorkspace";
-import { HomeLandingHero } from "../components/HomeLandingHero";
 import {
   clearDraft,
   emptyHomeFormDraft,
@@ -996,8 +995,6 @@ export default function DashboardPageClient() {
             gap: 20,
           }}
         >
-          <HomeLandingHero lang={lang} isMobile onStart={scrollToApp} />
-
           <header style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
             <h1 style={{ ...block(), margin: 0, fontSize: 32 }}>LINE Work AI</h1>
             <p style={{ ...block(), margin: 0, opacity: 0.85, fontSize: 16, lineHeight: 1.55 }}>
@@ -1212,8 +1209,6 @@ export default function DashboardPageClient() {
     {loading ? <AiAnalyzingIndicator lang={lang} /> : null}
     {copyFallbackModal}
     <main style={s.page}>
-      <HomeLandingHero lang={lang} isMobile={false} onStart={scrollToApp} />
-
       <div style={s.topbar}>
         <div>
           <h1 style={s.logo}>LINE Work AI</h1>
