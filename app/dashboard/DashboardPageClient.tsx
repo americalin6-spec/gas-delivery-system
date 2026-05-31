@@ -12,7 +12,7 @@ import { formatLocalYmd } from "../lib/followUpReminders";
 import { useViewportWidth } from "../hooks/useViewportWidth";
 import { useAppLang } from "../hooks/useAppLang";
 import { useCopyWithFallback } from "../hooks/useCopyWithFallback";
-import { homePageCopy, translateDisplayValue } from "../lib/uiI18n";
+import { formatEstimatedAmountForDisplay, formatBudgetMentionsInDisplayText, homePageCopy, translateDisplayValue } from "../lib/uiI18n";
 import type { AppLang } from "../lib/appLang";
 import { DASHBOARD_PATH } from "../lib/authRoutes";
 import {
@@ -29,10 +29,13 @@ import {
   type ExtractedCustomerProfile,
 } from "../lib/extractCustomerFromLineChat";
 import { AiAnalyzingIndicator } from "../components/AiAnalyzingIndicator";
+import { LineConversationInput } from "../components/LineConversationInput";
+import { useAiQuotaUpgrade } from "../components/AiQuotaUpgradeProvider";
 import { CompanyAiUsagePanel } from "../components/CompanyAiUsagePanel";
 import { TodayFollowUpWorkspace } from "../components/TodayFollowUpWorkspace";
 import {
   clearDraft,
+  emptyAnalysisDraft,
   emptyHomeFormDraft,
   restoreDraft,
   saveDraft,
@@ -55,7 +58,6 @@ import {
   beginHomepageSave,
   endHomepageSave,
   getWritesThisSaveClick,
-  HOMEPAGE_ANALYZE_SAVE_SOURCE,
   HOMEPAGE_SAVE_SOURCE,
 } from "../lib/customerWriteGate";
 import {
@@ -164,33 +166,6 @@ function extractAmount(text: string, lang: string) {
   return lang === "zh" ? "未提供" : "Not provided";
 }
 
-function calculateDealProbability(text: string, lang: string) {
-  const t = text.toLowerCase();
-  let score = 0;
-
-  const highSignals = [
-    "預算", "報價", "兩週", "月底", "下個月", "一定要", "需要", "想做", "麻煩", "急", "合作", "簽約",
-    "budget", "quotation", "proposal", "within", "need", "urgent", "please send", "sounds good", "contract",
-  ];
-
-  const lowSignals = [
-    "先問問", "只是看看", "還不確定", "沒有預算", "先了解", "再看看", "比較一下",
-    "just asking", "just looking", "not sure", "no budget", "exploring", "compare",
-  ];
-
-  highSignals.forEach((w) => {
-    if (t.includes(w.toLowerCase())) score += 1;
-  });
-
-  lowSignals.forEach((w) => {
-    if (t.includes(w.toLowerCase())) score -= 2;
-  });
-
-  if (score >= 3) return lang === "zh" ? "高" : "High";
-  if (score >= 1) return lang === "zh" ? "中" : "Medium";
-  return lang === "zh" ? "低" : "Low";
-}
-
 const emptyFormDefaults = emptyHomeFormDraft();
 
 export default function DashboardPageClient() {
@@ -206,6 +181,7 @@ export default function DashboardPageClient() {
   const [lineText, setLineText] = useState(emptyFormDefaults.lineText);
   const { lang, setLang } = useAppLang();
   const { fallbackModal: copyFallbackModal } = useCopyWithFallback(isMobile, lang);
+  const { handleQuotaApiBody } = useAiQuotaUpgrade();
   const ui = homePageCopy(lang);
   const {
     activeCompanyId,
@@ -246,6 +222,22 @@ export default function DashboardPageClient() {
 
   const draftHydratedRef = useRef(false);
   const draftSnapshotRef = useRef<HomeFormDraft>(emptyHomeFormDraft());
+  const analyzeGenerationRef = useRef(0);
+  const lastAnalyzedLineTextRef = useRef<string | null>(null);
+
+  function clearHomepageDerivedAnalysisState() {
+    setAnalyzeResult(null);
+    setAnalysis(emptyAnalysisDraft());
+    setHasExplicitImportantDate(false);
+    setExtractedPreview(null);
+    setCustomerName("");
+    setCompanyName("");
+    setIndustry("");
+    setPhone("");
+    setLineId("");
+    setEmail("");
+    setNote("");
+  }
 
   function buildDraftSnapshot(overrides: Partial<HomeFormDraft> = {}): HomeFormDraft {
     return {
@@ -388,6 +380,15 @@ export default function DashboardPageClient() {
   }, [lineText, customerName, companyName, industry, phone, lineId, email, note, analysis, lang, extractedPreview]);
 
   useEffect(() => {
+    if (!draftHydratedRef.current) return;
+    const current = lineText.trim();
+    const last = lastAnalyzedLineTextRef.current;
+    if (!last || current === last) return;
+    clearHomepageDerivedAnalysisState();
+    lastAnalyzedLineTextRef.current = null;
+  }, [lineText]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     return () => {
       persistDraftNow();
@@ -395,10 +396,14 @@ export default function DashboardPageClient() {
   }, []);
 
   const displayValue = (value: string) => translateDisplayValue(value === "--" ? "" : value, lang);
+  const formatAnalysisDisplayText = (value: string) =>
+    formatBudgetMentionsInDisplayText(displayValue(value), lang);
   /** Extracted / analysis result panels — stable "-" until client mount + draft restore. */
-  const analysisResultValue = (value: string) => (mounted ? displayValue(value) : "-");
+  const analysisResultValue = (value: string) => (mounted ? formatAnalysisDisplayText(value) : "-");
   /** Dashboard stat cards (deal probability, level, risk, amount). */
   const analysisStatValue = (value: string) => (mounted ? displayValue(value) : "-");
+  const analysisEstimatedAmountValue = (value: string) =>
+    mounted ? formatEstimatedAmountForDisplay(value === "--" ? "" : value, lang) : "-";
 
   function clearFormDraft() {
     clearDraft();
@@ -547,7 +552,7 @@ export default function DashboardPageClient() {
       const socialFromChat = extractSocialFieldsFromLineChat(lineText);
       const extractedName = chatExtracted.customer_name.trim();
       const nameForSave = pickCustomerNameForForm(
-        extractedName || analyzeResult?.customer_name || form.customerName,
+        extractedName || form.customerName || analyzeResult?.customer_name || "",
         extractedName,
         lineText,
         lang,
@@ -571,19 +576,24 @@ export default function DashboardPageClient() {
         ? nameForSave
         : crmSaveCustomerName(crmFields.customer_name, lang);
 
-      if (source !== HOMEPAGE_ANALYZE_SAVE_SOURCE) {
-        setCustomerName(resolvedDisplayName);
-        setCompanyName(crmFields.company_name);
-        setIndustry(crmFields.industry);
-        setPhone(crmFields.phone);
-        setLineId(normalizeLineIdForDisplay(crmFields.line_id));
-        setEmail(crmFields.email);
-      }
+      setCustomerName(resolvedDisplayName);
+      setCompanyName(crmFields.company_name);
+      setIndustry(crmFields.industry);
+      setPhone(crmFields.phone);
+      setLineId(normalizeLineIdForDisplay(crmFields.line_id));
+      setEmail(crmFields.email);
 
       const dealProb =
         analysisPayload.dealProbability === "--" ? null : analysisPayload.dealProbability;
 
       const crmDates = buildSanitizedCrmDatePayload(lineText, lang);
+
+      const displayNeed =
+        analysisPayload.customerNeed === "--" ? "" : analysisPayload.customerNeed.trim();
+      const savedCustomerNeed =
+        displayNeed && displayNeed !== "未提供" && displayNeed !== "Not provided"
+          ? displayNeed
+          : chatExtracted.customer_need?.trim() || null;
 
       const baseInsert: Record<string, string | number | boolean | null> = {
         customer_name: savedName,
@@ -593,9 +603,7 @@ export default function DashboardPageClient() {
         line_id: crmFields.line_id.trim() || null,
         email: crmFields.email.trim() || null,
         note: form.note.trim() || null,
-        customer_need:
-          chatExtracted.customer_need?.trim() ||
-          (analysisPayload.customerNeed === "--" ? null : analysisPayload.customerNeed),
+        customer_need: savedCustomerNeed,
         important_date: crmDates.important_date,
         customer_emotion:
           analysisPayload.customerEmotion === "--" ? null : analysisPayload.customerEmotion,
@@ -605,15 +613,14 @@ export default function DashboardPageClient() {
           analysisPayload.replySuggestion === "--" ? null : analysisPayload.replySuggestion,
         follow_up: analysisPayload.followUp === "--" ? null : analysisPayload.followUp,
         ai_summary: [
-          analysisPayload.customerNeed === "--" ? null : `需求：${analysisPayload.customerNeed}`,
+          savedCustomerNeed ? `需求：${savedCustomerNeed}` : null,
           analysisPayload.customerEmotion === "--" ? null : `情緒：${analysisPayload.customerEmotion}`,
           analysisPayload.nextStep === "--" ? null : `下一步：${analysisPayload.nextStep}`,
           analysisPayload.followUp === "--" ? null : `跟進：${analysisPayload.followUp}`,
         ]
           .filter(Boolean)
           .join("\n") || null,
-        ai_customer_needs:
-          analysisPayload.customerNeed === "--" ? null : analysisPayload.customerNeed,
+        ai_customer_needs: savedCustomerNeed,
         ai_pain_points: null,
         ai_emotion:
           analysisPayload.customerEmotion === "--" ? null : analysisPayload.customerEmotion,
@@ -773,6 +780,9 @@ export default function DashboardPageClient() {
       return;
     }
 
+    const generation = ++analyzeGenerationRef.current;
+    clearHomepageDerivedAnalysisState();
+
     setLoading(true);
     const analysisPayload = {
       text: lineText,
@@ -793,11 +803,12 @@ export default function DashboardPageClient() {
           body: JSON.stringify(analysisPayload),
         });
         const aiBody = (await aiRes.json()) as AiAnalyzeCustomerPayload & { error?: string };
-        if (!aiRes.ok && aiBody.error) {
-          alert(aiBody.error);
+        if (!aiRes.ok) {
+          if (handleQuotaApiBody(aiBody)) return;
+          if (aiBody.error) alert(aiBody.error);
           return;
         }
-        if (aiRes.ok && aiBody && !aiBody.error) {
+        if (aiBody && !aiBody.error) {
           aiResult = sanitizeImportantDateFields(
             aiBody as unknown as Record<string, unknown>,
             lineText,
@@ -808,24 +819,24 @@ export default function DashboardPageClient() {
         console.error("AI analyze request failed", err);
       }
 
-      const probability = calculateDealProbability(lineText, lang);
-      const existingForm = currentFormSnapshot({
-        customerName,
-        companyName,
-        industry,
-        phone,
-        lineId,
-        email,
-        note,
+      if (generation !== analyzeGenerationRef.current) {
+        return;
+      }
+
+      if (!aiResult) {
+        return;
+      }
+
+      const mapped = buildHomeAnalysisMapping(lineText, lang, aiResult, undefined, {
+        mergeWithPreviousForm: false,
       });
-      const mapped = buildHomeAnalysisMapping(
-        lineText,
-        lang,
-        aiResult,
-        probability,
-        existingForm,
-      );
       const { confirmed, analysis: mappedAnalysis, extractedPreview } = mapped;
+
+      if (generation !== analyzeGenerationRef.current) {
+        return;
+      }
+
+      lastAnalyzedLineTextRef.current = lineText.trim();
 
       setAnalyzeResult({
         customer_name: confirmed.customerName,
@@ -848,6 +859,10 @@ export default function DashboardPageClient() {
       setAnalysis(mappedAnalysis);
       setHasExplicitImportantDate(mapped.hasExplicitImportantDate);
 
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("line-work-ai:ai-usage-refresh"));
+      }
+
       persistDraftNow({
         lineText,
         customerName: confirmed.customerName,
@@ -861,24 +876,6 @@ export default function DashboardPageClient() {
         lang,
         extractedPreview,
       });
-
-      if (tenantReady && activeCompanyId > 0 && authUserId) {
-        await persistHomepageCrm({
-          source: HOMEPAGE_ANALYZE_SAVE_SOURCE,
-          silent: true,
-          skipClearDraft: true,
-          formOverride: currentFormSnapshot({
-            customerName: confirmed.customerName,
-            companyName: confirmed.companyName,
-            industry: confirmed.industry,
-            phone: confirmed.phone,
-            lineId: confirmed.lineId,
-            email: confirmed.email,
-            note: confirmed.note,
-          }),
-          analysisOverride: mappedAnalysis,
-        });
-      }
 
       console.log("[analyze] done", { customerName: confirmed.customerName });
     } finally {
@@ -1036,7 +1033,7 @@ export default function DashboardPageClient() {
             </div>
             <div style={statCard}>
               <div style={{ ...block(), opacity: 0.85, fontSize: 15 }}>{ui.estimatedAmount}</div>
-              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisStatValue(analysis.estimatedAmount)}</div>
+              <div style={{ ...block(), marginTop: 8, fontSize: 28, fontWeight: 700 }}>{analysisEstimatedAmountValue(analysis.estimatedAmount)}</div>
             </div>
           </section>
 
@@ -1092,11 +1089,9 @@ export default function DashboardPageClient() {
               <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="mobile" />
             ) : null}
 
-            <textarea
-              className="crm-line-conversation-textarea"
+            <LineConversationInput
               value={lineText}
-              onChange={(e) => setLineText(e.target.value)}
-              placeholder={ui.linePlaceholder}
+              onChange={setLineText}
               style={{
                 ...block(),
                 minHeight: 176,
@@ -1244,7 +1239,7 @@ export default function DashboardPageClient() {
         <Card styles={s} title={ui.dealProbability} value={analysisStatValue(analysis.dealProbability)} />
         <Card styles={s} title={ui.customerLevel} value={analysisStatValue(analysis.customerLevel)} />
         <Card styles={s} title={ui.leakRisk} value={analysisStatValue(analysis.leakRisk)} />
-        <Card styles={s} title={ui.estimatedAmount} value={analysisStatValue(analysis.estimatedAmount)} />
+        <Card styles={s} title={ui.estimatedAmount} value={analysisEstimatedAmountValue(analysis.estimatedAmount)} />
       </div>
 
       <div style={s.layout}>
@@ -1283,11 +1278,9 @@ export default function DashboardPageClient() {
             <ExtractedCustomerPreviewCard extracted={extractedPreview} lang={lang} variant="desktop" />
           ) : null}
 
-          <textarea
-            className="crm-line-conversation-textarea"
+          <LineConversationInput
             value={lineText}
-            onChange={(e) => setLineText(e.target.value)}
-            placeholder={ui.linePlaceholder}
+            onChange={setLineText}
             style={s.textarea}
           />
 
@@ -1520,7 +1513,12 @@ function ExtractedCustomerPreviewCard({
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const display =
+            row.value.trim() ?
+              formatBudgetMentionsInDisplayText(translateDisplayValue(row.value, lang), lang)
+            : "";
+          return (
           <div
             key={row.label}
             style={{
@@ -1552,13 +1550,14 @@ function ExtractedCustomerPreviewCard({
                 textAlign: "right",
                 flex: "1 1 140px",
                 wordBreak: "break-word",
-                color: row.value.trim() ? "#f8fafc" : "rgba(248,250,252,0.45)",
+                color: display ? "#f8fafc" : "rgba(248,250,252,0.45)",
               }}
             >
-              {row.value.trim() ? row.value : ui.notDetected}
+              {display || ui.notDetected}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

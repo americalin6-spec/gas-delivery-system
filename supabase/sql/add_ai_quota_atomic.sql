@@ -1,6 +1,43 @@
 -- Atomic AI quota reservation/release helpers.
 -- Safe to re-run.
 
+-- Prefer text month keys (YYYY-MM). Fixes: invalid input syntax for type integer: "2026-05"
+alter table public.companies
+  add column if not exists ai_usage_month text;
+
+do $$
+declare
+  col_type text;
+begin
+  select data_type
+  into col_type
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'companies'
+    and column_name = 'ai_usage_month';
+
+  if col_type is not null and col_type <> 'text' then
+    execute $sql$
+      alter table public.companies
+      alter column ai_usage_month type text
+      using (
+        case
+          when ai_usage_month is null then null::text
+          when trim(ai_usage_month::text) ~ '^\d{4}-\d{2}$' then trim(ai_usage_month::text)
+          when trim(ai_usage_month::text) ~ '^\d{6}$' then
+            substr(trim(ai_usage_month::text), 1, 4)
+            || '-'
+            || substr(trim(ai_usage_month::text), 5, 2)
+          else to_char(now() at time zone 'UTC', 'YYYY-MM')
+        end
+      )
+    $sql$;
+  end if;
+end $$;
+
+comment on column public.companies.ai_usage_month is
+  'UTC calendar month key (YYYY-MM) for ai_used_this_month reset';
+
 alter table public.companies
   add column if not exists monthly_ai_limit int;
 
@@ -19,6 +56,80 @@ comment on column public.companies.monthly_ai_limit is
 comment on column public.companies.ai_usage_reset_at is
   'UTC timestamp when ai_used_this_month was last reset for current month window.';
 
+create or replace function public.ai_usage_month_is_integer_column()
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select coalesce(
+    (
+      select c.data_type in ('integer', 'bigint', 'smallint')
+      from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = 'companies'
+        and c.column_name = 'ai_usage_month'
+    ),
+    false
+  );
+$$;
+
+create or replace function public.ai_usage_month_now_text()
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select to_char(now() at time zone 'UTC', 'YYYY-MM');
+$$;
+
+create or replace function public.ai_usage_month_now_int()
+returns integer
+language sql
+stable
+set search_path = public
+as $$
+  select (
+    extract(year from now() at time zone 'UTC')::int * 100
+    + extract(month from now() at time zone 'UTC')::int
+  );
+$$;
+
+create or replace function public.ai_usage_month_text_to_int(p_month text)
+returns integer
+language sql
+immutable
+set search_path = public
+as $$
+  select case
+    when p_month is null or trim(p_month) = '' then null
+    when trim(p_month) ~ '^\d{4}-\d{2}$' then
+      split_part(trim(p_month), '-', 1)::int * 100
+      + split_part(trim(p_month), '-', 2)::int
+    when trim(p_month) ~ '^\d{6}$' then trim(p_month)::int
+    else null
+  end;
+$$;
+
+create or replace function public.ai_usage_month_matches_stored(
+  p_stored text,
+  p_expected_text text,
+  p_use_int boolean
+)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select case
+    when p_use_int then
+      coalesce(nullif(trim(p_stored), '')::int, -1)
+        = public.ai_usage_month_text_to_int(p_expected_text)
+    else
+      trim(coalesce(p_stored, '')) = trim(coalesce(p_expected_text, ''))
+  end;
+$$;
+
 create or replace function public.reserve_company_ai_quota(p_company_id bigint)
 returns table (
   ok boolean,
@@ -34,7 +145,9 @@ set search_path = public
 as $$
 declare
   c companies%rowtype;
-  month_now text := to_char(now() at time zone 'UTC', 'YYYY-MM');
+  month_now text := public.ai_usage_month_now_text();
+  month_int integer := public.ai_usage_month_now_int();
+  month_is_int boolean := public.ai_usage_month_is_integer_column();
   reset_at timestamptz := date_trunc('month', now() at time zone 'UTC');
   base_limit int := 0;
   extra_credits int := 0;
@@ -43,6 +156,7 @@ declare
   unlimited boolean := false;
   active_paid boolean := false;
   expired_paid boolean := false;
+  needs_reset boolean := false;
 begin
   select * into c
   from public.companies
@@ -54,14 +168,41 @@ begin
     return;
   end if;
 
-  if c.ai_usage_reset_at is null
-     or c.ai_usage_month is null
-     or c.ai_usage_month <> month_now
-     or date_trunc('month', c.ai_usage_reset_at at time zone 'UTC') <> reset_at
-  then
+  if month_is_int then
+    needs_reset :=
+      c.ai_usage_reset_at is null
+      or c.ai_usage_month is null
+      or coalesce(nullif(trim(c.ai_usage_month::text), '')::int, -1) <> month_int
+      or date_trunc('month', c.ai_usage_reset_at at time zone 'UTC') <> reset_at;
+  else
+    needs_reset :=
+      c.ai_usage_reset_at is null
+      or c.ai_usage_month is null
+      or trim(c.ai_usage_month::text) <> month_now
+      or trim(c.ai_usage_month::text) !~ '^\d{4}-\d{2}$'
+      or date_trunc('month', c.ai_usage_reset_at at time zone 'UTC') <> reset_at;
+  end if;
+
+  if needs_reset then
     c.ai_used_this_month := 0;
-    c.ai_usage_month := month_now;
     c.ai_usage_reset_at := reset_at;
+    c.ai_used_this_month := 0;
+    c.ai_usage_reset_at := reset_at;
+    if month_is_int then
+      update public.companies
+      set
+        ai_used_this_month = 0,
+        ai_usage_month = month_int,
+        ai_usage_reset_at = reset_at
+      where id = p_company_id;
+    else
+      update public.companies
+      set
+        ai_used_this_month = 0,
+        ai_usage_month = month_now,
+        ai_usage_reset_at = reset_at
+      where id = p_company_id;
+    end if;
   end if;
 
   active_paid := (
@@ -85,7 +226,6 @@ begin
       end case;
     end if;
   else
-    -- Expired/non-paid subscriptions always degrade to 免費體驗 quota.
     base_limit := 30;
   end if;
 
@@ -98,11 +238,21 @@ begin
   used := greatest(coalesce(c.ai_used_this_month, 0), 0);
 
   if not unlimited and used >= effective_limit then
-    update public.companies
-    set ai_used_this_month = used,
-        ai_usage_month = c.ai_usage_month,
+    if month_is_int then
+      update public.companies
+      set
+        ai_used_this_month = used,
+        ai_usage_month = month_int,
         ai_usage_reset_at = c.ai_usage_reset_at
-    where id = p_company_id;
+      where id = p_company_id;
+    else
+      update public.companies
+      set
+        ai_used_this_month = used,
+        ai_usage_month = month_now,
+        ai_usage_reset_at = c.ai_usage_reset_at
+      where id = p_company_id;
+    end if;
 
     return query
       select false,
@@ -110,7 +260,7 @@ begin
                when expired_paid then '您的方案已到期，請續訂以繼續使用進階功能。'
                else '本月 AI 分析次數已用完，請升級方案或等待下個月重置。'
              end,
-             c.ai_usage_month,
+             month_now,
              effective_limit,
              used,
              0;
@@ -119,16 +269,26 @@ begin
 
   used := used + 1;
 
-  update public.companies
-  set ai_used_this_month = used,
-      ai_usage_month = c.ai_usage_month,
+  if month_is_int then
+    update public.companies
+    set
+      ai_used_this_month = used,
+      ai_usage_month = month_int,
       ai_usage_reset_at = c.ai_usage_reset_at
-  where id = p_company_id;
+    where id = p_company_id;
+  else
+    update public.companies
+    set
+      ai_used_this_month = used,
+      ai_usage_month = month_now,
+      ai_usage_reset_at = c.ai_usage_reset_at
+    where id = p_company_id;
+  end if;
 
   return query
     select true,
            null::text,
-           c.ai_usage_month,
+           month_now,
            case when unlimited then 2147483647 else effective_limit end,
            used,
            case when unlimited then 2147483647 else greatest(effective_limit - used, 0) end;
@@ -149,6 +309,8 @@ set search_path = public
 as $$
 declare
   c companies%rowtype;
+  month_is_int boolean := public.ai_usage_month_is_integer_column();
+  month_int integer := public.ai_usage_month_text_to_int(p_usage_month);
 begin
   select * into c
   from public.companies
@@ -159,7 +321,14 @@ begin
     return false;
   end if;
 
-  if c.ai_usage_month = p_usage_month then
+  if month_is_int then
+    if month_int is not null
+       and coalesce(nullif(trim(c.ai_usage_month::text), '')::int, -1) = month_int then
+      update public.companies
+      set ai_used_this_month = greatest(coalesce(c.ai_used_this_month, 0) - 1, 0)
+      where id = p_company_id;
+    end if;
+  elsif public.ai_usage_month_matches_stored(c.ai_usage_month::text, p_usage_month, false) then
     update public.companies
     set ai_used_this_month = greatest(coalesce(c.ai_used_this_month, 0) - 1, 0)
     where id = p_company_id;
@@ -171,4 +340,3 @@ $$;
 
 revoke all on function public.release_company_ai_quota(bigint, text) from public;
 grant execute on function public.release_company_ai_quota(bigint, text) to authenticated;
-

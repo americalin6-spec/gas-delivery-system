@@ -85,8 +85,13 @@ export function CompanyAiUsagePanel({
 
   useEffect(() => {
     const onFocus = () => void load();
+    const onUsageRefresh = () => void load();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    window.addEventListener("line-work-ai:ai-usage-refresh", onUsageRefresh);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("line-work-ai:ai-usage-refresh", onUsageRefresh);
+    };
   }, [load]);
 
   const gridStyle: CSSProperties = cardsGridStyle ?? {

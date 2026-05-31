@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CustomerAiSummary } from "./customerAiSummary";
 import type { CustomerAiFollowUp } from "./customerAiFollowUp";
+import {
+  sanitizeCustomerFacingLineReply,
+  sanitizeCustomerFacingText,
+} from "./customerFacingText";
 
 function isMissingColumnError(message: string | undefined): boolean {
   if (!message) return false;
@@ -88,7 +92,12 @@ export async function persistCustomerAiSummaryFields(
 export function buildCustomerAiPatchFromAnalyzePayload(
   payload: Record<string, unknown>,
 ): Record<string, string | null> {
-  const need = clean(payload.customerNeed);
+  const need = clean(
+    payload.ai_customer_needs ??
+      payload.aiCustomerNeeds ??
+      payload.customerNeeds ??
+      payload.customerNeed,
+  );
   const mood = clean(payload.customerMood ?? payload.customerEmotion);
   const next = clean(payload.nextStep);
   const prob = clean(payload.dealProbability);
@@ -133,16 +142,19 @@ export async function persistCustomerAiFollowUpFields(
   customerId: string,
   followUp: CustomerAiFollowUp,
 ): Promise<{ savedColumns: string[]; error: string | null }> {
+  const lineReply = sanitizeCustomerFacingLineReply(followUp.suggestedMessage);
   const patch: Record<string, string | null> = {
-    ai_follow_up: clean(followUp.suggestedMessage),
-    ai_professional_reply: clean(followUp.suggestedMessage),
-    ai_next_step: clean(followUp.suggestedAction),
+    ai_follow_up: clean(lineReply),
+    ai_professional_reply: clean(lineReply),
+    ai_next_step: clean(sanitizeCustomerFacingText(followUp.suggestedAction)),
     ai_summary: clean(
-      [
-        `跟進時間：${followUp.suggestedFollowUpTime}`,
-        `建議行動：${followUp.suggestedAction}`,
-        `成交策略：${followUp.closingStrategy}`,
-      ].join("\n"),
+      sanitizeCustomerFacingText(
+        [
+          `跟進時間：${followUp.suggestedFollowUpTime}`,
+          `建議行動：${followUp.suggestedAction}`,
+          `成交策略：${followUp.closingStrategy}`,
+        ].join("\n"),
+      ),
     ),
   };
   return persistAiPatch(supabase, companyId, customerId, patch);

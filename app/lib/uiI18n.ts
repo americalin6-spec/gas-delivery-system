@@ -1,5 +1,42 @@
 import type { AppLang } from "./appLang";
 import { localizeCrmDisplayText } from "./crmAiDisplayLabels";
+import { formatEstimatedAmountDisplay } from "./pipelineKanban";
+
+/** UI-only formatting for estimated_amount (does not change DB). */
+export function formatEstimatedAmountForDisplay(
+  value: string | null | undefined,
+  lang: AppLang,
+): string {
+  const formatted = formatEstimatedAmountDisplay(value, lang);
+  if (!formatted || formatted === "—" || formatted === "--") return formatted || "—";
+  return localizeCrmDisplayText(formatted);
+}
+
+/** Replace raw TWD integers in analysis copy with Taiwan real-estate friendly 萬/億 labels. */
+export function formatBudgetMentionsInDisplayText(
+  value: string | null | undefined,
+  lang: AppLang,
+): string {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "--" || raw === "-") return raw;
+
+  const withRanges = raw.replace(
+    /(\d{1,3}(?:,\d{3})+|\d{7,})\s*[~～\-—–]\s*(\d{1,3}(?:,\d{3})+|\d{7,})/g,
+    (_match, low: string, high: string) => {
+      const lowFmt = formatEstimatedAmountForDisplay(low.replace(/,/g, ""), lang);
+      const highFmt = formatEstimatedAmountForDisplay(high.replace(/,/g, ""), lang);
+      return `${lowFmt}～${highFmt}`;
+    },
+  );
+
+  return withRanges.replace(/(\d{1,3}(?:,\d{3})+|\d{7,})/g, (match) => {
+    const digits = match.replace(/,/g, "");
+    const n = Number(digits);
+    if (!Number.isFinite(n) || n < 1_000_000) return match;
+    const formatted = formatEstimatedAmountForDisplay(digits, lang);
+    return formatted && formatted !== "—" ? formatted : match;
+  });
+}
 
 /** UI-only translation for values stored in CRM / analysis (does not change DB). */
 export function translateDisplayValue(value: string | null | undefined, lang: AppLang): string {

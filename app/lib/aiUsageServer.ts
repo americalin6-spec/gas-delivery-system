@@ -1,6 +1,10 @@
 import "server-only";
 
 import {
+  buildAiQuotaUpgradeFlowForPlan,
+  type AiQuotaUpgradeFlow,
+} from "./aiQuotaUpgrade";
+import {
   companyRowToSubscriptionView,
   isExpiredPaidSubscription,
   loadCompanySubscriptionRow,
@@ -11,6 +15,14 @@ import {
   AI_TRIAL_EXPIRED_MESSAGE,
   PLAN_DEFINITIONS,
 } from "./subscriptionPlans";
+import {
+  currentUsageMonthKey,
+  isAiUsageMonthTypeMismatchError,
+  isSameUsageMonth,
+  legacyUsageMonthInt,
+  normalizeUsageMonthKey,
+  parseUsageCount,
+} from "./aiUsageMonth";
 import { getSupabaseServiceRole } from "./supabaseServer";
 import { serverLogger } from "./serverLogger";
 
@@ -51,18 +63,12 @@ export type CompanyAiUsageStatus = {
   billingReady: boolean;
 };
 
-function currentUsageMonth(now = new Date()): string {
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
 export { buildNewCompanySubscriptionFields as buildNewCompanyPlanFields } from "./subscriptionServer";
-
-function parseUsageCount(value: unknown): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-}
+export {
+  currentUsageMonthKey,
+  normalizeUsageMonthKey,
+  parseUsageCount,
+} from "./aiUsageMonth";
 
 export function companyRowToUsageStatus(
   row: CompanySubscriptionRow,
@@ -88,27 +94,51 @@ export function companyRowToUsageStatus(
   };
 }
 
+async function updateCompanyUsageMonthCounters(
+  companyId: number,
+  patch: { ai_used_this_month: number; ai_usage_month: string },
+): Promise<{ error: string | null }> {
+  const admin = getSupabaseServiceRole();
+  const { error } = await admin.from("companies").update(patch).eq("id", companyId);
+  if (!error) return { error: null };
+
+  if (!isAiUsageMonthTypeMismatchError(error.message)) {
+    return { error: error.message };
+  }
+
+  const legacyMonth = legacyUsageMonthInt(patch.ai_usage_month);
+  if (legacyMonth == null) {
+    return { error: error.message };
+  }
+
+  const { error: retryError } = await admin
+    .from("companies")
+    .update({
+      ai_used_this_month: patch.ai_used_this_month,
+      ai_usage_month: legacyMonth,
+    })
+    .eq("id", companyId);
+
+  return { error: retryError?.message ?? null };
+}
+
 async function ensureMonthlyCounterCurrent(
   row: CompanySubscriptionRow,
 ): Promise<CompanySubscriptionRow> {
-  const month = currentUsageMonth();
-  if (row.ai_usage_month === month) return row;
+  const month = currentUsageMonthKey();
+  if (isSameUsageMonth(row.ai_usage_month, month)) return row;
 
   if (!row.usageCountersPersisted) {
     return { ...row, ai_used_this_month: 0, ai_usage_month: month };
   }
 
-  const admin = getSupabaseServiceRole();
-  const { error } = await admin
-    .from("companies")
-    .update({
-      ai_used_this_month: 0,
-      ai_usage_month: month,
-    })
-    .eq("id", row.id);
+  const { error } = await updateCompanyUsageMonthCounters(row.id, {
+    ai_used_this_month: 0,
+    ai_usage_month: month,
+  });
 
   if (error) {
-    console.warn("[aiUsage] month reset skipped:", error.message);
+    console.warn("[aiUsage] month reset skipped:", error);
     return { ...row, ai_used_this_month: 0, ai_usage_month: month };
   }
 
@@ -121,7 +151,39 @@ async function ensureMonthlyCounterCurrent(
 
 export type AiUsageGateResult =
   | { allowed: true; company: CompanySubscriptionRow }
-  | { allowed: false; error: string; status: number };
+  | {
+      allowed: false;
+      error: string;
+      status: number;
+      quotaExhausted?: boolean;
+      upgradeFlow?: AiQuotaUpgradeFlow;
+    };
+
+export type AiQuotaDeniedPayload = {
+  error: string;
+  quotaExhausted: true;
+  upgradeFlow: AiQuotaUpgradeFlow;
+};
+
+export async function buildAiQuotaDeniedPayload(
+  companyId: number,
+): Promise<AiQuotaDeniedPayload> {
+  let row = await loadCompanySubscriptionRow(companyId);
+  if (row) {
+    row = await ensureMonthlyCounterCurrent(row);
+  }
+  const view = row ? companyRowToSubscriptionView(row) : null;
+  const upgradeFlow = buildAiQuotaUpgradeFlowForPlan(
+    view?.subscriptionPlan ?? "trial",
+    view?.hasActivePaidSubscription ?? false,
+    view?.monthlyAiLimit,
+  );
+  return {
+    error: upgradeFlow.title,
+    quotaExhausted: true,
+    upgradeFlow,
+  };
+}
 
 export type AiQuotaReservation =
   | {
@@ -148,67 +210,102 @@ export async function assertAiUsageAllowed(
 
   const view = companyRowToSubscriptionView(row);
   if (view.aiRemainingThisMonth <= 0) {
-    const error = isExpiredPaidSubscription(row)
-      ? SUBSCRIPTION_EXPIRED_MESSAGE
-      : AI_LIMIT_EXCEEDED_MESSAGE;
+    const denied = await buildAiQuotaDeniedPayload(companyId);
     serverLogger.warn({
       eventType: "ai.quota_denied",
       status: "warn",
       companyId,
-      message: error,
-      meta: { feature: "gate" },
+      message: denied.error,
+      meta: {
+        feature: "gate",
+        subscriptionPlan: view.subscriptionPlan,
+        expiredPaid: isExpiredPaidSubscription(row),
+      },
     });
     return {
       allowed: false,
-      error,
+      error: denied.error,
       status: 403,
+      quotaExhausted: true,
+      upgradeFlow: denied.upgradeFlow,
     };
   }
 
   return { allowed: true, company: row };
 }
 
-export async function recordAiUsage(params: {
+async function insertAiUsageLog(params: {
   companyId: number;
   userId?: string | null;
   feature: AiFeature;
   estimatedTokens?: number | null;
 }): Promise<void> {
   const admin = getSupabaseServiceRole();
-  const month = currentUsageMonth();
   const tokens =
     params.estimatedTokens != null && Number.isFinite(params.estimatedTokens)
       ? Math.max(0, Math.floor(params.estimatedTokens))
       : null;
-
-  const { error: logError } = await admin.from("ai_usage_logs").insert({
+  const { error } = await admin.from("ai_usage_logs").insert({
     company_id: params.companyId,
     user_id: params.userId ?? null,
     feature: params.feature,
     estimated_tokens: tokens,
   });
-
-  if (logError) {
-    console.error("[aiUsage] log insert failed:", logError.message);
+  if (error) {
+    console.error("[aiUsage] log insert failed:", error.message);
   }
+}
 
-  const row = await loadCompanySubscriptionRow(params.companyId);
-  if (!row) return;
-
-  if (!row.usageCountersPersisted) {
-    return;
-  }
-
-  const used =
-    row.ai_usage_month === month ? parseUsageCount(row.ai_used_this_month) + 1 : 1;
-
-  const { error: updateError } = await admin
+async function readDirectCompanyUsageCounter(
+  companyId: number,
+): Promise<{ used: number; month: string | null } | null> {
+  const admin = getSupabaseServiceRole();
+  const { data, error } = await admin
     .from("companies")
-    .update({
-      ai_used_this_month: used,
-      ai_usage_month: month,
-    })
-    .eq("id", params.companyId);
+    .select("ai_used_this_month, ai_usage_month")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    used: parseUsageCount(
+      (data as { ai_used_this_month?: unknown }).ai_used_this_month,
+    ),
+    month: normalizeUsageMonthKey(
+      (data as { ai_usage_month?: unknown }).ai_usage_month,
+    ),
+  };
+}
+
+/** Increment companies.ai_used_this_month once (fallback when RPC reserve did not persist). */
+async function incrementCompanyAiUsageCounter(params: {
+  companyId: number;
+  userId?: string | null;
+  feature: AiFeature;
+}): Promise<{ ok: boolean; used: number }> {
+  const month = currentUsageMonthKey();
+  const direct = await readDirectCompanyUsageCounter(params.companyId);
+
+  if (!direct) {
+    serverLogger.warn({
+      eventType: "api.error",
+      status: "warn",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: "usage_counter_read_failed",
+      meta: { feature: params.feature, step: "counter_read" },
+    });
+    return { ok: false, used: 0 };
+  }
+
+  const used = isSameUsageMonth(direct.month, month) ? direct.used + 1 : 1;
+  const { error: updateError } = await updateCompanyUsageMonthCounters(params.companyId, {
+    ai_used_this_month: used,
+    ai_usage_month: month,
+  });
 
   if (updateError) {
     serverLogger.warn({
@@ -216,10 +313,10 @@ export async function recordAiUsage(params: {
       status: "warn",
       companyId: params.companyId,
       userId: params.userId ?? null,
-      message: updateError.message,
+      message: updateError,
       meta: { feature: params.feature, step: "counter_update" },
     });
-    return;
+    return { ok: false, used: direct.used };
   }
 
   serverLogger.info({
@@ -228,13 +325,30 @@ export async function recordAiUsage(params: {
     companyId: params.companyId,
     userId: params.userId ?? null,
     message: "usage_recorded",
-    meta: { feature: params.feature },
+    meta: { feature: params.feature, used },
   });
+  return { ok: true, used };
+}
+
+export async function recordAiUsage(params: {
+  companyId: number;
+  userId?: string | null;
+  feature: AiFeature;
+  estimatedTokens?: number | null;
+}): Promise<void> {
+  await insertAiUsageLog(params);
+  await incrementCompanyAiUsageCounter(params);
 }
 
 async function reserveAiQuota(companyId: number): Promise<
   | { ok: true; reservation: AiQuotaReservation }
-  | { ok: false; error: string; status: number }
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      quotaExhausted?: boolean;
+      upgradeFlow?: AiQuotaUpgradeFlow;
+    }
 > {
   const admin = getSupabaseServiceRole();
   const rpc = await admin.rpc("reserve_company_ai_quota", {
@@ -248,31 +362,54 @@ async function reserveAiQuota(companyId: number): Promise<
       usage_month?: string | null;
     };
     if (!row.ok) {
-      const denied = row.error?.trim() || AI_LIMIT_EXCEEDED_MESSAGE;
+      const denied = await buildAiQuotaDeniedPayload(companyId);
       serverLogger.warn({
         eventType: "ai.quota_denied",
         status: "warn",
         companyId,
-        message: denied,
-        meta: { mode: "rpc" },
+        message: denied.error,
+        meta: { mode: "rpc", rpcError: row.error ?? null },
       });
       return {
         ok: false,
-        error: denied,
+        error: denied.error,
         status: 403,
+        quotaExhausted: true,
+        upgradeFlow: denied.upgradeFlow,
       };
     }
-    const usageMonth = row.usage_month?.trim() || currentUsageMonth();
+    const usageMonth =
+      normalizeUsageMonthKey(row.usage_month) ?? currentUsageMonthKey();
     return {
       ok: true,
       reservation: { mode: "rpc", companyId, usageMonth },
     };
   }
 
-  if (rpc.error && /function .* does not exist/i.test(rpc.error.message)) {
+  const useQuotaFallback =
+    rpc.error &&
+    (/function .* does not exist/i.test(rpc.error.message) ||
+      isAiUsageMonthTypeMismatchError(rpc.error.message));
+
+  if (useQuotaFallback) {
+    if (isAiUsageMonthTypeMismatchError(rpc.error?.message)) {
+      serverLogger.warn({
+        eventType: "api.error",
+        status: "warn",
+        companyId,
+        message: rpc.error.message,
+        meta: { step: "reserve_rpc_month_type", fallback: true },
+      });
+    }
     const gate = await assertAiUsageAllowed(companyId);
     if (gate.allowed === false) {
-      return { ok: false, error: gate.error, status: gate.status };
+      return {
+        ok: false,
+        error: gate.error,
+        status: gate.status,
+        quotaExhausted: gate.quotaExhausted,
+        upgradeFlow: gate.upgradeFlow,
+      };
     }
     return {
       ok: true,
@@ -295,9 +432,11 @@ export async function releaseAiQuotaReservation(
   if (reservation.mode === "fallback") return;
 
   const admin = getSupabaseServiceRole();
+  const usageMonth =
+    normalizeUsageMonthKey(reservation.usageMonth) ?? currentUsageMonthKey();
   const { error } = await admin.rpc("release_company_ai_quota", {
     p_company_id: reservation.companyId,
-    p_usage_month: reservation.usageMonth,
+    p_usage_month: usageMonth,
   });
   if (error) {
     console.warn("[aiUsage] release quota failed:", error.message);
@@ -313,46 +452,41 @@ export async function finalizeAiUsageSuccess(params: {
 }): Promise<void> {
   if (!params.reservation) return;
 
+  await insertAiUsageLog(params);
+
   if (params.reservation.mode === "fallback") {
-    await recordAiUsage({
-      companyId: params.companyId,
-      userId: params.userId,
-      feature: params.feature,
-      estimatedTokens: params.estimatedTokens,
-    });
+    await incrementCompanyAiUsageCounter(params);
     return;
   }
 
-  const admin = getSupabaseServiceRole();
-  const tokens =
-    params.estimatedTokens != null && Number.isFinite(params.estimatedTokens)
-      ? Math.max(0, Math.floor(params.estimatedTokens))
-      : null;
-  const { error } = await admin.from("ai_usage_logs").insert({
-    company_id: params.companyId,
-    user_id: params.userId ?? null,
-    feature: params.feature,
-    estimated_tokens: tokens,
-  });
-  if (error) {
-    serverLogger.warn({
-      eventType: "api.error",
-      status: "warn",
-      companyId: params.companyId,
-      userId: params.userId ?? null,
-      message: error.message,
-      meta: { feature: params.feature, step: "usage_log_insert" },
-    });
-  } else {
+  const month = currentUsageMonthKey();
+  const direct = await readDirectCompanyUsageCounter(params.companyId);
+  const rpcPersisted =
+    direct != null &&
+    isSameUsageMonth(direct.month, month) &&
+    direct.used > 0;
+
+  if (rpcPersisted) {
     serverLogger.info({
       eventType: "ai.quota_deducted",
       status: "ok",
       companyId: params.companyId,
       userId: params.userId ?? null,
       message: "quota_finalized",
-      meta: { feature: params.feature },
+      meta: { feature: params.feature, mode: "rpc", used: direct.used },
     });
+    return;
   }
+
+  serverLogger.warn({
+    eventType: "api.error",
+    status: "warn",
+    companyId: params.companyId,
+    userId: params.userId ?? null,
+    message: "rpc_reserve_counter_missing",
+    meta: { feature: params.feature, step: "finalize_repair_increment" },
+  });
+  await incrementCompanyAiUsageCounter(params);
 }
 
 export function extractEstimatedTokens(data: unknown): number | null {
@@ -384,7 +518,13 @@ export async function openAiChatCompletion(
   params: OpenAiChatParams,
 ): Promise<
   | { ok: true; result: OpenAiChatResult }
-  | { ok: false; error: string; status: number }
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      quotaExhausted?: boolean;
+      upgradeFlow?: AiQuotaUpgradeFlow;
+    }
 > {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
@@ -395,7 +535,13 @@ export async function openAiChatCompletion(
   if (params.chargeQuota !== false) {
     const reserved = await reserveAiQuota(params.companyId);
     if (reserved.ok === false) {
-      return { ok: false, error: reserved.error, status: reserved.status };
+      return {
+        ok: false,
+        error: reserved.error,
+        status: reserved.status,
+        quotaExhausted: reserved.quotaExhausted,
+        upgradeFlow: reserved.upgradeFlow,
+      };
     }
     reservation = reserved.reservation;
   }
