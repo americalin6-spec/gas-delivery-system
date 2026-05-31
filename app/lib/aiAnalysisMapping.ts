@@ -27,9 +27,7 @@ import { normalizeLineIdForDisplay } from "./lineIdDisplay";
 import { sanitizeCustomerFacingLineReply, sanitizeCustomerFacingText } from "./customerFacingText";
 import {
   buildExtractedPreviewDisplay,
-  EMPTY_CRM_FORM_SNAPSHOT,
   mergeCrmFormSnapshot,
-  validateCrmFormSnapshotForDisplay,
   type CrmFormSnapshot,
 } from "./mergeCrmFormFields";
 
@@ -1153,10 +1151,9 @@ export function buildHomeAnalysisMapping(
   const resolvedCustomerLevel = levelFromProbability(resolvedDealProbability, lang);
   const resolvedLeakRisk = leakFromProbability(resolvedDealProbability, lang);
 
-  const mergeWithPreviousForm = options?.mergeWithPreviousForm === true;
-  const previousForm = mergeWithPreviousForm
-    ? (options?.previousForm ?? EMPTY_CRM_FORM_SNAPSHOT)
-    : EMPTY_CRM_FORM_SNAPSHOT;
+  const existingForm = options?.mergeWithPreviousForm
+    ? options?.previousForm
+    : undefined;
   const extracted = extractCustomerFromLineChat(lineText, lang);
   const honorific = extractHonorificCustomerName(lineText);
   if (honorific && !extracted.customer_name) {
@@ -1245,11 +1242,9 @@ export function buildHomeAnalysisMapping(
     note: note || customerNeedDisplay,
   };
 
-  const mergedForm = validateCrmFormSnapshotForDisplay(
-    mergeWithPreviousForm
-      ? mergeCrmFormSnapshot(previousForm, incomingForm)
-      : incomingForm,
-  );
+  const mergedForm = existingForm
+    ? mergeCrmFormSnapshot(existingForm, incomingForm)
+    : incomingForm;
 
   const confirmed: ConfirmedCrmMapping = {
     customerName: mergedForm.customerName,
@@ -1323,7 +1318,15 @@ export function buildHomeAnalysisMapping(
       email: mergedFields.email,
       customer_need: customerNeedDisplay,
     },
-    EMPTY_CRM_FORM_SNAPSHOT,
+    existingForm ?? {
+      customerName: "",
+      companyName: "",
+      industry: "",
+      phone: "",
+      lineId: "",
+      email: "",
+      note: "",
+    },
   );
 
   return {

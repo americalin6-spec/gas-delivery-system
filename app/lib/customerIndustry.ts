@@ -41,6 +41,29 @@ const INDUSTRY_PHRASE_RE =
 const INDUSTRY_CONTEXT_RE =
   /(?:經營|做|是|做著|主打|專做|專營|從事|在做)\s*([^\n，,。；;！!？?]{2,28}(?:家具|診所|健身房|餐酒館|餐廳|咖啡|醫美|牙醫|沙龍|工作室|俱樂部|品牌))/u;
 
+/** Community / transit / retail amenities — not the customer's industry. */
+const AMENITY_FACILITY_TERM_RE =
+  /健身房|健身中心|游泳池|泳池|公園|公园|捷運|高铁|高鐵|學區|学区|商場|商场|SPA|spa/iu;
+
+/** Property-buyer chat — amenities/layout must not become industry. */
+const PROPERTY_SEARCH_SIGNAL_RE =
+  /預算|萬|房|厅|廳|室|坪|車位|停車|平面|建案|新建案|高鐵|高铁|捷運|看房|買房|購屋|社區|社区|學區|学区|距離.{0,12}分鐘|分鐘內/u;
+
+const AMENITY_OR_LAYOUT_INDUSTRY_MISLABEL_RE =
+  /^(?:健身房|健身中心|游泳池|泳池|SPA|公園|公园|學區|学区|捷運|高鐵|高铁|車位|停車|平面車位|三房|四房|兩房|两房|套房)$/iu;
+
+const AMENITY_FACILITY_CONTEXT_RE =
+  /社區|社区|社區裡|社区里|建有|配有|配套|設施|设施|(?:^|[，,。\n])\s*有\s*|近|靠近|周邊|周边|樓下|楼下|步行約|步行到|距離/u;
+
+const I_AM_BUSINESS_OWNER_RE =
+  /我是\s*([^\n，,。；;！!？?]{0,20}?(?:健身房|健身中心|瑜珈教室|瑜伽館|診所|诊所|餐廳|餐厅|咖啡廳|咖啡馆|餐酒館|火鍋店|燒肉店|美髮沙龍|沙龍|醫美診所|牙醫診所|工作室))\s*(?:老闆|老板|負責人|負责人|店長|經理|創辦人|创办人)?/u;
+
+const I_RUN_BUSINESS_RE =
+  /我(?:開|经营|經營|做|在做|從事|从事)\s*(?:了一?家?)?\s*([^\n，,。；;！!？?]{2,24})/u;
+
+const LABELED_INDUSTRY_INLINE_RE =
+  /(?:行業|产业|產業|職業|工作內容|工作内容)[:：\s]\s*([^\n，,。；;]+)/u;
+
 const GENERIC_INDUSTRY_ONLY_RE =
   /^(?:精品家具|義大利進口家具|進口家具|高單價家具|醫美診所|醫美|診所|健身房|健身中心|餐酒館|餐廳|咖啡廳|咖啡館|美髮沙龍|沙龍|瑜珈教室|瑜伽館)$/u;
 
@@ -103,6 +126,92 @@ export function isGenericIndustryOnly(value: string): boolean {
   if (GENERIC_INDUSTRY_ONLY_RE.test(n)) return true;
   if (isIndustryDescriptor(n)) return true;
   return false;
+}
+
+export function isPropertySearchConversation(fullText: string): boolean {
+  const t = fullText.trim();
+  if (!t) return false;
+  return PROPERTY_SEARCH_SIGNAL_RE.test(t);
+}
+
+export function isAmenityOrLayoutIndustryMislabel(value: string): boolean {
+  const n = normalizeIndustryValue(value);
+  if (!n) return false;
+  if (AMENITY_OR_LAYOUT_INDUSTRY_MISLABEL_RE.test(n)) return true;
+  if (AMENITY_FACILITY_TERM_RE.test(n) && n.length <= 8) return true;
+  return false;
+}
+
+function normalizeOccupationFragmentToIndustry(fragment: string): string {
+  const raw = normalizeIndustryValue(fragment);
+  if (!raw) return "";
+  if (isAmenityOrLayoutIndustryMislabel(raw)) return "";
+  if (/餐廳|餐厅|餐酒館|火鍋|燒肉|烧肉|咖啡|餐飲|餐饮/u.test(raw)) {
+    return "餐飲業";
+  }
+  if (/健身房|健身中心|\bgym\b/i.test(raw)) {
+    return "健身房";
+  }
+  if (/醫美診所|医美诊所/u.test(raw)) {
+    return "醫美診所";
+  }
+  if (/牙醫診所|牙医诊所/u.test(raw)) {
+    return "牙醫診所";
+  }
+  if (/瑜珈|瑜伽/u.test(raw)) {
+    return raw.includes("教室") || raw.includes("館") ? raw : "瑜珈教室";
+  }
+  if (isIndustryDescriptor(raw) && !isAmenityOrLayoutIndustryMislabel(raw)) {
+    return raw;
+  }
+  return "";
+}
+
+function isAmenityFacilityContext(fullText: string, candidate: string): boolean {
+  const t = fullText.trim();
+  const term = normalizeIndustryValue(candidate);
+  if (!t || !term || !AMENITY_FACILITY_TERM_RE.test(term)) {
+    return false;
+  }
+  const explicit = extractExplicitOccupationIndustry(t);
+  if (explicit && (explicit === term || explicit.includes(term) || term.includes(explicit))) {
+    return false;
+  }
+  if (!AMENITY_FACILITY_CONTEXT_RE.test(t)) {
+    return false;
+  }
+  return AMENITY_FACILITY_TERM_RE.test(t);
+}
+
+export function extractExplicitOccupationIndustry(fullText: string): string {
+  const t = fullText.trim();
+  if (!t) return "";
+
+  const labeled = t.match(LABELED_INDUSTRY_INLINE_RE);
+  if (labeled?.[1]) {
+    const v = normalizeIndustryValue(labeled[1]);
+    if (v && !isEmptyLabel(v)) return v;
+  }
+
+  const owner = t.match(I_AM_BUSINESS_OWNER_RE);
+  if (owner?.[1]) {
+    const v = normalizeOccupationFragmentToIndustry(owner[1]);
+    if (v) return v;
+  }
+
+  const runner = t.match(I_RUN_BUSINESS_RE);
+  if (runner?.[1]) {
+    const v = normalizeOccupationFragmentToIndustry(runner[1]);
+    if (v) return v;
+  }
+
+  const contextual = t.match(INDUSTRY_CONTEXT_RE);
+  if (contextual?.[1]) {
+    const v = normalizeOccupationFragmentToIndustry(contextual[1]);
+    if (v && !isAmenityFacilityContext(t, v)) return v;
+  }
+
+  return "";
 }
 
 export function extractIndustrySuffixFromCompany(companyName: string): string {
@@ -236,24 +345,40 @@ export function demoteInferredCompanyToIndustry(
   companyName: string,
   labeledCompanyLine: string,
   currentIndustry: string,
+  fullText = "",
 ): { company_name: string; industry: string } {
   const company = companyName.trim();
   let industry = currentIndustry.trim();
   if (!company) return { company_name: "", industry };
 
+  if (isPropertySearchConversation(fullText) && !extractExplicitOccupationIndustry(fullText)) {
+    return {
+      company_name:
+        isGenericIndustryOnly(company) || isAmenityOrLayoutIndustryMislabel(company) ? "" : company,
+      industry: "",
+    };
+  }
+
   if (labeledCompanyLine.trim()) {
     const suffix = extractIndustrySuffixFromCompany(company);
-    if (suffix && !industry) industry = suffix;
+    if (suffix && !industry && !isAmenityOrLayoutIndustryMislabel(suffix)) {
+      industry = suffix;
+    }
     return { company_name: company, industry };
   }
 
   if (isExplicitCompanyName(company) || isNamedBrandOrClinic(company)) {
     const suffix = extractIndustrySuffixFromCompany(company);
-    if (suffix && !industry) industry = suffix;
+    if (suffix && !industry && !isAmenityOrLayoutIndustryMislabel(suffix)) {
+      industry = suffix;
+    }
     return { company_name: company, industry };
   }
 
   if (isGenericIndustryOnly(company)) {
+    if (isAmenityOrLayoutIndustryMislabel(company)) {
+      return { company_name: "", industry: "" };
+    }
     return {
       company_name: "",
       industry: industry || company,
