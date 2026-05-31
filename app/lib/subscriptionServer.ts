@@ -7,6 +7,11 @@ import {
   TRIAL_PERIOD_DAYS,
 } from "./subscriptionPlans";
 import type { SubscriptionPlan } from "./subscriptionPlans";
+import {
+  currentUsageMonthKey,
+  normalizeUsageMonthKey,
+  parseUsageCount,
+} from "./aiUsageMonth";
 import { getSupabaseServiceRole } from "./supabaseServer";
 
 export type CompanySubscriptionRow = {
@@ -51,17 +56,15 @@ export type CompanySubscriptionView = {
 const COMPANY_BASE_SELECT =
   "id, subscription_status, subscription_plan, stripe_customer_id, stripe_subscription_id, paid_until";
 
-/** Optional AI plan columns (add_company_ai_plan.sql) — queried only when present. */
-const COMPANY_AI_PLAN_SELECT =
-  "plan_status, trial_started_at, trial_ends_at, ai_monthly_limit, ai_used_this_month, ai_usage_month, ai_extra_credits";
+/** Core usage counters — required for quota read/write (add_company_ai_plan.sql). */
+const COMPANY_AI_USAGE_COUNTER_SELECT =
+  "ai_monthly_limit, ai_used_this_month, ai_usage_month";
 
-const COMPANY_SUBSCRIPTION_SELECT = `${COMPANY_BASE_SELECT}, ${COMPANY_AI_PLAN_SELECT}`;
+/** Optional AI plan metadata (may be missing on older schemas). */
+const COMPANY_AI_PLAN_META_SELECT =
+  "plan_status, trial_started_at, trial_ends_at, ai_extra_credits";
 
-function currentUsageMonth(now = new Date()): string {
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
+const COMPANY_SUBSCRIPTION_SELECT = `${COMPANY_BASE_SELECT}, ${COMPANY_AI_USAGE_COUNTER_SELECT}, ${COMPANY_AI_PLAN_META_SELECT}`;
 
 function isMissingColumnError(message: string | undefined): boolean {
   if (!message) return false;
@@ -77,7 +80,7 @@ function defaultTrialEndsAt(now = new Date()): string {
 export function buildNewCompanySubscriptionFields(now = new Date()): Record<string, unknown> {
   const trialEnds = new Date(now);
   trialEnds.setUTCDate(trialEnds.getUTCDate() + TRIAL_PERIOD_DAYS);
-  const month = currentUsageMonth(now);
+  const month = currentUsageMonthKey(now);
 
   return {
     plan_status: "trial",
@@ -93,11 +96,6 @@ export function buildNewCompanySubscriptionFields(now = new Date()): Record<stri
     paid_until: null,
     ai_extra_credits: 0,
   };
-}
-
-function parseUsageCount(value: unknown): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
 }
 
 function normalizeSubscriptionRow(
@@ -130,8 +128,8 @@ function normalizeSubscriptionRow(
       : 0,
     ai_usage_month:
       hasAiPlanColumns && data.ai_usage_month != null
-        ? String(data.ai_usage_month)
-        : currentUsageMonth(now),
+        ? normalizeUsageMonthKey(data.ai_usage_month) ?? currentUsageMonthKey(now)
+        : currentUsageMonthKey(now),
     subscription_status: String(data.subscription_status ?? "active"),
     subscription_plan: plan,
     stripe_customer_id:
@@ -227,9 +225,11 @@ export function companyRowToSubscriptionView(
   row: CompanySubscriptionRow,
   now = new Date(),
 ): CompanySubscriptionView {
-  const month = currentUsageMonth(now);
+  const month = currentUsageMonthKey(now);
   const used =
-    row.ai_usage_month === month ? parseUsageCount(row.ai_used_this_month) : 0;
+    normalizeUsageMonthKey(row.ai_usage_month) === month
+      ? parseUsageCount(row.ai_used_this_month)
+      : 0;
   const limit = effectiveMonthlyAiLimit(row);
   const paid = hasActivePaidSubscription(row, now);
 
@@ -279,6 +279,34 @@ export async function loadCompanySubscriptionRow(
     console.warn("[subscription] extended load fallback:", {
       companyId,
       message: extended.error.message,
+    });
+  }
+
+  const withCounters = await admin
+    .from("companies")
+    .select(`${COMPANY_BASE_SELECT}, ${COMPANY_AI_USAGE_COUNTER_SELECT}`)
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (!withCounters.error && withCounters.data) {
+    let merged = withCounters.data as Record<string, unknown>;
+    const meta = await admin
+      .from("companies")
+      .select(COMPANY_AI_PLAN_META_SELECT)
+      .eq("id", companyId)
+      .maybeSingle();
+    if (!meta.error && meta.data) {
+      merged = { ...merged, ...(meta.data as Record<string, unknown>) };
+    }
+    return normalizeSubscriptionRow(merged, {
+      usageCountersPersisted: true,
+    });
+  }
+
+  if (withCounters.error) {
+    console.warn("[subscription] usage counter load fallback:", {
+      companyId,
+      message: withCounters.error.message,
     });
   }
 
