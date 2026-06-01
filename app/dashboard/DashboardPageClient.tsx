@@ -1515,9 +1515,11 @@ function ExtractedCustomerPreviewCard({
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {rows.map((row) => {
           const display =
-            row.value.trim() ?
-              formatBudgetMentionsInDisplayText(translateDisplayValue(row.value, lang), lang)
-            : "";
+            row.value.trim()
+              ? row.label === ui.extractedPhone
+                ? row.value
+                : formatBudgetMentionsInDisplayText(translateDisplayValue(row.value, lang), lang)
+              : "";
           return (
           <div
             key={row.label}
