@@ -6,11 +6,30 @@ import {
   ECPAY_NOT_IMPLEMENTED,
   isEcpayConfigured,
 } from "../../../lib/ecpayArchitecture";
+import { getCreditPackById } from "../../../lib/subscriptionPlans";
 
 type Body = {
   plan?: string;
+  credit_pack_id?: string;
   payment_method?: string;
 };
+
+const ALLOWED_PAYMENT_METHODS = [
+  "credit_recurring",
+  "credit_once",
+  "atm",
+  "cvs",
+] as const;
+
+type EcpayPaymentMethod = (typeof ALLOWED_PAYMENT_METHODS)[number];
+
+function parsePaymentMethod(raw: string | undefined): EcpayPaymentMethod | null {
+  const method = raw?.trim() ?? "";
+  if (!method) return null;
+  return ALLOWED_PAYMENT_METHODS.includes(method as EcpayPaymentMethod)
+    ? (method as EcpayPaymentMethod)
+    : null;
+}
 
 /** POST — ECPay checkout architecture stub (no live gateway yet). */
 export async function POST(req: Request) {
@@ -26,6 +45,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
+  const creditPackId = body.credit_pack_id?.trim() ?? "";
+  if (creditPackId) {
+    const pack = getCreditPackById(creditPackId);
+    if (!pack) {
+      return NextResponse.json(
+        { ok: false, error: "請選擇有效的 AI 點數方案" },
+        { status: 400 },
+      );
+    }
+
+    const paymentMethod =
+      parsePaymentMethod(body.payment_method) ?? "credit_once";
+    if (body.payment_method?.trim() && !parsePaymentMethod(body.payment_method)) {
+      return NextResponse.json({ ok: false, error: "不支援的付款方式" }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      ok: false,
+      preview: true,
+      architectureOnly: true,
+      intent: "ai_credits",
+      ecpayConfigured: isEcpayConfigured(),
+      companyId: auth.companyId,
+      creditPackId: pack.id,
+      paymentMethod,
+      error: ECPAY_NOT_IMPLEMENTED,
+      redirectUrl: null,
+      message:
+        "ECPay 付款 API 尚未啟用。完成串接後將導向綠界付款頁並透過 callback 更新 AI 點數。",
+    });
+  }
+
   const plan = body.plan?.trim().toLowerCase() ?? "";
   if (!isRecurringPaidPlan(plan)) {
     return NextResponse.json(
@@ -34,9 +85,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const paymentMethod = body.payment_method?.trim() ?? "credit_recurring";
-  const allowed = ["credit_recurring", "credit_once", "atm", "cvs"];
-  if (!allowed.includes(paymentMethod)) {
+  const paymentMethod =
+    parsePaymentMethod(body.payment_method) ?? "credit_recurring";
+  if (body.payment_method?.trim() && !parsePaymentMethod(body.payment_method)) {
     return NextResponse.json({ ok: false, error: "不支援的付款方式" }, { status: 400 });
   }
 
@@ -44,13 +95,14 @@ export async function POST(req: Request) {
     companyId: auth.companyId,
     userId: auth.user.id,
     plan,
-    paymentMethod: paymentMethod as "credit_recurring" | "credit_once" | "atm" | "cvs",
+    paymentMethod,
   });
 
   return NextResponse.json({
     ok: false,
     preview: true,
     architectureOnly: true,
+    intent: "subscription",
     ecpayConfigured: isEcpayConfigured(),
     companyId: auth.companyId,
     plan,

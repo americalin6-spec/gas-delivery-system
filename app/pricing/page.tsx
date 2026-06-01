@@ -37,29 +37,35 @@ export default function PricingPage() {
       setBusy(key);
       setNotice(null);
       try {
-        const res = await fetch("/api/checkout", {
+        const body =
+          params.intent === "ai_credits"
+            ? {
+                credit_pack_id: params.creditPackId,
+                payment_method: "credit_once",
+              }
+            : {
+                plan: params.plan,
+                payment_method: "credit_recurring",
+              };
+        const res = await fetch("/api/ecpay/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({
-            intent: params.intent,
-            plan: params.plan,
-            credit_pack_id: params.creditPackId,
-          }),
+          body: JSON.stringify(body),
         });
         const data = (await res.json()) as {
           ok?: boolean;
-          checkoutUrl?: string;
+          redirectUrl?: string | null;
           message?: string;
           error?: string;
         };
-        if (data.ok && data.checkoutUrl) {
-          window.location.href = data.checkoutUrl;
+        if (data.ok && data.redirectUrl) {
+          window.location.href = data.redirectUrl;
           return;
         }
         setNotice(data.error ?? data.message ?? "無法建立結帳連結，請稍後再試");
       } catch {
-        setNotice("無法建立結帳預覽，請稍後再試");
+        setNotice("無法連線至帳單服務");
       } finally {
         setBusy(null);
       }
@@ -300,7 +306,7 @@ export default function PricingPage() {
       >
         <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800 }}>加購 AI 點數</h2>
         <p style={{ margin: "0 0 20px", opacity: 0.85, fontSize: 15, lineHeight: 1.55 }}>
-          本月額度用完時，可另行購買 AI 點數（Stripe 上線後啟用）
+          本月額度用完時，可另行購買 AI 點數
         </p>
         <div
           style={{
