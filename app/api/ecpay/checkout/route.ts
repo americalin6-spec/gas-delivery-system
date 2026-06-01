@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "../../../lib/apiAuth";
-import { isRecurringPaidPlan } from "../../../lib/billingSettings";
+import { ECPAY_NOT_IMPLEMENTED, isEcpayConfigured } from "../../../lib/ecpayArchitecture";
 import {
-  buildEcpayPeriodCheckoutStub,
-  ECPAY_NOT_IMPLEMENTED,
-  isEcpayConfigured,
-} from "../../../lib/ecpayArchitecture";
+  createSubscriptionEcpayCheckout,
+  readEcpayFullConfig,
+  resolveEcpaySubscriptionCheckoutPlan,
+} from "../../../lib/ecpayServer";
 import { getCreditPackById } from "../../../lib/subscriptionPlans";
 
 type Body = {
@@ -31,7 +31,7 @@ function parsePaymentMethod(raw: string | undefined): EcpayPaymentMethod | null 
     : null;
 }
 
-/** POST — ECPay checkout architecture stub (no live gateway yet). */
+/** POST — ECPay checkout (subscription: live gateway; AI credits: not yet). */
 export async function POST(req: Request) {
   const auth = await requireApiAuth(req);
   if (auth instanceof NextResponse) {
@@ -63,8 +63,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: false,
-      preview: true,
-      architectureOnly: true,
       intent: "ai_credits",
       ecpayConfigured: isEcpayConfigured(),
       companyId: auth.companyId,
@@ -72,17 +70,14 @@ export async function POST(req: Request) {
       paymentMethod,
       error: ECPAY_NOT_IMPLEMENTED,
       redirectUrl: null,
-      message:
-        "ECPay 付款 API 尚未啟用。完成串接後將導向綠界付款頁並透過 callback 更新 AI 點數。",
+      message: "ECPay AI 點數一次性付款尚未啟用，請稍後再試。",
     });
   }
 
-  const plan = body.plan?.trim().toLowerCase() ?? "";
-  if (!isRecurringPaidPlan(plan)) {
-    return NextResponse.json(
-      { ok: false, error: "請選擇 Starter、Professional 或 Enterprise 方案" },
-      { status: 400 },
-    );
+  const planInput = body.plan?.trim().toLowerCase() ?? "";
+  const resolved = resolveEcpaySubscriptionCheckoutPlan(planInput);
+  if ("error" in resolved) {
+    return NextResponse.json({ ok: false, error: resolved.error }, { status: 400 });
   }
 
   const paymentMethod =
@@ -91,25 +86,53 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "不支援的付款方式" }, { status: 400 });
   }
 
-  const stub = buildEcpayPeriodCheckoutStub({
-    companyId: auth.companyId,
-    userId: auth.user.id,
-    plan,
-    paymentMethod,
-  });
+  if (paymentMethod !== "credit_recurring") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "訂閱方案僅支援信用卡定期定額（credit_recurring）",
+      },
+      { status: 400 },
+    );
+  }
 
-  return NextResponse.json({
-    ok: false,
-    preview: true,
-    architectureOnly: true,
-    intent: "subscription",
-    ecpayConfigured: isEcpayConfigured(),
-    companyId: auth.companyId,
-    plan,
-    paymentMethod,
-    error: stub.error ?? ECPAY_NOT_IMPLEMENTED,
-    redirectUrl: null,
-    message:
-      "ECPay 定期定額／付款 API 尚未啟用。完成串接後將導向綠界付款頁並透過 callback 更新訂閱狀態。",
-  });
+  const config = readEcpayFullConfig();
+  if (!config) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "ECPay 尚未設定完整，請設定 ECPAY_MERCHANT_ID、ECPAY_HASH_KEY、ECPAY_HASH_IV、ECPAY_RETURN_URL、ECPAY_CLIENT_BACK_URL",
+      },
+      { status: 503 },
+    );
+  }
+
+  try {
+    const launchOrigin = new URL(req.url).origin;
+    const checkout = createSubscriptionEcpayCheckout({
+      config,
+      companyId: auth.companyId,
+      userId: auth.user.id,
+      plan: resolved.plan,
+      catalog: resolved.catalog,
+      launchOrigin,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      intent: "subscription",
+      companyId: auth.companyId,
+      plan: resolved.plan,
+      paymentMethod,
+      merchantTradeNo: checkout.merchantTradeNo,
+      amountTwd: resolved.catalog.ecpayPeriodAmount,
+      redirectUrl: checkout.redirectUrl,
+    });
+  } catch (err) {
+    console.error("[api/ecpay/checkout]", err);
+    const message =
+      err instanceof Error ? err.message : "無法建立 ECPay 結帳連結，請稍後再試";
+    return NextResponse.json({ ok: false, error: message }, { status: 502 });
+  }
 }

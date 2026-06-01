@@ -7,6 +7,7 @@ import "server-only";
 
 import type { RecurringPaidPlan } from "./billingSettings";
 import { RECURRING_PLAN_DEFINITIONS } from "./billingSettings";
+import { isEcpayCheckoutConfigured, readEcpayFullConfig } from "./ecpayServer";
 
 export const ECPAY_NOT_IMPLEMENTED =
   "ECPay 金流串接開發中，目前僅完成架構預留";
@@ -36,21 +37,17 @@ export type EcpayCallbackStubPayload = {
 };
 
 export function isEcpayConfigured(): boolean {
-  const id = process.env.ECPAY_MERCHANT_ID?.trim();
-  const key = process.env.ECPAY_HASH_KEY?.trim();
-  const iv = process.env.ECPAY_HASH_IV?.trim();
-  return Boolean(id && key && iv);
+  return isEcpayCheckoutConfigured();
 }
 
 export function readEcpayServerConfig(): EcpayServerConfig | null {
-  if (!isEcpayConfigured()) return null;
-  const env =
-    process.env.ECPAY_ENV?.trim() === "production" ? "production" : "staging";
+  const full = readEcpayFullConfig();
+  if (!full) return null;
   return {
-    merchantId: process.env.ECPAY_MERCHANT_ID!.trim(),
-    hashKey: process.env.ECPAY_HASH_KEY!.trim(),
-    hashIv: process.env.ECPAY_HASH_IV!.trim(),
-    env,
+    merchantId: full.merchantId,
+    hashKey: full.hashKey,
+    hashIv: full.hashIv,
+    env: full.env,
   };
 }
 

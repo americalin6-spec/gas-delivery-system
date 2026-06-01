@@ -55,21 +55,21 @@ export const RECURRING_PLAN_DEFINITIONS: Record<RecurringPaidPlan, RecurringPlan
   starter: {
     plan: "starter",
     nameZh: PLAN_DEFINITIONS.starter.nameZh,
-    priceTwd: 990,
+    priceTwd: 199,
     priceLabelZh: PLAN_DEFINITIONS.starter.priceZh,
     periodLabelZh: "每月自動扣款",
     aiMonthlyLimit: PLAN_DEFINITIONS.starter.aiMonthlyLimit,
-    ecpayPeriodAmount: 990,
+    ecpayPeriodAmount: 199,
     ecpayExecTimes: 0,
   },
   professional: {
     plan: "professional",
     nameZh: PLAN_DEFINITIONS.professional.nameZh,
-    priceTwd: 2990,
+    priceTwd: 399,
     priceLabelZh: PLAN_DEFINITIONS.professional.priceZh,
     periodLabelZh: "每月自動扣款",
     aiMonthlyLimit: PLAN_DEFINITIONS.professional.aiMonthlyLimit,
-    ecpayPeriodAmount: 2990,
+    ecpayPeriodAmount: 399,
     ecpayExecTimes: 0,
     highlight: true,
   },
@@ -160,4 +160,21 @@ export function getBillingSettingsSnapshot(options?: {
 
 export function isRecurringPaidPlan(plan: string): plan is RecurringPaidPlan {
   return plan === "starter" || plan === "professional" || plan === "enterprise";
+}
+
+/** Plans available for self-serve ECPay subscription checkout (server catalog). */
+export const ECPAY_SELF_SERVE_PLANS = ["starter", "professional"] as const;
+
+export type EcpaySelfServePlan = (typeof ECPAY_SELF_SERVE_PLANS)[number];
+
+export function isEcpaySelfServePlan(plan: string): plan is EcpaySelfServePlan {
+  return plan === "starter" || plan === "professional";
+}
+
+/** Server-side catalog lookup — amounts are never taken from the client. */
+export function getEcpayCheckoutPlanDefinition(
+  plan: string,
+): RecurringPlanDefinition | null {
+  if (!isEcpaySelfServePlan(plan)) return null;
+  return RECURRING_PLAN_DEFINITIONS[plan];
 }
