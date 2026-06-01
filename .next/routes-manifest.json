@@ -91,6 +91,12 @@
       "namedRegex": "^/api/billing(?:/)?$"
     },
     {
+      "page": "/api/billing/portal",
+      "regex": "^/api/billing/portal(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/billing/portal(?:/)?$"
+    },
+    {
       "page": "/api/checkout",
       "regex": "^/api/checkout(?:/)?$",
       "routeKeys": {},
@@ -161,6 +167,12 @@
       "regex": "^/api/ecpay/period\\-callback(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/ecpay/period\\-callback(?:/)?$"
+    },
+    {
+      "page": "/api/health",
+      "regex": "^/api/health(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/health(?:/)?$"
     },
     {
       "page": "/api/line/send-message",

@@ -5,6 +5,7 @@ import {
   planLabelZh,
   subscriptionStatusLabelZh,
   TRIAL_PERIOD_DAYS,
+  trialLifetimeAiLimit,
 } from "./subscriptionPlans";
 import type { SubscriptionPlan } from "./subscriptionPlans";
 import {
@@ -22,6 +23,8 @@ export type CompanySubscriptionRow = {
   ai_monthly_limit: number;
   ai_used_this_month: number;
   ai_usage_month: string | null;
+  /** Lifetime AI analyses for free trial (not reset monthly). */
+  trial_ai_used_total: number;
   subscription_status: string;
   subscription_plan: string;
   stripe_customer_id: string | null;
@@ -58,7 +61,7 @@ const COMPANY_BASE_SELECT =
 
 /** Core usage counters — required for quota read/write (add_company_ai_plan.sql). */
 const COMPANY_AI_USAGE_COUNTER_SELECT =
-  "ai_monthly_limit, ai_used_this_month, ai_usage_month";
+  "ai_monthly_limit, ai_used_this_month, ai_usage_month, trial_ai_used_total";
 
 /** Optional AI plan metadata (may be missing on older schemas). */
 const COMPANY_AI_PLAN_META_SELECT =
@@ -89,6 +92,7 @@ export function buildNewCompanySubscriptionFields(now = new Date()): Record<stri
     ai_monthly_limit: monthlyAiLimitForPlan("trial"),
     ai_used_this_month: 0,
     ai_usage_month: month,
+    trial_ai_used_total: 0,
     subscription_status: "active",
     subscription_plan: "trial",
     stripe_customer_id: null,
@@ -130,6 +134,9 @@ function normalizeSubscriptionRow(
       hasAiPlanColumns && data.ai_usage_month != null
         ? normalizeUsageMonthKey(data.ai_usage_month) ?? currentUsageMonthKey(now)
         : currentUsageMonthKey(now),
+    trial_ai_used_total: hasAiPlanColumns
+      ? parseUsageCount(data.trial_ai_used_total)
+      : 0,
     subscription_status: String(data.subscription_status ?? "active"),
     subscription_plan: plan,
     stripe_customer_id:
@@ -200,12 +207,14 @@ export function effectiveMonthlyAiLimit(row: CompanySubscriptionRow): number {
     const fromColumn = parseUsageCount(row.ai_monthly_limit);
     base = Math.max(fromPlan, fromColumn > 0 ? fromColumn : 0) || fromPlan;
   } else if (isExpiredPaidSubscription(row)) {
-    // Expired paid plans downgrade to 免費體驗 quota.
-    base = monthlyAiLimitForPlan("trial");
+    // Expired paid plans downgrade to 免費體驗 lifetime quota.
+    base = trialLifetimeAiLimit();
+  } else if (row.subscription_plan === "trial" || row.plan_status === "trial") {
+    base = trialLifetimeAiLimit();
   } else if (row.ai_monthly_limit > 0) {
     base = row.ai_monthly_limit;
   } else {
-    base = monthlyAiLimitForPlan("trial");
+    base = trialLifetimeAiLimit();
   }
   return base + extra;
 }
@@ -226,12 +235,13 @@ export function companyRowToSubscriptionView(
   now = new Date(),
 ): CompanySubscriptionView {
   const month = currentUsageMonthKey(now);
-  const used =
-    normalizeUsageMonthKey(row.ai_usage_month) === month
-      ? parseUsageCount(row.ai_used_this_month)
-      : 0;
   const limit = effectiveMonthlyAiLimit(row);
   const paid = hasActivePaidSubscription(row, now);
+  const used = paid
+    ? normalizeUsageMonthKey(row.ai_usage_month) === month
+      ? parseUsageCount(row.ai_used_this_month)
+      : 0
+    : parseUsageCount(row.trial_ai_used_total);
 
   return {
     subscriptionStatus: row.subscription_status,

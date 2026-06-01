@@ -6,6 +6,7 @@ import {
 } from "./aiQuotaUpgrade";
 import {
   companyRowToSubscriptionView,
+  hasActivePaidSubscription,
   isExpiredPaidSubscription,
   loadCompanySubscriptionRow,
   type CompanySubscriptionRow,
@@ -13,7 +14,9 @@ import {
 import {
   AI_LIMIT_EXCEEDED_MESSAGE,
   AI_TRIAL_EXPIRED_MESSAGE,
+  AI_TRIAL_QUOTA_EXCEEDED_MESSAGE,
   PLAN_DEFINITIONS,
+  TRIAL_LIFETIME_AI_LIMIT,
 } from "./subscriptionPlans";
 import {
   currentUsageMonthKey,
@@ -28,10 +31,14 @@ import { serverLogger } from "./serverLogger";
 
 export {
   AI_TRIAL_EXPIRED_MESSAGE,
+  AI_TRIAL_QUOTA_EXCEEDED_MESSAGE,
   AI_LIMIT_EXCEEDED_MESSAGE,
+  TRIAL_LIFETIME_AI_LIMIT,
 } from "./subscriptionPlans";
 
-export const TRIAL_MONTHLY_LIMIT = PLAN_DEFINITIONS.trial.aiMonthlyLimit;
+/** @deprecated Use TRIAL_LIFETIME_AI_LIMIT — trial is lifetime total, not monthly. */
+export const TRIAL_MONTHLY_LIMIT = TRIAL_LIFETIME_AI_LIMIT;
+export const TRIAL_LIFETIME_LIMIT = TRIAL_LIFETIME_AI_LIMIT;
 export const PAID_MONTHLY_LIMIT = PLAN_DEFINITIONS.professional.aiMonthlyLimit;
 export const TRIAL_PERIOD_DAYS = 30;
 export const SUBSCRIPTION_EXPIRED_MESSAGE =
@@ -169,7 +176,7 @@ export async function buildAiQuotaDeniedPayload(
   companyId: number,
 ): Promise<AiQuotaDeniedPayload> {
   let row = await loadCompanySubscriptionRow(companyId);
-  if (row) {
+  if (row && hasActivePaidSubscription(row)) {
     row = await ensureMonthlyCounterCurrent(row);
   }
   const view = row ? companyRowToSubscriptionView(row) : null;
@@ -206,7 +213,9 @@ export async function assertAiUsageAllowed(
     return { allowed: false, error: "找不到工作區", status: 404 };
   }
 
-  row = await ensureMonthlyCounterCurrent(row);
+  if (hasActivePaidSubscription(row)) {
+    row = await ensureMonthlyCounterCurrent(row);
+  }
 
   const view = companyRowToSubscriptionView(row);
   if (view.aiRemainingThisMonth <= 0) {
@@ -258,11 +267,11 @@ async function insertAiUsageLog(params: {
 
 async function readDirectCompanyUsageCounter(
   companyId: number,
-): Promise<{ used: number; month: string | null } | null> {
+): Promise<{ used: number; month: string | null; trialUsedTotal: number } | null> {
   const admin = getSupabaseServiceRole();
   const { data, error } = await admin
     .from("companies")
-    .select("ai_used_this_month, ai_usage_month")
+    .select("ai_used_this_month, ai_usage_month, trial_ai_used_total")
     .eq("id", companyId)
     .maybeSingle();
 
@@ -277,15 +286,75 @@ async function readDirectCompanyUsageCounter(
     month: normalizeUsageMonthKey(
       (data as { ai_usage_month?: unknown }).ai_usage_month,
     ),
+    trialUsedTotal: parseUsageCount(
+      (data as { trial_ai_used_total?: unknown }).trial_ai_used_total,
+    ),
   };
 }
 
-/** Increment companies.ai_used_this_month once (fallback when RPC reserve did not persist). */
+async function incrementTrialLifetimeUsageCounter(params: {
+  companyId: number;
+  userId?: string | null;
+  feature: AiFeature;
+}): Promise<{ ok: boolean; used: number }> {
+  const direct = await readDirectCompanyUsageCounter(params.companyId);
+  if (!direct) {
+    serverLogger.warn({
+      eventType: "api.error",
+      status: "warn",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: "trial_usage_counter_read_failed",
+      meta: { feature: params.feature, step: "trial_counter_read" },
+    });
+    return { ok: false, used: 0 };
+  }
+
+  const used = direct.trialUsedTotal + 1;
+  const admin = getSupabaseServiceRole();
+  const { error: updateError } = await admin
+    .from("companies")
+    .update({ trial_ai_used_total: used })
+    .eq("id", params.companyId);
+
+  if (updateError) {
+    serverLogger.warn({
+      eventType: "api.error",
+      status: "warn",
+      companyId: params.companyId,
+      userId: params.userId ?? null,
+      message: updateError.message,
+      meta: { feature: params.feature, step: "trial_counter_update" },
+    });
+    return { ok: false, used: direct.trialUsedTotal };
+  }
+
+  serverLogger.info({
+    eventType: "ai.quota_deducted",
+    status: "ok",
+    companyId: params.companyId,
+    userId: params.userId ?? null,
+    message: "trial_usage_recorded",
+    meta: { feature: params.feature, used },
+  });
+  return { ok: true, used };
+}
+
+/** Increment usage once (fallback when RPC reserve did not persist). */
 async function incrementCompanyAiUsageCounter(params: {
   companyId: number;
   userId?: string | null;
   feature: AiFeature;
 }): Promise<{ ok: boolean; used: number }> {
+  const row = await loadCompanySubscriptionRow(params.companyId);
+  if (!row) {
+    return { ok: false, used: 0 };
+  }
+
+  if (!hasActivePaidSubscription(row)) {
+    return incrementTrialLifetimeUsageCounter(params);
+  }
+
   const month = currentUsageMonthKey();
   const direct = await readDirectCompanyUsageCounter(params.companyId);
 
@@ -459,12 +528,17 @@ export async function finalizeAiUsageSuccess(params: {
     return;
   }
 
+  const row = await loadCompanySubscriptionRow(params.companyId);
   const month = currentUsageMonthKey();
   const direct = await readDirectCompanyUsageCounter(params.companyId);
-  const rpcPersisted =
-    direct != null &&
-    isSameUsageMonth(direct.month, month) &&
-    direct.used > 0;
+  let rpcPersisted = false;
+  if (direct && row) {
+    if (hasActivePaidSubscription(row)) {
+      rpcPersisted = isSameUsageMonth(direct.month, month) && direct.used > 0;
+    } else {
+      rpcPersisted = direct.trialUsedTotal > 0;
+    }
+  }
 
   if (rpcPersisted) {
     serverLogger.info({
@@ -633,6 +707,8 @@ export async function getCompanyAiUsageStatus(
 ): Promise<CompanyAiUsageStatus | null> {
   let row = await loadCompanySubscriptionRow(companyId);
   if (!row) return null;
-  row = await ensureMonthlyCounterCurrent(row);
+  if (hasActivePaidSubscription(row)) {
+    row = await ensureMonthlyCounterCurrent(row);
+  }
   return companyRowToUsageStatus(row);
 }

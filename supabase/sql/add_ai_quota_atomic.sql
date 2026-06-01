@@ -56,6 +56,20 @@ comment on column public.companies.monthly_ai_limit is
 comment on column public.companies.ai_usage_reset_at is
   'UTC timestamp when ai_used_this_month was last reset for current month window.';
 
+-- Lifetime AI usage for 免費體驗 (not reset monthly).
+alter table public.companies
+  add column if not exists trial_ai_used_total int not null default 0;
+
+comment on column public.companies.trial_ai_used_total is
+  'Lifetime AI analysis count for free trial (max 30); not reset monthly';
+
+update public.companies
+set trial_ai_used_total = greatest(
+  coalesce(trial_ai_used_total, 0),
+  coalesce(ai_used_this_month, 0)
+)
+where coalesce(subscription_plan, 'trial') = 'trial';
+
 create or replace function public.ai_usage_month_is_integer_column()
 returns boolean
 language sql
@@ -168,6 +182,55 @@ begin
     return;
   end if;
 
+  active_paid := (
+    c.subscription_plan <> 'trial'
+    and c.subscription_status in ('active', 'trialing')
+    and (
+      c.paid_until is null
+      or c.paid_until >= now()
+    )
+  );
+  expired_paid := (c.subscription_plan <> 'trial' and not active_paid);
+
+  extra_credits := greatest(coalesce(c.ai_extra_credits, 0), 0);
+
+  -- Free trial: lifetime 30 analyses (trial_ai_used_total), no monthly reset.
+  if not active_paid then
+    base_limit := 30;
+    effective_limit := base_limit + extra_credits;
+    used := greatest(coalesce(c.trial_ai_used_total, 0), 0);
+
+    if used >= effective_limit then
+      return query
+        select false,
+               case
+                 when expired_paid then '您的方案已到期，請續訂以繼續使用進階功能。'
+                 else '免費體驗 AI 分析次數已用完（共 30 次），請升級方案後繼續使用。'
+               end,
+               month_now,
+               effective_limit,
+               used,
+               0;
+      return;
+    end if;
+
+    used := used + 1;
+
+    update public.companies
+    set trial_ai_used_total = used
+    where id = p_company_id;
+
+    return query
+      select true,
+             null::text,
+             month_now,
+             effective_limit,
+             used,
+             greatest(effective_limit - used, 0);
+    return;
+  end if;
+
+  -- Paid plans: monthly quota (ai_used_this_month + month reset).
   if month_is_int then
     needs_reset :=
       c.ai_usage_reset_at is null
@@ -184,8 +247,6 @@ begin
   end if;
 
   if needs_reset then
-    c.ai_used_this_month := 0;
-    c.ai_usage_reset_at := reset_at;
     c.ai_used_this_month := 0;
     c.ai_usage_reset_at := reset_at;
     if month_is_int then
@@ -205,32 +266,17 @@ begin
     end if;
   end if;
 
-  active_paid := (
-    c.subscription_plan <> 'trial'
-    and c.subscription_status in ('active', 'trialing')
-    and (
-      c.paid_until is null
-      or c.paid_until >= now()
-    )
-  );
-  expired_paid := (c.subscription_plan <> 'trial' and not active_paid);
-
-  if active_paid then
-    base_limit := coalesce(nullif(c.monthly_ai_limit, 0), nullif(c.ai_monthly_limit, 0), 0);
-    if base_limit <= 0 then
-      case c.subscription_plan
-        when 'starter' then base_limit := 300;
-        when 'professional' then base_limit := 2000;
-        when 'enterprise' then base_limit := 0;
-        else base_limit := 30;
-      end case;
-    end if;
-  else
-    base_limit := 30;
+  base_limit := coalesce(nullif(c.monthly_ai_limit, 0), nullif(c.ai_monthly_limit, 0), 0);
+  if base_limit <= 0 then
+    case c.subscription_plan
+      when 'starter' then base_limit := 300;
+      when 'professional' then base_limit := 2000;
+      when 'enterprise' then base_limit := 0;
+      else base_limit := 30;
+    end case;
   end if;
 
-  extra_credits := greatest(coalesce(c.ai_extra_credits, 0), 0);
-  if active_paid and c.subscription_plan = 'enterprise' and coalesce(c.monthly_ai_limit, 0) <= 0 and coalesce(c.ai_monthly_limit, 0) <= 0 then
+  if c.subscription_plan = 'enterprise' and coalesce(c.monthly_ai_limit, 0) <= 0 and coalesce(c.ai_monthly_limit, 0) <= 0 then
     unlimited := true;
   end if;
 
@@ -319,6 +365,17 @@ begin
 
   if not found then
     return false;
+  end if;
+
+  if not (
+    c.subscription_plan <> 'trial'
+    and c.subscription_status in ('active', 'trialing')
+    and (c.paid_until is null or c.paid_until >= now())
+  ) then
+    update public.companies
+    set trial_ai_used_total = greatest(coalesce(c.trial_ai_used_total, 0) - 1, 0)
+    where id = p_company_id;
+    return true;
   end if;
 
   if month_is_int then

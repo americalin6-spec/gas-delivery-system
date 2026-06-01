@@ -27,6 +27,12 @@ export const TRIAL_PERIOD_DAYS = 30;
 export const AI_TRIAL_EXPIRED_MESSAGE =
   "免費試用已結束，請升級方案後繼續使用";
 
+/** Lifetime cap for 免費體驗 — not reset monthly. */
+export const TRIAL_LIFETIME_AI_LIMIT = 30;
+
+export const AI_TRIAL_QUOTA_EXCEEDED_MESSAGE =
+  "免費體驗 AI 分析次數已用完（共 30 次），請升級方案後繼續使用。";
+
 export const AI_LIMIT_EXCEEDED_MESSAGE =
   "本月 AI 分析次數已用完，請升級方案或等待下個月重置。";
 
@@ -36,10 +42,10 @@ export const PLAN_DEFINITIONS: Record<SubscriptionPlan, PlanDefinition> = {
     nameZh: "免費體驗",
     priceZh: "NT$0",
     periodZh: "",
-    aiMonthlyLimit: 30,
+    aiMonthlyLimit: TRIAL_LIFETIME_AI_LIMIT,
     ctaZh: "免費開始",
     features: [
-      "每月 30 次 AI 分析",
+      "共 30 次 AI 分析（免費體驗期間）",
       "LINE 對話同步",
       "CRM 客戶管理",
       "AI 客戶摘要",
@@ -109,8 +115,14 @@ export function planLabelZh(plan: string): string {
 }
 
 export function monthlyAiLimitForPlan(plan: string): number {
+  if (plan === "trial") return TRIAL_LIFETIME_AI_LIMIT;
   if (isSubscriptionPlan(plan)) return PLAN_DEFINITIONS[plan].aiMonthlyLimit;
-  return PLAN_DEFINITIONS.trial.aiMonthlyLimit;
+  return TRIAL_LIFETIME_AI_LIMIT;
+}
+
+/** Free-trial lifetime cap (same numeric value as display limit for trial). */
+export function trialLifetimeAiLimit(): number {
+  return TRIAL_LIFETIME_AI_LIMIT;
 }
 
 export function subscriptionStatusLabelZh(status: string): string {
