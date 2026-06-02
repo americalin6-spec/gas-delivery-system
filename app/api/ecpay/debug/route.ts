@@ -6,6 +6,7 @@ export async function GET() {
     hasMerchantId: Boolean(process.env.ECPAY_MERCHANT_ID?.trim()),
     hasHashKey: Boolean(process.env.ECPAY_HASH_KEY?.trim()),
     hasHashIv: Boolean(process.env.ECPAY_HASH_IV?.trim()),
+    hashIvLength: process.env.ECPAY_HASH_IV?.length || 0,
     hasReturnUrl: Boolean(process.env.ECPAY_RETURN_URL?.trim()),
     hasClientBackUrl: Boolean(process.env.ECPAY_CLIENT_BACK_URL?.trim()),
   });
