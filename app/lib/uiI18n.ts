@@ -51,7 +51,7 @@ export function translateDisplayValue(value: string | null | undefined, lang: Ap
 export function sharedUiCopy(lang: AppLang) {
   const zh = lang === "zh";
   return {
-    backHome: zh ? "← 回到 LINE Work AI" : "← Back to LINE Work AI",
+    backHome: zh ? "← 返回首頁" : "← Back to Home",
     langToggle: zh ? "English" : "中文",
     testNotification: zh ? "測試通知" : "Test Notification",
     notProvided: zh ? "未提供" : "Not provided",
@@ -77,7 +77,7 @@ export function homePageCopy(lang: AppLang) {
   const s = sharedUiCopy(lang);
   return {
     ...s,
-    landingTitle: zh ? "LINE AI 成交助手" : "LINE AI Sales Assistant",
+    landingTitle: zh ? "智能分析與成交管理平台" : "LINE AI Sales Assistant",
     landingSubtitle: zh
       ? "把客戶對話變成客戶追蹤、成交機率與回覆建議"
       : "Turn customer conversations into follow-ups, deal probability, and reply suggestions",

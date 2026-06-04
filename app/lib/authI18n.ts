@@ -1,5 +1,5 @@
 export const authCopy = {
-  brand: "LINE Work AI",
+  brand: "智能分析與成交管理平台",
   googleSignIn: "使用 Google 登入",
   googleSigningIn: "正在開啟 Google 登入…",
   emailSignIn: "使用電子郵件登入",
@@ -7,7 +7,7 @@ export const authCopy = {
   loginTitle: "登入帳號",
   loginSubtitle: "登入後進入儀表板，管理客戶追蹤與 AI 分析。",
   signupTitle: "建立帳號",
-  signupSubtitle: "註冊後即可使用 LINE Work AI 客戶資料中心。",
+  signupSubtitle: "註冊後即可使用智能分析與成交管理平台客戶資料中心。",
   email: "電子郵件",
   password: "密碼",
   confirmPassword: "確認密碼",

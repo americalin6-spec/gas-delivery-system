@@ -993,7 +993,7 @@ export default function DashboardPageClient() {
           }}
         >
           <header style={{ ...block(), display: "flex", flexDirection: "column", gap: 12 }}>
-            <h1 style={{ ...block(), margin: 0, fontSize: 32 }}>LINE Work AI</h1>
+            <h1 style={{ ...block(), margin: 0, fontSize: 32 }}>智能分析與成交管理平台</h1>
             <p style={{ ...block(), margin: 0, opacity: 0.85, fontSize: 16, lineHeight: 1.55 }}>
               {ui.tagline}
             </p>
@@ -1206,7 +1206,7 @@ export default function DashboardPageClient() {
     <main style={s.page}>
       <div style={s.topbar}>
         <div>
-          <h1 style={s.logo}>LINE Work AI</h1>
+          <h1 style={s.logo}>智能分析與成交管理平台</h1>
           <p style={s.sub}>{ui.tagline}</p>
         </div>
 

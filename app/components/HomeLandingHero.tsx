@@ -82,7 +82,7 @@ export function HomeLandingHero({
             color: "#86efac",
           }}
         >
-          LINE Work AI
+          智能分析與成交管理平台
         </p>
         <h1
           style={{

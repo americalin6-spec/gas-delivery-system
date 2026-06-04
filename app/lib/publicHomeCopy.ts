@@ -4,8 +4,8 @@ import type { AppLang } from "./appLang";
 export function publicHomeCopy(lang: AppLang) {
   const zh = lang === "zh";
   return {
-    brand: "LINE Work AI",
-    title: zh ? "LINE AI 成交助手" : "LINE AI Sales Assistant",
+    brand: "智能分析與成交管理平台",
+    title: zh ? "智能分析與成交管理平台" : "LINE AI Sales Assistant",
     subtitle: zh
       ? "把客戶對話變成客戶洞察、成交建議與專業回覆"
       : "Turn customer conversations into insights, deal guidance, and professional replies",

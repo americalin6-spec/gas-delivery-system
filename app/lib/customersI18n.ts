@@ -17,7 +17,7 @@ export function customersListCopy(lang: AppLang) {
     title: zh ? "客戶資料庫" : "Customer CRM",
     count: (total: number, shown: number) =>
       zh ? `共 ${total} 筆 · 顯示 ${shown} 筆` : `${total} total · showing ${shown}`,
-    backHome: zh ? "← 回到 LINE Work AI" : "← Back to LINE Work AI",
+    backHome: zh ? "← 返回首頁" : "← Back to Home",
     searchTitle: zh ? "搜尋客戶" : "Search customers",
     searchPlaceholder: zh
       ? "搜尋姓名 / 公司 / 電話 / LINE 帳號 / 電子郵件"
