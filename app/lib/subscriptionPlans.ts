@@ -46,7 +46,7 @@ export const PLAN_DEFINITIONS: Record<SubscriptionPlan, PlanDefinition> = {
     ctaZh: "免費開始",
     features: [
       "共 30 次 AI 分析（免費體驗期間）",
-      "LINE 對話同步",
+      "客戶對話同步",
       "CRM 客戶管理",
       "AI 客戶摘要",
       "基本跟進功能",
@@ -65,7 +65,7 @@ export const PLAN_DEFINITIONS: Record<SubscriptionPlan, PlanDefinition> = {
       "AI 跟進建議",
       "高成交提醒",
       "CRM 客戶管理",
-      "LINE 對話同步",
+      "客戶對話同步",
     ],
   },
   professional: {

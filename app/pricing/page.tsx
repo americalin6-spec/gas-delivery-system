@@ -104,35 +104,19 @@ export default function PricingPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {session ? (
-            <Link
-              href={DASHBOARD_PATH}
-              style={{
-                padding: "10px 18px",
-                borderRadius: 12,
-                background: "rgba(255,255,255,0.12)",
-                color: "white",
-                textDecoration: "none",
-                fontWeight: 600,
-              }}
-            >
-              前往儀表板
-            </Link>
-          ) : (
-            <Link
-              href={LOGIN_PATH}
-              style={{
-                padding: "10px 18px",
-                borderRadius: 12,
-                background: "linear-gradient(135deg,#818cf8,#c084fc)",
-                color: "#0f172a",
-                textDecoration: "none",
-                fontWeight: 700,
-              }}
-            >
-              登入開始試用
-            </Link>
-          )}
+          <Link
+            href="/"
+            style={{
+              padding: "10px 18px",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.12)",
+              color: "white",
+              textDecoration: "none",
+              fontWeight: 600,
+            }}
+          >
+            返回首頁
+          </Link>
         </div>
       </header>
 
@@ -241,7 +225,7 @@ export default function PricingPage() {
                     fontWeight: 600,
                   }}
                 >
-                  {session ? "前往儀表板" : plan.ctaZh}
+                  {plan.ctaZh}
                 </Link>
               ) : isEnterprise ? (
                 <button

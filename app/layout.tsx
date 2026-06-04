@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "LINE Work AI · 客戶關係管理",
-  description: "以 LINE 對話為核心的 AI 客戶追蹤與成交助手",
+  description: "以客戶對話為核心的 AI 客戶追蹤與成交助手",
 };
 
 export const viewport: Viewport = {

@@ -79,9 +79,9 @@ export function homePageCopy(lang: AppLang) {
     ...s,
     landingTitle: zh ? "LINE AI 成交助手" : "LINE AI Sales Assistant",
     landingSubtitle: zh
-      ? "把 LINE 對話變成客戶追蹤、成交機率與 AI 回覆建議"
-      : "Turn LINE chats into follow-ups, deal probability, and AI reply suggestions",
-    landingFeature1Title: zh ? "AI 分析 LINE 對話" : "AI LINE chat analysis",
+      ? "把客戶對話變成客戶追蹤、成交機率與回覆建議"
+      : "Turn customer conversations into follow-ups, deal probability, and reply suggestions",
+    landingFeature1Title: zh ? "AI 分析客戶對話" : "AI customer conversation analysis",
     landingFeature1Desc: zh
       ? "貼上對話即可擷取客戶資料、成交洞察與專業回覆建議。"
       : "Paste chats to extract CRM fields, deal insights, and reply drafts.",
@@ -96,22 +96,22 @@ export function homePageCopy(lang: AppLang) {
     landingCta: zh ? "免費試用" : "Try free",
     landingGoogleSignIn: zh ? "使用 Google 登入" : "Sign in with Google",
     tagline: zh
-      ? "把 LINE 對話變成成交率、待辦、漏單提醒與專業回覆。"
-      : "Turn LINE conversations into sales probability, tasks, deal alerts, and professional replies.",
+      ? "把客戶對話變成成交率、待辦、漏單提醒與專業回覆。"
+      : "Turn customer conversations into sales probability, tasks, deal alerts, and professional replies.",
     workspace: zh ? "儀表板" : "Workspace",
-    pasteLine: zh ? "貼上 LINE 對話" : "Paste LINE Conversation",
+    pasteLine: zh ? "貼上客戶對話" : "Paste customer conversation",
     pasteLead: zh
       ? "貼上對話後開始客戶分析：自動擷取客戶資料填入上方客戶資料表（可手動修改），並產出成交洞察。"
       : "After pasting, run analysis to extract CRM fields above (editable) plus deal insights.",
     linePlaceholder: zh
-      ? "載入 LINE 對話資料"
+      ? "載入客戶對話資料"
       : "Client: We want a brand video...",
     clearText: zh ? "清除文字" : "Clear Text",
     analyzing: zh ? "分析中..." : "Analyzing...",
     startAnalysis: zh ? "開始客戶分析" : "Start AI Analysis",
     saveToCrm: zh ? "儲存至客戶資料表" : "Save to CRM",
     savedToCrm: zh ? "已儲存至客戶資料表" : "Saved to CRM",
-    pasteRequired: zh ? "請貼上 LINE 對話" : "Please paste LINE conversation",
+    pasteRequired: zh ? "請貼上客戶對話" : "Please paste customer conversation",
     analysisResults: zh ? "客戶分析結果" : "Analysis results",
     dealProbability: zh ? "成交機率" : "Deal Probability",
     customerLevel: zh ? "客戶等級" : "Customer Level",
@@ -161,7 +161,7 @@ export function homePageCopy(lang: AppLang) {
     fieldCompanyName: zh ? "公司名稱" : "Company Name",
     fieldIndustry: zh ? "產業 / 業種" : "Industry",
     fieldPhone: zh ? "電話" : "Phone",
-    fieldLineId: zh ? "LINE 帳號" : "LINE ID",
+    fieldLineId: zh ? "通訊帳號" : "Contact ID",
     fieldEmail: zh ? "電子郵件" : "Email",
     fieldNote: zh ? "客戶備註" : "Customer Note",
   };

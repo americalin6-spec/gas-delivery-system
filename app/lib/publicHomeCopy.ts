@@ -7,9 +7,9 @@ export function publicHomeCopy(lang: AppLang) {
     brand: "LINE Work AI",
     title: zh ? "LINE AI 成交助手" : "LINE AI Sales Assistant",
     subtitle: zh
-      ? "把 LINE 對話變成客戶洞察、成交建議與專業回覆"
-      : "Turn LINE chats into insights, deal guidance, and professional replies",
-    feature1Title: zh ? "AI 分析 LINE 對話" : "AI LINE chat analysis",
+      ? "把客戶對話變成客戶洞察、成交建議與專業回覆"
+      : "Turn customer conversations into insights, deal guidance, and professional replies",
+    feature1Title: zh ? "AI 分析客戶對話" : "AI customer conversation analysis",
     feature1Desc: zh
       ? "貼上對話即可擷取重點、成交洞察與回覆建議。"
       : "Paste chats for key insights and reply suggestions.",

@@ -1,8 +1,8 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'LINE 對話 AI 整理器',
-  description: 'AI organize LINE chats',
+  title: '客戶對話 AI 整理器',
+  description: 'AI organize customer conversations',
 }
 
 export default function RootLayout({

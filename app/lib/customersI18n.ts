@@ -224,7 +224,7 @@ export function customerDetailCopy(lang: AppLang) {
       company_name: zh ? "公司" : "Company",
       industry: zh ? "產業" : "Industry",
       phone: zh ? "電話" : "Phone",
-      line_id: zh ? "LINE 帳號" : "LINE",
+      line_id: zh ? "通訊帳號" : "Contact ID",
       email: zh ? "電子郵件" : "Email",
       instagram: zh ? "Instagram" : "Instagram",
       facebook: zh ? "Facebook" : "Facebook",

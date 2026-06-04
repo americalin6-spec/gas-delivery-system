@@ -255,7 +255,7 @@ export function CustomerAiSummaryDashboard({
               lineHeight: dt.lineHeight,
             }}
           >
-            綜合 LINE 對話、備註與客戶資料
+            綜合客戶對話、備註與客戶資料
           </p>
         </div>
 

@@ -112,7 +112,7 @@ export function LineConversationInput({
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        aria-label="載入 LINE 對話資料"
+        aria-label="載入客戶對話資料"
         style={{
           ...style,
           width: "100%",
