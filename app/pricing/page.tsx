@@ -17,6 +17,43 @@ const PRICING_AI_CREDIT_PACKS = [
   { id: "credits_1000", nameZh: "1000次 AI點數", priceZh: "NT$699" },
 ] as const;
 
+/** Pricing-page feature bullets only (display; catalog limits unchanged). */
+const PRICING_PLAN_FEATURES: Record<SubscriptionPlan, string[]> = {
+  trial: [
+    "30 次 AI 分析",
+    "客戶對話分析",
+    "AI 客戶摘要",
+    "CRM 客戶管理",
+    "基本追蹤功能",
+  ],
+  starter: [
+    "每月 300 次 AI 分析",
+    "客戶對話分析",
+    "AI 客戶摘要",
+    "AI 跟進建議",
+    "CRM 客戶管理",
+    "客戶資料儲存",
+  ],
+  professional: [
+    "每月 2000 次 AI 分析",
+    "客戶對話分析",
+    "AI 客戶摘要",
+    "AI 跟進建議",
+    "CRM 客戶管理",
+    "客戶資料儲存",
+    "更多分析額度",
+  ],
+  enterprise: [
+    "客製化功能開發",
+    "客製化分析流程",
+    "客製化 AI 工作流程",
+    "客製化報表需求",
+    "系統整合需求",
+    "專屬技術支援",
+    "依企業需求提供客製化功能與系統整合服務",
+  ],
+};
+
 const pageFont =
   'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
@@ -201,7 +238,7 @@ export default function PricingPage() {
                   opacity: 0.92,
                 }}
               >
-                {plan.features.map((f) => (
+                {PRICING_PLAN_FEATURES[planId].map((f) => (
                   <li key={f} style={{ marginBottom: 8 }}>
                     {f}
                   </li>
