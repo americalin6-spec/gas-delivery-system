@@ -6,14 +6,16 @@ import { useCallback, useState } from "react";
 import { useAuthSession } from "../hooks/useAuthSession";
 import { useViewportWidth } from "../hooks/useViewportWidth";
 import { DASHBOARD_PATH, LOGIN_PATH } from "../lib/authRoutes";
-import {
-  AI_CREDIT_PACKS,
-  PAID_PLANS,
-  PLAN_DEFINITIONS,
-  type SubscriptionPlan,
-} from "../lib/subscriptionPlans";
+import { PAID_PLANS, PLAN_DEFINITIONS, type SubscriptionPlan } from "../lib/subscriptionPlans";
 
 const MOBILE_MAX = 1024;
+
+/** Pricing-page display only (ECPay AI credits checkout not yet available). */
+const PRICING_AI_CREDIT_PACKS = [
+  { id: "credits_100", nameZh: "100次 AI點數", priceZh: "NT$99" },
+  { id: "credits_500", nameZh: "500次 AI點數", priceZh: "NT$399" },
+  { id: "credits_1000", nameZh: "1000次 AI點數", priceZh: "NT$699" },
+] as const;
 
 const pageFont =
   'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -27,26 +29,19 @@ export default function PricingPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const startCheckout = useCallback(
-    async (params: { intent: "subscription" | "ai_credits"; plan?: SubscriptionPlan; creditPackId?: string }) => {
+    async (params: { plan: SubscriptionPlan }) => {
       if (!session) {
         router.push(`${LOGIN_PATH}?next=/pricing`);
         return;
       }
 
-      const key = params.creditPackId ?? params.plan ?? "checkout";
-      setBusy(key);
+      setBusy(params.plan);
       setNotice(null);
       try {
-        const body =
-          params.intent === "ai_credits"
-            ? {
-                credit_pack_id: params.creditPackId,
-                payment_method: "credit_once",
-              }
-            : {
-                plan: params.plan,
-                payment_method: "credit_recurring",
-              };
+        const body = {
+          plan: params.plan,
+          payment_method: "credit_recurring",
+        };
         const res = await fetch("/api/ecpay/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -276,9 +271,7 @@ export default function PricingPage() {
                 <button
                   type="button"
                   disabled={busy === planId}
-                  onClick={() =>
-                    void startCheckout({ intent: "subscription", plan: planId })
-                  }
+                  onClick={() => void startCheckout({ plan: planId })}
                   style={{
                     marginTop: 20,
                     padding: "12px 16px",
@@ -315,11 +308,11 @@ export default function PricingPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
             gap: 16,
           }}
         >
-          {AI_CREDIT_PACKS.map((pack) => (
+          {PRICING_AI_CREDIT_PACKS.map((pack) => (
             <div
               key={pack.id}
               style={{
@@ -340,10 +333,7 @@ export default function PricingPage() {
               </div>
               <button
                 type="button"
-                disabled={busy === pack.id}
-                onClick={() =>
-                  void startCheckout({ intent: "ai_credits", creditPackId: pack.id })
-                }
+                disabled
                 style={{
                   padding: "10px 16px",
                   borderRadius: 12,
@@ -351,10 +341,11 @@ export default function PricingPage() {
                   background: "transparent",
                   color: "white",
                   fontWeight: 600,
-                  cursor: busy === pack.id ? "wait" : "pointer",
+                  cursor: "not-allowed",
+                  opacity: 0.75,
                 }}
               >
-                {busy === pack.id ? "處理中…" : "購買 AI 點數"}
+                即將推出
               </button>
             </div>
           ))}
