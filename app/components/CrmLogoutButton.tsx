@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
-import { LOGIN_PATH } from "../lib/authRoutes";
+import { LOGIN_PATH, PRICING_PATH } from "../lib/authRoutes";
 import { clearClientCompanyId } from "../lib/clientCompany";
 import { getSupabaseBrowser } from "../lib/supabaseBrowser";
 
@@ -45,25 +46,45 @@ export function CrmLogoutButton() {
         zIndex: 9000,
       }}
     >
-      <button
-        type="button"
-        onClick={() => void handleLogout()}
-        disabled={busy}
-        style={{
-          padding: isMobile ? "10px 14px" : "12px 18px",
-          borderRadius: 12,
-          border: "none",
-          background: busy ? "#64748b" : "linear-gradient(90deg, #ef4444, #dc2626)",
-          color: "#fff",
-          fontSize: isMobile ? 14 : 16,
-          fontWeight: 700,
-          cursor: busy ? "wait" : "pointer",
-          boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {busy ? "登出中…" : "登出"}
-      </button>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap }}>
+        <Link
+          href={PRICING_PATH}
+          style={{
+            padding: isMobile ? "10px 14px" : "12px 18px",
+            borderRadius: 12,
+            border: "none",
+            background: "linear-gradient(90deg, #22c55e, #16a34a)",
+            color: "#fff",
+            fontSize: isMobile ? 14 : 16,
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+            whiteSpace: "nowrap",
+            textDecoration: "none",
+          }}
+        >
+          立即升級
+        </Link>
+        <button
+          type="button"
+          onClick={() => void handleLogout()}
+          disabled={busy}
+          style={{
+            padding: isMobile ? "10px 14px" : "12px 18px",
+            borderRadius: 12,
+            border: "none",
+            background: busy ? "#64748b" : "linear-gradient(90deg, #ef4444, #dc2626)",
+            color: "#fff",
+            fontSize: isMobile ? 14 : 16,
+            fontWeight: 700,
+            cursor: busy ? "wait" : "pointer",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {busy ? "登出中…" : "登出"}
+        </button>
+      </div>
     </div>
   );
 }
