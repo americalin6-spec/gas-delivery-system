@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { PRICING_PATH } from "../lib/authRoutes";
 
 type UsagePayload = {
   subscriptionPlanLabel: string;
@@ -162,11 +160,6 @@ export function CompanyAiUsagePanel({
           <div style={value}>{usage?.subscriptionPlanLabel ?? placeholder}</div>
         </div>
       </div>
-      <p style={{ margin: isMobile ? "12px 0 0" : "14px 0 0", fontSize: 14, opacity: 0.8 }}>
-        <Link href={PRICING_PATH} style={{ color: "#a5b4fc", fontWeight: 600 }}>
-          查看方案與升級
-        </Link>
-      </p>
     </section>
   );
 }
