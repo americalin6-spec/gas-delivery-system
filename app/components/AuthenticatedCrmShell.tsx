@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useAuthSession } from "../hooks/useAuthSession";
 import { isPublicPath } from "../lib/authRoutes";
+import { CrmLogoutButton } from "./CrmLogoutButton";
 import { CrmNotificationBell } from "./CrmNotificationBell";
 import { TenantBootstrap } from "./auth/TenantBootstrap";
 
@@ -22,6 +23,7 @@ export function AuthenticatedCrmShell({ children }: { children: ReactNode }) {
   return (
     <>
       {showCrm ? <TenantBootstrap /> : null}
+      {showCrm ? <CrmLogoutButton /> : null}
       {showCrm ? <CrmNotificationBell /> : null}
       {children}
     </>
