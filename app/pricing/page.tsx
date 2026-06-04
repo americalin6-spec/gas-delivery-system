@@ -252,7 +252,11 @@ export default function PricingPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    setNotice("請聯絡我們，由專人為您報價並開通企業方案。")
+                    window.open(
+                      "https://line.me/R/ti/p/@460jxzer",
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
                   }
                   style={{
                     marginTop: 20,
