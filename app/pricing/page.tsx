@@ -93,9 +93,6 @@ export default function PricingPage() {
         }}
       >
         <div>
-          <Link href="/" style={{ color: "#94a3b8", textDecoration: "none", fontSize: 14 }}>
-            ← 智能分析與成交管理平台
-          </Link>
           <h1 style={{ margin: "12px 0 8px", fontSize: isMobile ? 32 : 44, fontWeight: 800 }}>
             方案與定價
           </h1>
