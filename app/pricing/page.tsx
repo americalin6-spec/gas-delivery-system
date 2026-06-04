@@ -105,7 +105,7 @@ export default function PricingPage() {
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link
-            href="/"
+            href={session ? DASHBOARD_PATH : "/"}
             style={{
               padding: "10px 18px",
               borderRadius: 12,
