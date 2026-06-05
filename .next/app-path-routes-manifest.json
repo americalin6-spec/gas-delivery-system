@@ -18,6 +18,8 @@
   "/api/debug-workspace/route": "/api/debug-workspace",
   "/api/ecpay/callback/route": "/api/ecpay/callback",
   "/api/ecpay/checkout/route": "/api/ecpay/checkout",
+  "/api/ecpay/debug/route": "/api/ecpay/debug",
+  "/api/ecpay/launch/route": "/api/ecpay/launch",
   "/api/ecpay/period-callback/route": "/api/ecpay/period-callback",
   "/api/health/route": "/api/health",
   "/api/line-push-test/route": "/api/line-push-test",

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AppLang } from "../lib/appLang";
-import { getClientCompanyId } from "../lib/clientCompany";
 import { useActiveCompany } from "./ActiveCompanyProvider";
 
 type CompanyRow = {
@@ -162,7 +161,7 @@ export function CompanySwitcher({
         <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.85 }}>
           {t.activeLabel}{" "}
           <span style={{ opacity: 0.65, fontWeight: 500 }}>
-            (id: {getClientCompanyId()})
+            (id: {activeId > 0 ? activeId : "—"})
           </span>
         </span>
         <select

@@ -9,7 +9,6 @@ import {
   type LineReplyTemplateId,
 } from "../lib/lineReplyTemplates";
 import type { CopyWithFallbackOptions } from "../hooks/useCopyWithFallback";
-import { companyIdHeader } from "../lib/clientCompany";
 import { dt } from "../lib/customerDetailTypography";
 
 const LINE_BRAND = "#06C755";
@@ -107,7 +106,7 @@ export function LineReplySection({
     try {
       const res = await fetch("/api/line/send-message", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...companyIdHeader() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customer_id: customerId,
           line_user_id: boundLineUserId,

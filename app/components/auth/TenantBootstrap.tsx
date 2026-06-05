@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation";
 import { useActiveCompany } from "../ActiveCompanyProvider";
 import { useAuthSession } from "../../hooks/useAuthSession";
 import { isPublicPath } from "../../lib/authRoutes";
-import { setClientCompanyId } from "../../lib/clientCompany";
-
 /**
- * After login, sync active company from server bootstrap (never localStorage default).
+ * After login, sync active company from server bootstrap (never localStorage).
  */
 export function TenantBootstrap() {
   const pathname = usePathname();
@@ -38,6 +36,7 @@ export function TenantBootstrap() {
             "[TenantBootstrap] bootstrap failed:",
             body.error ?? res.status,
           );
+          if (!cancelled) setActiveCompanyId(0);
           return;
         }
 
@@ -51,10 +50,10 @@ export function TenantBootstrap() {
           activeCompanyId: serverCompanyId,
         });
 
-        setClientCompanyId(serverCompanyId);
         setActiveCompanyId(serverCompanyId);
       } catch (err) {
         console.error("[TenantBootstrap] bootstrap request failed:", err);
+        if (!cancelled) setActiveCompanyId(0);
       }
     })();
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
 import { formatCustomerCreatedAtDisplay } from "../lib/customerSoftDelete";
-import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
+import { logActiveCompany } from "../lib/clientCompany";
 import { buildLineChatUrl, openLineChat } from "../lib/openLineApp";
 import type { LineUserBindingRow } from "../lib/lineUsersServer";
 import { useActiveCompany } from "./ActiveCompanyProvider";
@@ -327,7 +327,6 @@ export function BoundLineAccountsSection({
 
       const res = await fetch(`/api/line-users?${query.toString()}`, {
         cache: "no-store",
-        headers: companyIdHeader(),
       });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;

@@ -1,5 +1,3 @@
-import { companyIdHeader } from "./clientCompany";
-
 export type AiFetchKind = "summary" | "follow-up";
 
 export async function postAiCustomerEndpoint<T>(params: {
@@ -15,7 +13,6 @@ export async function postAiCustomerEndpoint<T>(params: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...companyIdHeader(),
       },
       body: JSON.stringify(body),
       signal,

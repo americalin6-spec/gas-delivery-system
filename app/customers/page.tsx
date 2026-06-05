@@ -39,7 +39,7 @@ import {
   restoreCustomerPayload,
   softDeleteCustomerPayload,
 } from "../lib/customerSoftDelete";
-import { companyIdHeader, logActiveCompany } from "../lib/clientCompany";
+import { logActiveCompany } from "../lib/clientCompany";
 import { useCanQueryTenantCustomers } from "../hooks/useCanQueryTenantCustomers";
 import { supabase } from "../../supabase";
 import { showInternalCrmNav } from "../lib/crmNavVisibility";
@@ -204,7 +204,6 @@ export default function CustomersPage() {
 
     const [customersRes, convosRes] = await Promise.all([
       fetch(`/api/customers?trash=${trashView ? "1" : "0"}`, {
-        headers: companyIdHeader(companyId),
         cache: "no-store",
       }).then(async (res) => {
         const json = (await res.json()) as {

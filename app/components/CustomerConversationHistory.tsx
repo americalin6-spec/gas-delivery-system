@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppLang } from "../lib/appLang";
 import { customerDetailCopy } from "../lib/customersI18n";
-import { companyIdHeader } from "../lib/clientCompany";
 import { dt } from "../lib/customerDetailTypography";
 
 type ConversationRow = {
@@ -83,7 +82,7 @@ export function CustomerConversationHistory({
       const url = `/api/conversations?customer_id=${encodeURIComponent(id)}`;
       console.log("[CustomerConversationHistory] fetching:", { customerId: id, url });
 
-      const res = await fetch(url, { cache: "no-store", headers: companyIdHeader() });
+      const res = await fetch(url, { cache: "no-store" });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         rows?: ConversationRow[];
@@ -134,7 +133,6 @@ export function CustomerConversationHistory({
     try {
       const res = await fetch(`/api/conversations?id=${encodeURIComponent(idStr)}`, {
         method: "DELETE",
-        headers: companyIdHeader(),
       });
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
@@ -178,7 +176,6 @@ export function CustomerConversationHistory({
 
       const res = await fetch(deleteUrl, {
         method: "DELETE",
-        headers: companyIdHeader(),
       });
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;

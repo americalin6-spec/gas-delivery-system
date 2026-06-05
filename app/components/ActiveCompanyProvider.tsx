@@ -12,15 +12,14 @@ import {
 import { useAuthSession } from "../hooks/useAuthSession";
 import {
   clearClientCompanyId,
-  getClientCompanyId,
   logActiveCompany,
-  setClientCompanyId as persistCompanyId,
+  setClientCompanyId as persistCompanyIdForDisplay,
 } from "../lib/clientCompany";
 
 export type ActiveCompanyContextValue = {
-  /** Active tenant id from localStorage (after hydration). */
+  /** Active tenant id from server bootstrap only. */
   companyId: number;
-  /** False until client has read localStorage — do not query customers before this. */
+  /** False until /api/tenant/bootstrap sets active company (or bootstrap completes with none). */
   ready: boolean;
   setActiveCompanyId: (id: number) => void;
 };
@@ -46,30 +45,21 @@ export function ActiveCompanyProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const id = getClientCompanyId();
-    setCompanyId(id);
-    setReady(true);
-    logActiveCompany("provider.hydrated", { companyId: id });
-
-    function syncFromStorage() {
-      if (!session?.user) return;
-      const next = getClientCompanyId();
-      setCompanyId(next);
-      logActiveCompany("provider.sync", { companyId: next });
-    }
-
-    window.addEventListener("crm:companyChanged", syncFromStorage);
-    window.addEventListener("storage", syncFromStorage);
-    return () => {
-      window.removeEventListener("crm:companyChanged", syncFromStorage);
-      window.removeEventListener("storage", syncFromStorage);
-    };
+    setCompanyId(0);
+    setReady(false);
+    logActiveCompany("provider.awaitingBootstrap", { companyId: 0 });
   }, [authLoading, session]);
 
   const setActiveCompanyId = useCallback((id: number) => {
-    persistCompanyId(id);
-    setCompanyId(id);
-    logActiveCompany("provider.setActiveCompanyId", { companyId: id });
+    if (Number.isFinite(id) && id > 0) {
+      persistCompanyIdForDisplay(id);
+      setCompanyId(id);
+      logActiveCompany("provider.setActiveCompanyId", { companyId: id });
+    } else {
+      setCompanyId(0);
+      logActiveCompany("provider.bootstrapComplete", { companyId: 0 });
+    }
+    setReady(true);
   }, []);
 
   const value = useMemo(

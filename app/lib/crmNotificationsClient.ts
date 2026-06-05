@@ -1,4 +1,3 @@
-import { COMPANY_HEADER_NAME } from "./companyContext";
 import type { CrmNotificationType } from "./crmNotifications";
 
 export async function postCrmNotification(
@@ -16,10 +15,7 @@ export async function postCrmNotification(
   try {
     await fetch("/api/notifications", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [COMPANY_HEADER_NAME]: String(companyId),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   } catch (err) {

@@ -163,6 +163,18 @@
       "namedRegex": "^/api/ecpay/checkout(?:/)?$"
     },
     {
+      "page": "/api/ecpay/debug",
+      "regex": "^/api/ecpay/debug(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ecpay/debug(?:/)?$"
+    },
+    {
+      "page": "/api/ecpay/launch",
+      "regex": "^/api/ecpay/launch(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/ecpay/launch(?:/)?$"
+    },
+    {
       "page": "/api/ecpay/period-callback",
       "regex": "^/api/ecpay/period\\-callback(?:/)?$",
       "routeKeys": {},

@@ -9,7 +9,6 @@ import { useAuthSession } from "../hooks/useAuthSession";
 import { canQueryTenantCustomers } from "../lib/tenantClientAuth";
 import { useAppLang } from "../hooks/useAppLang";
 import { useIsViewportBelow } from "../hooks/useViewportWidth";
-import { COMPANY_HEADER_NAME } from "../lib/companyContext";
 import type { CrmNotificationRow } from "../lib/crmNotifications";
 import {
   crmNotificationBellCopy,
@@ -69,9 +68,7 @@ export function CrmNotificationBell() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/notifications", {
-        headers: { [COMPANY_HEADER_NAME]: String(companyId) },
-      });
+      const res = await fetch("/api/notifications");
       const data = (await res.json()) as {
         ok?: boolean;
         items?: CrmNotificationRow[];
@@ -140,10 +137,7 @@ export function CrmNotificationBell() {
     if (companyId <= 0) return;
     await fetch("/api/notifications", {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        [COMPANY_HEADER_NAME]: String(companyId),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
     setItems((prev) =>
@@ -156,10 +150,7 @@ export function CrmNotificationBell() {
     if (companyId <= 0) return;
     await fetch("/api/notifications", {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        [COMPANY_HEADER_NAME]: String(companyId),
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ all: true }),
     });
     const now = new Date().toISOString();

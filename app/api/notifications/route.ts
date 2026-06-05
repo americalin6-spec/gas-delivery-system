@@ -10,7 +10,6 @@ import {
   type CrmNotificationRow,
   type CrmNotificationType,
 } from "../../lib/crmNotifications";
-import { COMPANY_HEADER_NAME } from "../../lib/companyContext";
 import { requireApiAuth } from "../../lib/apiAuth";
 import { requireCustomerInCompany } from "../../lib/apiTenant";
 
@@ -203,9 +202,6 @@ export async function PATCH(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-export function notificationApiHeaders(companyId: number): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    [COMPANY_HEADER_NAME]: String(companyId),
-  };
+export function notificationApiHeaders(): HeadersInit {
+  return { "Content-Type": "application/json" };
 }

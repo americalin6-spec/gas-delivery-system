@@ -18,6 +18,8 @@
   "/api/debug-workspace/route": "app/api/debug-workspace/route.js",
   "/api/ecpay/callback/route": "app/api/ecpay/callback/route.js",
   "/api/ecpay/checkout/route": "app/api/ecpay/checkout/route.js",
+  "/api/ecpay/debug/route": "app/api/ecpay/debug/route.js",
+  "/api/ecpay/launch/route": "app/api/ecpay/launch/route.js",
   "/api/ecpay/period-callback/route": "app/api/ecpay/period-callback/route.js",
   "/api/health/route": "app/api/health/route.js",
   "/api/line-push-test/route": "app/api/line-push-test/route.js",

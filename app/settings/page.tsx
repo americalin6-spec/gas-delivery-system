@@ -64,8 +64,9 @@ export default function LineReminderSettingsPage() {
   }, [t.loadError]);
 
   useEffect(() => {
+    if (!tenantReady || activeCompanyId <= 0) return;
     void loadSettings();
-  }, [loadSettings]);
+  }, [loadSettings, tenantReady, activeCompanyId]);
 
   async function saveSettings() {
     setBusy("save");
