@@ -7,7 +7,7 @@ export function followUpWorkspaceCopy(lang: AppLang) {
     dueToday: zh ? "今日待追蹤客戶" : "Due today",
     overdue: zh ? "逾期未追蹤客戶" : "Overdue",
     highDeal: zh ? "高成交機率客戶" : "High deal probability",
-    recent: zh ? "最近新增客戶" : "Recently added",
+    recent: zh ? "近7日新增客戶" : "Recently added",
     empty: zh ? "目前沒有客戶" : "No customers",
     searchPlaceholder: zh
       ? "搜尋姓名 / 電話 / LINE / 需求 / 備註"
