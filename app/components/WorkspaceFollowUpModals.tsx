@@ -81,14 +81,26 @@ export function useWorkspaceFollowUpActions(lang: AppLang, onRefresh: () => void
     setBusy(true);
     const next = postponePresetDate(preset);
     logActiveCompany("workspace.postpone", { companyId, customerId: active.id });
-    const { error } = await supabase
-      .from("customers")
-      .update(buildNextFollowUpPatch(next))
-      .eq("company_id", companyId)
-      .eq("id", active.id);
-    setBusy(false);
-    if (error) {
-      alert(error.message);
+    try {
+      const res = await fetch(`/api/customers/${encodeURIComponent(String(active.id))}`, {
+        method: "PATCH",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "postpone",
+          ...buildNextFollowUpPatch(next),
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      setBusy(false);
+      if (!res.ok || !json.ok) {
+        alert(json.error ?? `update failed (${res.status})`);
+        return;
+      }
+    } catch (err) {
+      setBusy(false);
+      alert(err instanceof Error ? err.message : "update failed");
       return;
     }
     setModal(null);
