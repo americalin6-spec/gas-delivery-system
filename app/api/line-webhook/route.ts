@@ -410,7 +410,15 @@ async function resolveCompanyForLineUser(
         return fromRow;
       }
     }
-    return await findCompanyIdForLineUser(supabase, lineUserId);
+    const companyId = await findCompanyIdForLineUser(supabase, lineUserId);
+    if (companyId != null) {
+      return companyId;
+    }
+
+    console.log("[line-webhook] resolveCompanyForLineUser: using fallback company_id 55", {
+      lineUserId,
+    });
+    return 55;
   } catch (err) {
     console.error("[line-webhook] resolveCompanyForLineUser failed:", err);
     return null;
