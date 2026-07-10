@@ -61,9 +61,6 @@ const BIND_SUCCESS_REPLY =
 
 const BIND_FAILED_REPLY = "綁定失敗，請稍後再試。";
 
-const BIND_INSTRUCTION_REPLY =
-  "我已收到您的訊息，目前請輸入「綁定」完成 LINE CRM 通知設定。";
-
 const BIND_NAME_REQUIRED_REPLY =
   "請輸入「綁定 客戶姓名」以連結既有客戶，或先傳送一般訊息以建立專屬客戶。";
 
@@ -534,16 +531,10 @@ async function handleTextMessage(
   if (!replyToken) return;
 
   const command = parseBindCommand(event.message?.text);
-  if (!command) {
-    await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
-    return;
-  }
+  if (!command) return;
 
   const lineUserId = event.source?.userId?.trim();
-  if (!lineUserId) {
-    await sendLineReplyMessage(replyToken, BIND_INSTRUCTION_REPLY, channelAccessToken);
-    return;
-  }
+  if (!lineUserId) return;
 
   const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
   if (companyId == null) {
