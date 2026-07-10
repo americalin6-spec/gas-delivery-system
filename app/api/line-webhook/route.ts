@@ -11,6 +11,8 @@ import {
 import { sendLineReplyMessage } from "../../lib/lineMessaging";
 import { loadLineReminderSettings } from "../../lib/lineReminderSettingsServer";
 import { persistCustomerLineUserId } from "../../lib/lineCustomerBinding";
+import { openAiChatCompletion } from "../../lib/aiUsageServer";
+import { sanitizeCustomerFacingLineReply } from "../../lib/customerFacingText";
 import { getSupabaseServer } from "../../lib/supabaseServer";
 import { serverLogger } from "../../lib/serverLogger";
 
@@ -68,16 +70,25 @@ const CUSTOMER_NOT_FOUND_REPLY = "找不到客戶資料";
 
 const BIND_COMMAND = "綁定";
 
+const AI_REPLY_UNAVAILABLE = "AI 暫時無法回覆，請稍後再試。";
+
 const DEFAULT_LINE_CUSTOMER_NAME = "LINE 客戶";
-function verifyLineWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
+
+export const runtime = "nodejs";
+
+function verifyLineWebhookSignature(
+  rawBody: string | Buffer,
+  signatureHeader: string | null,
+): boolean {
   const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim() ?? "";
-  if (!channelSecret || !signatureHeader) return false;
-  const expected = crypto
-    .createHmac("sha256", channelSecret)
-    .update(rawBody, "utf8")
-    .digest("base64");
+  const signature = signatureHeader?.trim() ?? "";
+  if (!channelSecret || !signature) return false;
+
+  const body = typeof rawBody === "string" ? Buffer.from(rawBody, "utf8") : rawBody;
+  const expected = crypto.createHmac("sha256", channelSecret).update(body).digest("base64");
+
   const a = Buffer.from(expected);
-  const b = Buffer.from(signatureHeader);
+  const b = Buffer.from(signature);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -378,7 +389,12 @@ async function replyBindSuccess(
     matchedName && matchedName !== DEFAULT_LINE_CUSTOMER_NAME
       ? `已綁定客戶：${matchedName} ✅`
       : BIND_SUCCESS_REPLY;
-  await sendLineReplyMessage(replyToken, message, channelAccessToken);
+  const result = await sendLineReplyMessage(replyToken, message, channelAccessToken);
+  console.log("[line-webhook] replyBindSuccess result", {
+    ok: result.ok,
+    status: result.status,
+    error: result.error ?? null,
+  });
 }
 
 async function resolveChannelAccessToken(): Promise<string> {
@@ -415,7 +431,7 @@ async function resolveCompanyForLineUser(
     console.log("[line-webhook] resolveCompanyForLineUser: using fallback company_id 55", {
       lineUserId,
     });
-    return 55;
+    return 1;
   } catch (err) {
     console.error("[line-webhook] resolveCompanyForLineUser failed:", err);
     return null;
@@ -522,23 +538,144 @@ async function logInboundEvents(
 }
 
 /** Bind command replies only — customer resolution happens in logInboundEvents first. */
+async function generateLineAiReply(
+  messageText: string,
+  companyId: number,
+): Promise<string | null> {
+  const trimmed = messageText.trim();
+  if (!trimmed) return null;
+
+  console.log("[line-webhook] openAiChatCompletion start");
+  const aiCall = await openAiChatCompletion({
+    companyId,
+    userId: null,
+    feature: "ai_follow_up",
+    chargeQuota: false,
+    messages: [
+      {
+        role: "user",
+        content: `你是 LINE 官方帳號客服助理。請用繁體中文簡潔、友善地回覆客戶訊息（80–200 字）。
+不要提及 AI、系統或內部流程。只輸出可直接傳給客戶的文字，不要 JSON 或 markdown。
+
+客戶訊息：
+${trimmed}`,
+      },
+    ],
+    temperature: 0.5,
+  });
+  console.log("[line-webhook] openAiChatCompletion result", {
+    ok: aiCall.ok,
+    error: aiCall.ok === false ? aiCall.error : null,
+    content: aiCall.ok === false ? null : aiCall.result.content,
+  });
+
+  if (aiCall.ok === false) {
+    console.error("[line-webhook] OpenAI reply failed:", aiCall.error);
+    return null;
+  }
+
+  const content = aiCall.result.content?.trim();
+  if (!content) {
+    console.error("[line-webhook] OpenAI reply empty");
+    return null;
+  }
+
+  const sanitized = sanitizeCustomerFacingLineReply(content).trim();
+  return sanitized || null;
+}
+
+async function sendLineWebhookReply(
+  replyToken: string,
+  message: string,
+  channelAccessToken: string,
+  reason: string,
+): Promise<void> {
+  const result = await sendLineReplyMessage(replyToken, message, channelAccessToken);
+  console.log("[line-webhook] LINE reply result", {
+    reason,
+    ok: result.ok,
+    status: result.status,
+    error: result.error ?? null,
+  });
+  console.log("[line-webhook] reply result", {
+    reason,
+    ok: result.ok,
+    status: result.status,
+    error: result.error ?? null,
+  });
+}
+
 async function handleTextMessage(
   event: LineWebhookEvent,
   channelAccessToken: string,
   supabase: SupabaseClient,
 ): Promise<void> {
+  const messageText = event.message?.text ?? null;
   const replyToken = event.replyToken?.trim();
-  if (!replyToken) return;
+  console.log("[line-webhook] handleTextMessage start", {
+    messageText,
+    hasReplyToken: Boolean(replyToken),
+  });
+  const command = parseBindCommand(messageText);
 
-  const command = parseBindCommand(event.message?.text);
-  if (!command) return;
+  console.log("[line-webhook] handleTextMessage", {
+    messageText,
+    hasReplyToken: Boolean(replyToken),
+    isBindCommand: Boolean(command),
+    bindCustomerName: command?.customerName ?? null,
+  });
+
+  if (!replyToken) {
+    console.log("[line-webhook] skip reply: missing replyToken");
+    return;
+  }
+
+  if (!command) {
+    const inboundText = messageText?.trim() ?? "";
+    if (!inboundText) {
+      console.log("[line-webhook] skip reply: empty message text");
+      return;
+    }
+
+    const lineUserId = event.source?.userId?.trim();
+    const companyId = lineUserId
+      ? await resolveCompanyForLineUser(supabase, lineUserId)
+      : null;
+    const aiCompanyId = companyId ?? 55;
+
+    console.log("[line-webhook] generating AI reply", {
+      messageText: inboundText,
+      companyId: aiCompanyId,
+    });
+
+    console.log("[line-webhook] calling OpenAI", {
+      messageText: inboundText,
+      companyId: aiCompanyId,
+    });
+
+    const aiReply = await generateLineAiReply(inboundText, aiCompanyId);
+    console.log("[line-webhook] sending LINE reply", {
+      hasReplyToken: Boolean(replyToken),
+      replyText: aiReply ?? AI_REPLY_UNAVAILABLE,
+    });
+    await sendLineWebhookReply(
+      replyToken,
+      aiReply ?? AI_REPLY_UNAVAILABLE,
+      channelAccessToken,
+      aiReply ? "ai_reply" : "ai_reply_failed",
+    );
+    return;
+  }
 
   const lineUserId = event.source?.userId?.trim();
-  if (!lineUserId) return;
+  if (!lineUserId) {
+    console.log("[line-webhook] skip reply: missing lineUserId");
+    return;
+  }
 
   const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
   if (companyId == null) {
-    await sendLineReplyMessage(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken);
+    await sendLineWebhookReply(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken, "bind_missing_company");
     return;
   }
   const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
@@ -556,7 +693,7 @@ async function handleTextMessage(
       companyId,
     );
     if (!manualCustomer) {
-      await sendLineReplyMessage(replyToken, CUSTOMER_NOT_FOUND_REPLY, channelAccessToken);
+      await sendLineWebhookReply(replyToken, CUSTOMER_NOT_FOUND_REPLY, channelAccessToken, "bind_customer_not_found");
       return;
     }
 
@@ -572,7 +709,7 @@ async function handleTextMessage(
       await replyBindSuccess(replyToken, channelAccessToken, resolved.customer, command.customerName);
     } catch (err) {
       console.error("[line-webhook] manual bind failed:", err);
-      await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
+      await sendLineWebhookReply(replyToken, BIND_FAILED_REPLY, channelAccessToken, "bind_manual_failed");
     }
     return;
   }
@@ -602,17 +739,40 @@ async function handleTextMessage(
       return;
     }
 
-    await sendLineReplyMessage(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken);
+    await sendLineWebhookReply(replyToken, BIND_NAME_REQUIRED_REPLY, channelAccessToken, "bind_name_required");
   } catch (err) {
     console.error("[line-webhook] bare bind failed:", err);
-    await sendLineReplyMessage(replyToken, BIND_FAILED_REPLY, channelAccessToken);
+    await sendLineWebhookReply(replyToken, BIND_FAILED_REPLY, channelAccessToken, "bind_bare_failed");
   }
 }
 
 export async function POST(req: Request) {
-  const rawBody = await req.text();
+  console.log("[line-webhook] POST start");
+  const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
+  if (!channelSecret) {
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "line_missing_channel_secret",
+    });
+    return NextResponse.json(
+      { ok: false, error: "LINE_CHANNEL_SECRET is not configured" },
+      { status: 503 },
+    );
+  }
+
   const signature = req.headers.get("x-line-signature");
-  if (!verifyLineWebhookSignature(rawBody, signature)) {
+  if (!signature?.trim()) {
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "line_missing_signature_header",
+    });
+    return NextResponse.json({ ok: false, error: "missing x-line-signature" }, { status: 400 });
+  }
+
+  const rawBodyBuffer = Buffer.from(await req.arrayBuffer());
+  if (!verifyLineWebhookSignature(rawBodyBuffer, signature)) {
     serverLogger.warn({
       eventType: "webhook.failure",
       status: "warn",
@@ -620,6 +780,8 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
   }
+
+  const rawBody = rawBodyBuffer.toString("utf8");
 
   let body: LineWebhookBody = {};
   try {
@@ -638,6 +800,18 @@ export async function POST(req: Request) {
 
   const events = body.events ?? [];
   const textEvents = events.filter(isTextMessageEvent);
+  console.log("[line-webhook] parsed events", {
+    totalEvents: events.length,
+    textEvents: textEvents.length,
+  });
+  console.log("[line-webhook] events received", {
+    totalEvents: events.length,
+    textEvents: textEvents.length,
+    messages: textEvents.map((event) => ({
+      text: event.message?.text ?? null,
+      hasReplyToken: Boolean(event.replyToken?.trim()),
+    })),
+  });
   serverLogger.info({
     eventType: "payment.callback",
     status: "ok",
@@ -651,6 +825,9 @@ export async function POST(req: Request) {
 
   const supabase = getSupabaseServer();
   const channelAccessToken = await resolveChannelAccessToken();
+  console.log("[line-webhook] channel access token", {
+    present: Boolean(channelAccessToken),
+  });
 
   try {
     if (channelAccessToken) {
