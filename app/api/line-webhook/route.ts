@@ -979,53 +979,86 @@ export async function POST(req: Request) {
   });
 
   let pendingExtractions: PendingAiExtractionJob[] = [];
+  const hasBindCommand = textEvents.some((event) =>
+    Boolean(parseBindCommand(event.message?.text)),
+  );
 
-  try {
-    if (channelAccessToken) {
+  if (channelAccessToken) {
+    if (hasBindCommand) {
+      try {
+        const logInboundStartTime = Date.now();
+        pendingExtractions = await logInboundEvents(supabase, textEvents, channelAccessToken);
+        console.log("[line-webhook][timing] logInboundEvents", {
+          durationMs: Date.now() - logInboundStartTime,
+        });
+      } catch (err) {
+        serverLogger.error(
+          {
+            eventType: "webhook.failure",
+            status: "error",
+            message: "line_log_inbound_failed",
+          },
+          err,
+        );
+      }
+
+      try {
+        await Promise.all(
+          textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
+        );
+      } catch (err) {
+        serverLogger.error(
+          {
+            eventType: "webhook.failure",
+            status: "error",
+            message: "line_handle_text_failed",
+          },
+          err,
+        );
+      }
+    } else {
       const logInboundStartTime = Date.now();
-      pendingExtractions = await logInboundEvents(supabase, textEvents, channelAccessToken);
-      console.log("[line-webhook][timing] logInboundEvents", {
-        durationMs: Date.now() - logInboundStartTime,
-      });
-    } else {
-      serverLogger.warn({
-        eventType: "webhook.failure",
-        status: "warn",
-        message: "line_missing_channel_access_token_inbound",
-      });
-    }
-  } catch (err) {
-    serverLogger.error(
-      {
-        eventType: "webhook.failure",
-        status: "error",
-        message: "line_log_inbound_failed",
-      },
-      err,
-    );
-  }
-
-  try {
-    if (channelAccessToken) {
-      await Promise.all(
-        textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
+      const inboundPromise = logInboundEvents(supabase, textEvents, channelAccessToken).then(
+        (jobs) => {
+          console.log("[line-webhook][timing] logInboundEvents", {
+            durationMs: Date.now() - logInboundStartTime,
+          });
+          return jobs;
+        },
       );
-    } else {
-      serverLogger.warn({
-        eventType: "webhook.failure",
-        status: "warn",
-        message: "line_missing_channel_access_token_reply",
-      });
+
+      try {
+        await Promise.all(
+          textEvents.map((event) => handleTextMessage(event, channelAccessToken, supabase)),
+        );
+      } catch (err) {
+        serverLogger.error(
+          {
+            eventType: "webhook.failure",
+            status: "error",
+            message: "line_handle_text_failed",
+          },
+          err,
+        );
+      }
+
+      try {
+        pendingExtractions = await inboundPromise;
+      } catch (error) {
+        console.error("[line-webhook] logInboundEvents failed after reply", error);
+      }
     }
-  } catch (err) {
-    serverLogger.error(
-      {
-        eventType: "webhook.failure",
-        status: "error",
-        message: "line_handle_text_failed",
-      },
-      err,
-    );
+  } else {
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "line_missing_channel_access_token_inbound",
+    });
+    serverLogger.warn({
+      eventType: "webhook.failure",
+      status: "warn",
+      message: "line_missing_channel_access_token_reply",
+    });
   }
 
   try {
