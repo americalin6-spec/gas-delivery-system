@@ -490,25 +490,38 @@ async function logInboundEvents(
       }
 
       try {
+        const resolveCompanyStart = Date.now();
         const companyId = await resolveCompanyForLineUser(supabase, lineUserId);
+        console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+          durationMs: Date.now() - resolveCompanyStart,
+        });
         if (companyId == null) {
           console.log("[line-webhook] skipping inbound CRM write: LINE user has no tenant", {
             lineUserId,
           });
           return;
         }
+        const fetchDisplayNameStart = Date.now();
         const displayName = await fetchLineDisplayName(lineUserId, channelAccessToken);
+        console.log("[line-webhook][timing] fetchLineDisplayName", {
+          durationMs: Date.now() - fetchDisplayNameStart,
+        });
 
         const bindCmd = parseBindCommand(messageText);
         let manualCustomer: CustomerLookupRow | null = null;
         if (bindCmd?.customerName) {
+          const findCustomerStart = Date.now();
           manualCustomer = await findCustomerByName(
             supabase,
             bindCmd.customerName,
             companyId,
           );
+          console.log("[line-webhook][timing] findCustomerByName", {
+            durationMs: Date.now() - findCustomerStart,
+          });
         }
 
+        const resolveCustomerStart = Date.now();
         const resolved = await resolveCustomerForLineUser(
           supabase,
           lineUserId,
@@ -516,13 +529,20 @@ async function logInboundEvents(
           companyId,
           manualCustomer,
         );
+        console.log("[line-webhook][timing] resolveCustomerForLineUser", {
+          durationMs: Date.now() - resolveCustomerStart,
+        });
 
+        const logConversationStart = Date.now();
         await logLineConversation(supabase, {
           lineUserId,
           messageText,
           direction: "inbound",
           companyId,
           customerId: resolved.customerId,
+        });
+        console.log("[line-webhook][timing] logLineConversation", {
+          durationMs: Date.now() - logConversationStart,
         });
 
         if (resolved.customerId) {
@@ -546,12 +566,16 @@ async function logInboundEvents(
           messageText,
           "zh",
         );
+        const createNotificationStart = Date.now();
         await createCrmNotification(supabase, {
           companyId,
           type: "line_message",
           title: preview.title,
           body: preview.body,
           customerId: resolved.customerId,
+        });
+        console.log("[line-webhook][timing] createCrmNotification", {
+          durationMs: Date.now() - createNotificationStart,
         });
       } catch (err) {
         console.error("[line-webhook] inbound pipeline threw:", {
