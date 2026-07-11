@@ -466,6 +466,7 @@ async function logInboundEvents(
   events: LineWebhookEvent[],
   channelAccessToken: string,
 ): Promise<void> {
+  const start = Date.now();
   await Promise.all(
     events.map(async (event) => {
       const lineUserId = event.source?.userId?.trim();
@@ -519,14 +520,14 @@ async function logInboundEvents(
 
         if (resolved.customerId) {
           try {
-            const extractStartTime = Date.now();
+            const start = Date.now();
             await runCustomerAiFieldExtraction(supabase, companyId, resolved.customerId, {
               conversationText: messageText,
               trigger: "line-webhook",
               userId: null,
             });
             console.log("[line-webhook][timing] runCustomerAiFieldExtraction", {
-              durationMs: Date.now() - extractStartTime,
+              durationMs: Date.now() - start,
             });
           } catch (extractErr) {
             console.error("[line-webhook] ai extract failed:", extractErr);
@@ -561,6 +562,9 @@ async function logInboundEvents(
       }
     }),
   );
+  console.log("[line-webhook][timing] logInboundEvents", {
+    durationMs: Date.now() - start,
+  });
 }
 
 /** Bind command replies only — customer resolution happens in logInboundEvents first. */
