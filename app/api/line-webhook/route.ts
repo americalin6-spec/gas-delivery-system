@@ -49,6 +49,12 @@ type LineUserRow = {
   company_id: number | null;
 };
 
+type PendingAiExtractionJob = {
+  companyId: number;
+  customerId: string;
+  messageText: string;
+};
+
 type ResolvedLineCustomer = {
   customerId: string;
   customer: CustomerLookupRow;
@@ -465,8 +471,9 @@ async function logInboundEvents(
   supabase: SupabaseClient,
   events: LineWebhookEvent[],
   channelAccessToken: string,
-): Promise<void> {
+): Promise<PendingAiExtractionJob[]> {
   const start = Date.now();
+  const extractionJobs: PendingAiExtractionJob[] = [];
   await Promise.all(
     events.map(async (event) => {
       const lineUserId = event.source?.userId?.trim();
@@ -519,19 +526,11 @@ async function logInboundEvents(
         });
 
         if (resolved.customerId) {
-          try {
-            const start = Date.now();
-            await runCustomerAiFieldExtraction(supabase, companyId, resolved.customerId, {
-              conversationText: messageText,
-              trigger: "line-webhook",
-              userId: null,
-            });
-            console.log("[line-webhook][timing] runCustomerAiFieldExtraction", {
-              durationMs: Date.now() - start,
-            });
-          } catch (extractErr) {
-            console.error("[line-webhook] ai extract failed:", extractErr);
-          }
+          extractionJobs.push({
+            companyId,
+            customerId: resolved.customerId,
+            messageText,
+          });
         }
 
         console.log("[line-webhook] conversation logged:", {
@@ -565,6 +564,33 @@ async function logInboundEvents(
   console.log("[line-webhook][timing] logInboundEvents", {
     durationMs: Date.now() - start,
   });
+  return extractionJobs;
+}
+
+async function runPendingAiExtractions(
+  supabase: SupabaseClient,
+  jobs: PendingAiExtractionJob[],
+): Promise<void> {
+  if (jobs.length === 0) return;
+
+  await Promise.all(
+    jobs.map(async (job) => {
+      const extractStart = Date.now();
+      try {
+        await runCustomerAiFieldExtraction(supabase, job.companyId, job.customerId, {
+          conversationText: job.messageText,
+          trigger: "line-webhook",
+          userId: null,
+        });
+      } catch (extractErr) {
+        console.error("[line-webhook] ai extract failed:", extractErr);
+      } finally {
+        console.log("[line-webhook][timing] runCustomerAiFieldExtraction", {
+          durationMs: Date.now() - extractStart,
+        });
+      }
+    }),
+  );
 }
 
 /** Bind command replies only — customer resolution happens in logInboundEvents first. */
@@ -928,10 +954,12 @@ export async function POST(req: Request) {
     present: Boolean(channelAccessToken),
   });
 
+  let pendingExtractions: PendingAiExtractionJob[] = [];
+
   try {
     if (channelAccessToken) {
       const logInboundStartTime = Date.now();
-      await logInboundEvents(supabase, textEvents, channelAccessToken);
+      pendingExtractions = await logInboundEvents(supabase, textEvents, channelAccessToken);
       console.log("[line-webhook][timing] logInboundEvents", {
         durationMs: Date.now() - logInboundStartTime,
       });
@@ -974,6 +1002,12 @@ export async function POST(req: Request) {
       },
       err,
     );
+  }
+
+  try {
+    await runPendingAiExtractions(supabase, pendingExtractions);
+  } catch (err) {
+    console.error("[line-webhook] pending ai extract batch failed:", err);
   }
 
   console.log("[line-webhook][timing] total", {
