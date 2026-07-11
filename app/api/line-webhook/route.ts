@@ -389,7 +389,11 @@ async function replyBindSuccess(
     matchedName && matchedName !== DEFAULT_LINE_CUSTOMER_NAME
       ? `已綁定客戶：${matchedName} ✅`
       : BIND_SUCCESS_REPLY;
+  const sendStartTime = Date.now();
   const result = await sendLineReplyMessage(replyToken, message, channelAccessToken);
+  console.log("[line-webhook][timing] sendLineReplyMessage", {
+    durationMs: Date.now() - sendStartTime,
+  });
   console.log("[line-webhook] replyBindSuccess result", {
     ok: result.ok,
     status: result.status,
@@ -412,28 +416,46 @@ async function resolveCompanyForLineUser(
   supabase: SupabaseClient,
   userId: string | null | undefined,
 ): Promise<number | null> {
+  const startTime = Date.now();
   const lineUserId = userId?.trim();
-  if (!lineUserId) return null;
+  if (!lineUserId) {
+    console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+      durationMs: Date.now() - startTime,
+    });
+    return null;
+  }
 
   try {
     const lineRow = await findLineUserRow(supabase, lineUserId);
     if (lineRow?.company_id != null) {
       const fromRow = Number(lineRow.company_id);
       if (Number.isFinite(fromRow) && Number.isInteger(fromRow) && fromRow > 0) {
+        console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+          durationMs: Date.now() - startTime,
+        });
         return fromRow;
       }
     }
     const companyId = await findCompanyIdForLineUser(supabase, lineUserId);
     if (companyId != null) {
+      console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+        durationMs: Date.now() - startTime,
+      });
       return companyId;
     }
 
     console.log("[line-webhook] resolveCompanyForLineUser: using fallback company_id 55", {
       lineUserId,
     });
+    console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+      durationMs: Date.now() - startTime,
+    });
     return 1;
   } catch (err) {
     console.error("[line-webhook] resolveCompanyForLineUser failed:", err);
+    console.log("[line-webhook][timing] resolveCompanyForLineUser", {
+      durationMs: Date.now() - startTime,
+    });
     return null;
   }
 }
@@ -497,10 +519,14 @@ async function logInboundEvents(
 
         if (resolved.customerId) {
           try {
+            const extractStartTime = Date.now();
             await runCustomerAiFieldExtraction(supabase, companyId, resolved.customerId, {
               conversationText: messageText,
               trigger: "line-webhook",
               userId: null,
+            });
+            console.log("[line-webhook][timing] runCustomerAiFieldExtraction", {
+              durationMs: Date.now() - extractStartTime,
             });
           } catch (extractErr) {
             console.error("[line-webhook] ai extract failed:", extractErr);
@@ -542,10 +568,17 @@ async function generateLineAiReply(
   messageText: string,
   companyId: number,
 ): Promise<string | null> {
+  const startTime = Date.now();
   const trimmed = messageText.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    console.log("[line-webhook][timing] generateLineAiReply", {
+      durationMs: Date.now() - startTime,
+    });
+    return null;
+  }
 
   console.log("[line-webhook] openAiChatCompletion start");
+  const openAiStartTime = Date.now();
   const aiCall = await openAiChatCompletion({
     companyId,
     userId: null,
@@ -593,6 +626,9 @@ ${trimmed}`,
     ],
     temperature: 0.5,
   });
+  console.log("[line-webhook][timing] openAiChatCompletion", {
+    durationMs: Date.now() - openAiStartTime,
+  });
   console.log("[line-webhook] openAiChatCompletion result", {
     ok: aiCall.ok,
     error: aiCall.ok === false ? aiCall.error : null,
@@ -601,16 +637,25 @@ ${trimmed}`,
 
   if (aiCall.ok === false) {
     console.error("[line-webhook] OpenAI reply failed:", aiCall.error);
+    console.log("[line-webhook][timing] generateLineAiReply", {
+      durationMs: Date.now() - startTime,
+    });
     return null;
   }
 
   const content = aiCall.result.content?.trim();
   if (!content) {
     console.error("[line-webhook] OpenAI reply empty");
+    console.log("[line-webhook][timing] generateLineAiReply", {
+      durationMs: Date.now() - startTime,
+    });
     return null;
   }
 
   const sanitized = sanitizeCustomerFacingLineReply(content).trim();
+  console.log("[line-webhook][timing] generateLineAiReply", {
+    durationMs: Date.now() - startTime,
+  });
   return sanitized || null;
 }
 
@@ -620,7 +665,11 @@ async function sendLineWebhookReply(
   channelAccessToken: string,
   reason: string,
 ): Promise<void> {
+  const sendStartTime = Date.now();
   const result = await sendLineReplyMessage(replyToken, message, channelAccessToken);
+  console.log("[line-webhook][timing] sendLineReplyMessage", {
+    durationMs: Date.now() - sendStartTime,
+  });
   console.log("[line-webhook] LINE reply result", {
     reason,
     ok: result.ok,
@@ -777,6 +826,7 @@ async function handleTextMessage(
 }
 
 export async function POST(req: Request) {
+  const webhookStartTime = Date.now();
   console.log("[line-webhook] POST start");
   const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim();
   if (!channelSecret) {
@@ -784,6 +834,9 @@ export async function POST(req: Request) {
       eventType: "webhook.failure",
       status: "warn",
       message: "line_missing_channel_secret",
+    });
+    console.log("[line-webhook][timing] total", {
+      durationMs: Date.now() - webhookStartTime,
     });
     return NextResponse.json(
       { ok: false, error: "LINE_CHANNEL_SECRET is not configured" },
@@ -798,6 +851,9 @@ export async function POST(req: Request) {
       status: "warn",
       message: "line_missing_signature_header",
     });
+    console.log("[line-webhook][timing] total", {
+      durationMs: Date.now() - webhookStartTime,
+    });
     return NextResponse.json({ ok: false, error: "missing x-line-signature" }, { status: 400 });
   }
 
@@ -807,6 +863,9 @@ export async function POST(req: Request) {
       eventType: "webhook.failure",
       status: "warn",
       message: "line_invalid_signature",
+    });
+    console.log("[line-webhook][timing] total", {
+      durationMs: Date.now() - webhookStartTime,
     });
     return NextResponse.json({ ok: false, error: "invalid signature" }, { status: 401 });
   }
@@ -825,6 +884,9 @@ export async function POST(req: Request) {
       },
       err,
     );
+    console.log("[line-webhook][timing] total", {
+      durationMs: Date.now() - webhookStartTime,
+    });
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
@@ -850,6 +912,9 @@ export async function POST(req: Request) {
   });
 
   if (textEvents.length === 0) {
+    console.log("[line-webhook][timing] total", {
+      durationMs: Date.now() - webhookStartTime,
+    });
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
@@ -861,7 +926,11 @@ export async function POST(req: Request) {
 
   try {
     if (channelAccessToken) {
+      const logInboundStartTime = Date.now();
       await logInboundEvents(supabase, textEvents, channelAccessToken);
+      console.log("[line-webhook][timing] logInboundEvents", {
+        durationMs: Date.now() - logInboundStartTime,
+      });
     } else {
       serverLogger.warn({
         eventType: "webhook.failure",
@@ -903,6 +972,9 @@ export async function POST(req: Request) {
     );
   }
 
+  console.log("[line-webhook][timing] total", {
+    durationMs: Date.now() - webhookStartTime,
+  });
   return NextResponse.json({ ok: true }, { status: 200 });
 }
 
